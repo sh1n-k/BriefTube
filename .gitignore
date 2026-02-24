@@ -1,0 +1,40 @@
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+*.egg-info/
+
+# Test / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# App artifacts
+data.db
+data.db-*
+thumbnails/
+logs/
+*.log
+
+# Environment / local config
+.env
+.env.*
+!.env.example
+config.local.yml
+config.local.yaml
+
+# Build outputs
+build/
+dist/
