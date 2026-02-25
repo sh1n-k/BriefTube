@@ -6,36 +6,392 @@
   <title>{% block title %}BriefTube{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script>
+    (() => {
+      const MATCH_CLASSES = ["bg-amber-50", "ring-1", "ring-inset", "ring-amber-200"];
+      const ACTIVE_CLASSES = ["bg-indigo-100", "ring-indigo-300"];
+
+      function clearMatchStyles(row) {
+        row.classList.remove(...MATCH_CLASSES, ...ACTIVE_CLASSES);
+      }
+
+      function updateCount(countNode, current, total) {
+        if (!countNode) return;
+        if (total <= 0) {
+          countNode.textContent = "0 / 0";
+          return;
+        }
+        countNode.textContent = `${current + 1} / ${total}`;
+      }
+
+      function initChannelSearch(root) {
+        if (root.dataset.channelSearchBound === "1") return;
+        root.dataset.channelSearchBound = "1";
+
+        const input = root.querySelector("[data-channel-search-input]");
+        const prevButton = root.querySelector("[data-channel-search-prev]");
+        const nextButton = root.querySelector("[data-channel-search-next]");
+        const countNode = root.querySelector("[data-channel-search-count]");
+        const rows = Array.from(root.querySelectorAll("[data-channel-row]"));
+
+        let matches = [];
+        let activeIndex = -1;
+
+        function applyActive() {
+          matches.forEach((row, idx) => {
+            row.classList.remove(...ACTIVE_CLASSES);
+            if (idx === activeIndex) {
+              row.classList.add(...ACTIVE_CLASSES);
+              row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+          });
+          updateCount(countNode, activeIndex, matches.length);
+        }
+
+        function recalculateMatches() {
+          const query = (input?.value || "").trim().toLowerCase();
+          matches = [];
+          activeIndex = -1;
+
+          rows.forEach((row) => {
+            clearMatchStyles(row);
+            if (!query) return;
+            const haystack = (row.getAttribute("data-search-text") || "").toLowerCase();
+            if (haystack.includes(query)) {
+              row.classList.add(...MATCH_CLASSES);
+              matches.push(row);
+            }
+          });
+
+          if (matches.length > 0) {
+            activeIndex = 0;
+            applyActive();
+          } else {
+            updateCount(countNode, -1, 0);
+          }
+        }
+
+        function step(direction) {
+          if (!matches.length) return;
+          activeIndex = (activeIndex + direction + matches.length) % matches.length;
+          applyActive();
+        }
+
+        input?.addEventListener("input", recalculateMatches);
+        input?.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            step(event.shiftKey ? -1 : 1);
+          }
+        });
+        prevButton?.addEventListener("click", () => step(-1));
+        nextButton?.addEventListener("click", () => step(1));
+
+        recalculateMatches();
+      }
+
+      function bindChannelSearch(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-channel-search]").forEach(initChannelSearch);
+      }
+
+      function initChannelManageForm(form) {
+        if (form.dataset.channelManageBound === "1") return;
+        form.dataset.channelManageBound = "1";
+
+        const selectAll = form.querySelector("[data-channel-select-all]");
+        const items = Array.from(form.querySelectorAll("[data-channel-select-item]"));
+        const bulkDelete = form.querySelector("[data-channel-delete-selected]");
+        if (!selectAll || !items.length) return;
+
+        const sync = () => {
+          const checkedCount = items.filter((item) => item.checked).length;
+          selectAll.checked = checkedCount > 0 && checkedCount === items.length;
+          selectAll.indeterminate = checkedCount > 0 && checkedCount < items.length;
+          if (bulkDelete) {
+            bulkDelete.disabled = checkedCount === 0;
+          }
+        };
+
+        selectAll.addEventListener("change", () => {
+          items.forEach((item) => {
+            item.checked = selectAll.checked;
+          });
+          sync();
+        });
+        items.forEach((item) => item.addEventListener("change", sync));
+        sync();
+      }
+
+      function bindChannelManageForms(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-channel-manage-form]").forEach(initChannelManageForm);
+      }
+
+      function ensureUiToastStack() {
+        let stack = document.getElementById("ui-toast-stack");
+        if (!stack) {
+          stack = document.createElement("div");
+          stack.id = "ui-toast-stack";
+          stack.className = "pointer-events-none fixed bottom-4 right-4 z-[60] flex w-full max-w-xs flex-col gap-2";
+          document.body.appendChild(stack);
+        }
+        return stack;
+      }
+
+      function showUiToast(message, tone = "success") {
+        if (!message) return;
+        const stack = ensureUiToastStack();
+        const node = document.createElement("div");
+        const toneClass = tone === "error"
+          ? "border-rose-300 bg-rose-50 text-rose-800"
+          : "border-emerald-300 bg-emerald-50 text-emerald-800";
+        node.className = `pointer-events-auto rounded-lg border px-3 py-2 text-sm shadow-lg transition-all duration-200 ${toneClass}`;
+        node.textContent = message;
+        stack.appendChild(node);
+        setTimeout(() => {
+          node.classList.add("opacity-0", "translate-y-1");
+          setTimeout(() => node.remove(), 250);
+        }, 2000);
+      }
+
+      function parseJsonSafe(text) {
+        if (!text) return null;
+        try {
+          return JSON.parse(text);
+        } catch (_err) {
+          return null;
+        }
+      }
+
+      function flattenSavedValues(value, prefix = "") {
+        if (value === null || value === undefined) return [];
+        if (typeof value !== "object" || Array.isArray(value)) {
+          return [`${prefix}=${String(value)}`];
+        }
+
+        const pairs = [];
+        Object.entries(value).forEach(([key, child]) => {
+          if (key === "ok") return;
+          const nextPrefix = prefix ? `${prefix}.${key}` : key;
+          if (child !== null && typeof child === "object" && !Array.isArray(child)) {
+            pairs.push(...flattenSavedValues(child, nextPrefix));
+          } else if (child !== undefined) {
+            pairs.push(`${nextPrefix}=${String(child)}`);
+          }
+        });
+        return pairs;
+      }
+
+      function initDigitsOnlyInput(input) {
+        if (input.dataset.digitsBound === "1") return;
+        input.dataset.digitsBound = "1";
+
+        const normalize = () => {
+          const original = input.value || "";
+          const next = original.replace(/\D+/g, "");
+          if (next !== original) {
+            input.value = next;
+          }
+        };
+        input.addEventListener("input", normalize);
+        normalize();
+      }
+
+      function bindDigitsOnlyInputs(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("input[data-digits-only]").forEach(initDigitsOnlyInput);
+      }
+
+      function initAlertToast(form) {
+        if (form.dataset.alertToastBound === "1") return;
+        form.dataset.alertToastBound = "1";
+
+        const checkbox = form.querySelector("[data-alert-confirm]");
+        const submit = form.querySelector("[data-alert-submit]");
+        const dismiss = form.querySelector("[data-alert-dismiss]");
+        if (!checkbox || !submit) return;
+
+        const sync = () => {
+          submit.disabled = !checkbox.checked;
+        };
+        checkbox.addEventListener("change", sync);
+        dismiss?.addEventListener("click", () => {
+          form.classList.add("opacity-0");
+          setTimeout(() => form.remove(), 150);
+        });
+        sync();
+      }
+
+      function bindAlertToasts(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-alert-toast]").forEach(initAlertToast);
+      }
+
+      function initRetentionForm(form) {
+        if (form.dataset.retentionFormBound === "1") return;
+        form.dataset.retentionFormBound = "1";
+
+        const selectToggle = form.querySelector("[data-retention-select-toggle]");
+        const items = Array.from(form.querySelectorAll("[data-retention-select-item]"));
+        const deleteButton = form.querySelector("[data-retention-delete-button]");
+        if (!items.length) return;
+
+        const sync = () => {
+          const checkedCount = items.filter((item) => item.checked).length;
+          if (selectToggle) {
+            selectToggle.dataset.checkedCount = String(checkedCount);
+            selectToggle.dataset.totalCount = String(items.length);
+          }
+          if (deleteButton) {
+            deleteButton.disabled = checkedCount === 0;
+          }
+        };
+
+        selectToggle?.addEventListener("click", () => {
+          const allChecked = items.every((item) => item.checked);
+          items.forEach((item) => {
+            item.checked = !allChecked;
+          });
+          sync();
+        });
+        items.forEach((item) => item.addEventListener("change", sync));
+        sync();
+      }
+
+      function bindRetentionForms(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-retention-form]").forEach(initRetentionForm);
+      }
+
+      function initRetentionNotice(node) {
+        if (node.dataset.retentionNoticeBound === "1") return;
+        node.dataset.retentionNoticeBound = "1";
+
+        const key = `retentionNoticeDismissed:${node.dataset.retentionNoticeKey || "default"}`;
+        const dismissButton = node.querySelector("[data-retention-notice-dismiss]");
+        if (sessionStorage.getItem(key) === "1") {
+          node.remove();
+          return;
+        }
+
+        const dismiss = () => {
+          node.classList.add("opacity-0", "translate-y-1");
+          setTimeout(() => node.remove(), 250);
+          sessionStorage.setItem(key, "1");
+        };
+
+        setTimeout(dismiss, 7000);
+        dismissButton?.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          dismiss();
+        });
+        node.addEventListener("click", () => {
+          sessionStorage.setItem(key, "1");
+        });
+      }
+
+      function bindRetentionNotices(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-retention-notice]").forEach(initRetentionNotice);
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        bindChannelSearch(document);
+        bindChannelManageForms(document);
+        bindDigitsOnlyInputs(document);
+        bindAlertToasts(document);
+        bindRetentionForms(document);
+        bindRetentionNotices(document);
+      });
+      document.addEventListener("htmx:afterRequest", (event) => {
+        if (!event.detail.successful) return;
+        const target = event.target instanceof Element ? event.target : null;
+        const source = target?.closest("[data-save-toast]");
+        const baseMessage = source?.getAttribute("data-save-toast");
+        if (baseMessage) {
+          const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
+          const details = payload ? flattenSavedValues(payload).join(", ") : "";
+          const message = details ? `${baseMessage} (${details})` : baseMessage;
+          showUiToast(message, "success");
+        }
+      });
+      document.addEventListener("htmx:afterSwap", (event) => {
+        bindChannelSearch(event.target);
+        bindChannelManageForms(event.target);
+        bindDigitsOnlyInputs(event.target);
+        bindAlertToasts(event.target);
+        bindRetentionForms(event.target);
+        bindRetentionNotices(event.target);
+      });
+    })();
+  </script>
 </head>
-<body class="bg-slate-100 text-slate-900">
+<body class="bg-slate-100 text-slate-900" style="scrollbar-gutter: stable;">
   <header class="bg-gradient-to-r from-indigo-700 to-indigo-600 shadow-md">
     <div class="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-2 text-white">
         <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
-        <span class="text-xl font-bold tracking-tight">BriefTube</span>
+        <span class="text-xl font-bold tracking-tight">{{ txt.brand }}</span>
       </a>
       <nav class="flex items-center gap-1 text-sm">
         {% set path = request.url.path %}
         <a href="/"
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/' or path.startswith('/videos') %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
-          Videos
+          {{ txt.nav_videos }}
         </a>
         <a href="/channels"
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/channels' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
-          Channels
+          {{ txt.nav_channels }}
         </a>
         <a href="/settings"
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/settings' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
-          Settings
+          {{ txt.nav_settings }}
+        </a>
+        <a href="/retention"
+           class="rounded-md px-3 py-1.5 font-medium transition-colors
+                  {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+          {{ txt.nav_retention }}
         </a>
       </nav>
     </div>
   </header>
+
+  {% include "fragments/alert_toast.html" %}
+  {% if retention_notice %}
+  <div
+    data-retention-notice
+    data-retention-notice-key="{{ retention_notice.count }}-{{ retention_notice.retention_days }}"
+    class="pointer-events-none fixed bottom-4 right-4 z-40 w-full max-w-sm transition-all duration-200"
+  >
+    <a
+      href="/retention"
+      class="pointer-events-auto block rounded-lg border border-sky-300 bg-sky-50 p-3 shadow-lg transition hover:bg-sky-100"
+    >
+      <div class="flex items-start justify-between gap-2">
+        <p class="text-xs font-semibold text-sky-800">{{ txt.retention_notice_title }}</p>
+        <button
+          type="button"
+          data-retention-notice-dismiss
+          class="rounded p-0.5 text-sky-700 hover:bg-sky-200"
+          aria-label="{{ txt.alert_close_button }}"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 1 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>
+        </button>
+      </div>
+      <p class="mt-1 text-sm text-sky-900">
+        {{ retention_notice.count }}{{ txt.retention_count_unit }} · {{ retention_notice.retention_days }}{{ txt.retention_days_unit }} {{ txt.retention_page_subtitle }}
+      </p>
+      <p class="mt-2 text-xs font-medium text-sky-700">{{ txt.retention_notice_button }}</p>
+    </a>
+  </div>
+  {% endif %}
 
   <main class="mx-auto max-w-7xl px-4 py-6">
     {% block content %}{% endblock %}

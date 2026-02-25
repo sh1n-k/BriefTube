@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import httpx
 
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
+from app.logging_setup import configure_logging
 from app.routers import api, pages, views
+from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import OpenClawClient
 from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier
@@ -22,10 +26,6 @@ from app.workers.notifier_worker import run_telegram_notifier
 from app.workers.poller import run_rss_poller
 from app.workers.transcript_worker import run_transcript_fetcher
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +37,7 @@ def _build_templates() -> Jinja2Templates:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config()
+    configure_logging(config)
     Path(config.thumbnail_dir).mkdir(parents=True, exist_ok=True)
 
     db = await open_database(config.db_path)
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI):
         http_client=http_client,
         rss_service=RSSService(http_client, timeout_seconds=config.rss_timeout_seconds),
         transcript_service=TranscriptService(http_client),
+        channel_resolver=ChannelResolverService(http_client),
         llm_client=OpenClawClient(
             client=http_client,
             api_url=config.openclaw_api_url,
@@ -63,6 +65,7 @@ async def lifespan(app: FastAPI):
             chat_id=config.telegram_chat_id,
             client=http_client,
         ),
+        started_at=datetime.now(timezone.utc),
     )
 
     app.state.runtime = runtime
@@ -94,3 +97,19 @@ app.include_router(pages.router)
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/thumbnails/{filename:path}")
+async def thumbnail(filename: str):
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        return JSONResponse(status_code=400, content={"detail": "invalid filename"})
+
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        return JSONResponse(status_code=503, content={"detail": "runtime not ready"})
+
+    target = Path(runtime.config.thumbnail_dir) / safe_name
+    if not target.exists() or not target.is_file():
+        return JSONResponse(status_code=404, content={"detail": "thumbnail not found"})
+    return FileResponse(target)

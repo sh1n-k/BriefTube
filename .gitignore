@@ -24,7 +24,13 @@ htmlcov/
 # App artifacts
 data.db
 data.db-*
+data.dev.db
+data.dev.db-*
+data.prod.db
+data.prod.db-*
 thumbnails/
+thumbnails-dev/
+thumbnails-prod/
 logs/
 *.log
 
@@ -38,3 +44,8 @@ config.local.yaml
 # Build outputs
 build/
 dist/
+
+# Local worktrees / screenshots
+.worktrees/
+screenshot-*.png
+image.png

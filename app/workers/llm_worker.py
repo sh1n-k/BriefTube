@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 async def run_llm_queue_worker(state: AppState) -> None:
     while True:
+        if not await repository.is_worker_enabled(state.db, "llm"):
+            await asyncio.sleep(5)
+            continue
+
         try:
             candidate = await repository.pop_llm_candidate(state.db, state.config.max_retry_count)
             if not candidate:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app import repository
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -25,8 +26,18 @@ def _format_batch_message(batch: list[dict[str, str]]) -> str:
 
 async def run_telegram_notifier(state: AppState) -> None:
     while True:
+        if not state.telegram_notifier.is_configured():
+            await asyncio.sleep(5)
+            continue
+        if not await repository.is_worker_enabled(state.db, "notifier"):
+            await asyncio.sleep(3)
+            continue
+
         try:
-            item = await state.notification_queue.get()
+            try:
+                item = await asyncio.wait_for(state.notification_queue.get(), timeout=3)
+            except asyncio.TimeoutError:
+                continue
             batch = [item]
 
             await asyncio.sleep(1)

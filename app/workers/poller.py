@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import logging
+
+import httpx
 
 from app import repository
 from app.state import AppState
@@ -9,10 +12,27 @@ from app.state import AppState
 logger = logging.getLogger(__name__)
 
 
+def _parse_iso_datetime(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 async def run_rss_poller(state: AppState) -> None:
     interval_seconds = max(60, state.config.polling_interval_minutes * 60)
+    check_step_seconds = 5
 
     while True:
+        if not await repository.is_worker_enabled(state.db, "rss"):
+            if state.poll_now_event.is_set():
+                state.poll_now_event.clear()
+            await asyncio.sleep(5)
+            continue
+
         try:
             inserted = await poll_once(state)
             if inserted:
@@ -21,28 +41,72 @@ async def run_rss_poller(state: AppState) -> None:
             logger.exception("RSS poll failed")
 
         try:
-            await asyncio.wait_for(state.poll_now_event.wait(), timeout=interval_seconds)
-            state.poll_now_event.clear()
-            logger.info("Manual poll trigger consumed")
-        except asyncio.TimeoutError:
-            continue
+            remaining = interval_seconds
+            while remaining > 0:
+                if not await repository.is_worker_enabled(state.db, "rss"):
+                    if state.poll_now_event.is_set():
+                        state.poll_now_event.clear()
+                    break
+                step = min(check_step_seconds, remaining)
+                try:
+                    await asyncio.wait_for(state.poll_now_event.wait(), timeout=step)
+                    state.poll_now_event.clear()
+                    logger.info("Manual poll trigger consumed")
+                    break
+                except asyncio.TimeoutError:
+                    remaining -= step
+        except Exception:
+            logger.exception("RSS poll wait loop failed")
 
 
 async def poll_once(state: AppState) -> int:
     channels = await repository.list_active_channels(state.db)
+    policy = await repository.get_policy_settings(state.db)
+    lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
+    started_at = getattr(state, "started_at", datetime.now(timezone.utc))
+    lower_bound = started_at - timedelta(days=lookback_days)
     total_inserted = 0
 
     for channel in channels:
         channel_id = channel["channel_id"]
+        channel_name = channel.get("channel_name") or channel_id
         cache = state.rss_cache.get(channel_id, {})
         etag = cache.get("etag")
         last_modified = cache.get("last_modified")
 
-        entries, new_etag, new_last_modified = await state.rss_service.fetch_channel_feed(
-            channel_id=channel_id,
-            etag=etag,
-            last_modified=last_modified,
-        )
+        try:
+            entries, new_etag, new_last_modified = await state.rss_service.fetch_channel_feed(
+                channel_id=channel_id,
+                etag=etag,
+                last_modified=last_modified,
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 404:
+                await repository.deactivate_channel(state.db, channel_id)
+                await repository.create_system_alert(
+                    state.db,
+                    alert_type=repository.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND,
+                    channel_id=channel_id,
+                    channel_name=channel_name,
+                    message="RSS feed returned 404 Not Found. Channel was deactivated automatically.",
+                )
+                state.rss_cache.pop(channel_id, None)
+                logger.warning(
+                    "RSS feed missing. channel_id=%s channel_name=%s has been deactivated",
+                    channel_id,
+                    channel_name,
+                )
+                continue
+            logger.warning(
+                "RSS fetch failed for channel_id=%s status=%s",
+                channel_id,
+                status_code,
+            )
+            continue
+        except Exception:
+            logger.exception("RSS fetch failed for channel_id=%s", channel_id)
+            continue
 
         state.rss_cache[channel_id] = {
             "etag": new_etag or "",
@@ -54,6 +118,12 @@ async def poll_once(state: AppState) -> int:
 
         for entry in entries:
             published = entry["published"]
+            if watermark is None:
+                published_dt = _parse_iso_datetime(published)
+                if published_dt and published_dt < lower_bound:
+                    if max_published is None or repository.is_newer_published(published, max_published):
+                        max_published = published
+                    continue
             if not repository.is_newer_published(published, watermark):
                 continue
 

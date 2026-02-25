@@ -13,6 +13,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS system_alerts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_type      TEXT NOT NULL,
+    channel_id      TEXT,
+    channel_name    TEXT,
+    message         TEXT NOT NULL,
+    acknowledged_at TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO app_settings(key, value) VALUES ('language', 'ko');
+
 CREATE TABLE IF NOT EXISTS videos (
     video_id            TEXT PRIMARY KEY,
     channel_id          TEXT NOT NULL REFERENCES channels(channel_id),
@@ -89,7 +101,6 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
-CREATE INDEX IF NOT EXISTS idx_videos_transcript_queue
-ON videos(transcript_status, transcript_next_attempt_at, upload_time DESC);
 CREATE INDEX IF NOT EXISTS idx_videos_restructure ON videos(restructure_status)
 WHERE restructure_status IN ('pending', 'processing', 'failed');
+CREATE INDEX IF NOT EXISTS idx_system_alerts_unacked ON system_alerts(acknowledged_at, created_at DESC);

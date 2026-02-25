@@ -11,8 +11,11 @@ class TelegramNotifier:
         self.client = client
         self.url = self.BASE_URL.format(token=token) if token else ""
 
+    def is_configured(self) -> bool:
+        return bool(self.url and self.chat_id)
+
     async def send(self, text: str, parse_mode: str = "HTML") -> dict:
-        if not self.url or not self.chat_id:
+        if not self.is_configured():
             return {"ok": False, "skipped": True, "reason": "telegram not configured"}
 
         response = await self.client.post(
