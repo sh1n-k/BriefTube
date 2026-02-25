@@ -7,6 +7,12 @@ CREATE TABLE IF NOT EXISTS channels (
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS videos (
     video_id            TEXT PRIMARY KEY,
     channel_id          TEXT NOT NULL REFERENCES channels(channel_id),
@@ -14,6 +20,8 @@ CREATE TABLE IF NOT EXISTS videos (
     upload_time         TEXT NOT NULL,
     thumbnail_path      TEXT,
     transcript_status   TEXT NOT NULL DEFAULT 'pending',
+    transcript_retry_count INTEGER NOT NULL DEFAULT 0,
+    transcript_next_attempt_at TEXT,
     restructure_status  TEXT NOT NULL DEFAULT 'pending',
     retry_count         INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
@@ -81,5 +89,7 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
+CREATE INDEX IF NOT EXISTS idx_videos_transcript_queue
+ON videos(transcript_status, transcript_next_attempt_at, upload_time DESC);
 CREATE INDEX IF NOT EXISTS idx_videos_restructure ON videos(restructure_status)
 WHERE restructure_status IN ('pending', 'processing', 'failed');

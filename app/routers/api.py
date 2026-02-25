@@ -109,3 +109,20 @@ async def retry_video(video_id: str, request: Request):
     if affected == 0:
         raise HTTPException(status_code=404, detail="Retry target not found")
     return {"ok": True, "video_id": video_id}
+
+
+@router.get("/settings")
+async def get_settings(request: Request):
+    guard = await repository.get_transcript_guard_state(request.app.state.runtime.db)
+    return {
+        "transcript_guard": guard,
+    }
+
+
+@router.post("/settings/transcript-guard/reset")
+async def reset_transcript_guard(request: Request):
+    guard = await repository.reset_transcript_guard_state(request.app.state.runtime.db)
+    return {
+        "ok": True,
+        "transcript_guard": guard,
+    }

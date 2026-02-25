@@ -9,3 +9,15 @@ thumbnail_dir: "./thumbnails"
 db_path: "./data.db"
 rss_timeout_seconds: 20
 http_timeout_seconds: 30
+transcript_fetch_batch_size: 1
+transcript_request_interval_seconds: 15
+transcript_idle_sleep_seconds: 5
+transcript_retry_base_delay_seconds: 120
+transcript_retry_max_delay_seconds: 3600
+transcript_jitter_ratio: 0.30
+transcript_adaptive_enabled: true
+transcript_adaptive_max_factor: 8.0
+transcript_hard_cooldown_base_seconds: 300
+transcript_hard_cooldown_max_seconds: 3600
+transcript_recovery_success_window: 5
+transcript_general_error_slowdown_multiplier: 1.25

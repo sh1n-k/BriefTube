@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse
 
 from app import repository
 
@@ -43,3 +44,25 @@ async def channel_page(request: Request):
         name="channels.html",
         context={"channels": channels},
     )
+
+
+@router.get("/settings")
+async def settings_page(request: Request):
+    guard = await repository.get_transcript_guard_state(request.app.state.runtime.db)
+    reset_done = request.query_params.get("guard_reset") == "1"
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="settings.html",
+        context={"transcript_guard": guard, "guard_reset_done": reset_done},
+    )
+
+
+@router.post("/settings/transcript-guard/reset")
+async def settings_reset_transcript_guard(request: Request):
+    form = await request.form()
+    confirmed = str(form.get("confirm_guard_reset", "")).strip().lower()
+    if confirmed != "on":
+        return RedirectResponse(url="/settings?guard_reset=0", status_code=303)
+
+    await repository.reset_transcript_guard_state(request.app.state.runtime.db)
+    return RedirectResponse(url="/settings?guard_reset=1", status_code=303)
