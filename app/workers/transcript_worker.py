@@ -178,6 +178,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
     )
 
     while True:
+        if not await repository.is_worker_enabled(state.db, "transcript"):
+            await asyncio.sleep(idle_sleep_seconds)
+            continue
+
         now_utc = datetime.now(timezone.utc)
         if guard.cooldown_until and now_utc < guard.cooldown_until:
             remaining = (guard.cooldown_until - now_utc).total_seconds()
@@ -196,6 +200,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 continue
 
             for video in pending:
+                if not await repository.is_worker_enabled(state.db, "transcript"):
+                    break
                 if guard.cooldown_until and datetime.now(timezone.utc) < guard.cooldown_until:
                     break
 
@@ -254,58 +260,57 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
                         await _save_guard_state(state, guard)
                         logger.info("No subtitle for video_id=%s", video_id)
-                        continue
-
-                    current_retry_count = int(video.get("transcript_retry_count") or 0)
-                    next_delay_seconds = _compute_retry_delay_seconds(
-                        retry_base_delay_seconds,
-                        retry_max_delay_seconds,
-                        current_retry_count,
-                    )
-
-                    if adaptive_enabled and _is_hard_throttle_error(exc):
-                        guard.consecutive_hard_errors += 1
-                        guard.consecutive_successes = 0
-                        guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
-                        cooldown_seconds = _compute_hard_cooldown_seconds(
-                            hard_cooldown_base_seconds,
-                            hard_cooldown_max_seconds,
-                            guard.consecutive_hard_errors,
-                        )
-                        guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
-                        next_delay_seconds = max(next_delay_seconds, cooldown_seconds)
-                        await _save_guard_state(state, guard)
-                        logger.warning(
-                            "Transcript hard throttle detected. video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
-                            video_id,
-                            current_retry_count + 1,
-                            cooldown_seconds,
-                            guard.adaptive_factor,
-                            exc,
-                        )
                     else:
-                        guard.consecutive_successes = 0
-                        guard.consecutive_hard_errors = 0
-                        if adaptive_enabled:
-                            guard.adaptive_factor = min(
-                                adaptive_max_factor,
-                                guard.adaptive_factor * general_error_slowdown_multiplier,
-                            )
-                        await _save_guard_state(state, guard)
-                        logger.warning(
-                            "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
-                            video_id,
-                            current_retry_count + 1,
-                            guard.adaptive_factor,
-                            next_delay_seconds,
-                            exc,
+                        current_retry_count = int(video.get("transcript_retry_count") or 0)
+                        next_delay_seconds = _compute_retry_delay_seconds(
+                            retry_base_delay_seconds,
+                            retry_max_delay_seconds,
+                            current_retry_count,
                         )
 
-                    await repository.schedule_transcript_retry(
-                        state.db,
-                        video_id=video_id,
-                        delay_seconds=next_delay_seconds,
-                    )
+                        if adaptive_enabled and _is_hard_throttle_error(exc):
+                            guard.consecutive_hard_errors += 1
+                            guard.consecutive_successes = 0
+                            guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+                            cooldown_seconds = _compute_hard_cooldown_seconds(
+                                hard_cooldown_base_seconds,
+                                hard_cooldown_max_seconds,
+                                guard.consecutive_hard_errors,
+                            )
+                            guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+                            next_delay_seconds = max(next_delay_seconds, cooldown_seconds)
+                            await _save_guard_state(state, guard)
+                            logger.warning(
+                                "Transcript hard throttle detected. video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
+                                video_id,
+                                current_retry_count + 1,
+                                cooldown_seconds,
+                                guard.adaptive_factor,
+                                exc,
+                            )
+                        else:
+                            guard.consecutive_successes = 0
+                            guard.consecutive_hard_errors = 0
+                            if adaptive_enabled:
+                                guard.adaptive_factor = min(
+                                    adaptive_max_factor,
+                                    guard.adaptive_factor * general_error_slowdown_multiplier,
+                                )
+                            await _save_guard_state(state, guard)
+                            logger.warning(
+                                "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
+                                video_id,
+                                current_retry_count + 1,
+                                guard.adaptive_factor,
+                                next_delay_seconds,
+                                exc,
+                            )
+
+                        await repository.schedule_transcript_retry(
+                            state.db,
+                            video_id=video_id,
+                            delay_seconds=next_delay_seconds,
+                        )
         except Exception:
             logger.exception("Transcript worker loop failed")
             await asyncio.sleep(idle_sleep_seconds)

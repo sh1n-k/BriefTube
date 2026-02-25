@@ -21,3 +21,9 @@ transcript_hard_cooldown_base_seconds: 300
 transcript_hard_cooldown_max_seconds: 3600
 transcript_recovery_success_window: 5
 transcript_general_error_slowdown_multiplier: 1.25
+log_level: "INFO"
+log_to_file: true
+log_dir: "./logs"
+log_file_name: "brieftube.log"
+log_file_max_bytes: 5242880
+log_file_backup_count: 5

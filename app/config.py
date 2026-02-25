@@ -30,6 +30,12 @@ class AppConfig:
     transcript_hard_cooldown_max_seconds: int = 3600
     transcript_recovery_success_window: int = 5
     transcript_general_error_slowdown_multiplier: float = 1.25
+    log_level: str = "INFO"
+    log_to_file: bool = True
+    log_dir: str = "./logs"
+    log_file_name: str = "brieftube.log"
+    log_file_max_bytes: int = 5 * 1024 * 1024
+    log_file_backup_count: int = 5
 
 
 def _parse_scalar(value: str) -> str | int | bool:
@@ -149,6 +155,12 @@ def load_config() -> AppConfig:
             ),
             base.transcript_general_error_slowdown_multiplier,
         ),
+        log_level=str(file_values.get("log_level", base.log_level)),
+        log_to_file=_parse_env_bool(file_values.get("log_to_file", base.log_to_file)),
+        log_dir=str(file_values.get("log_dir", base.log_dir)),
+        log_file_name=str(file_values.get("log_file_name", base.log_file_name)),
+        log_file_max_bytes=int(file_values.get("log_file_max_bytes", base.log_file_max_bytes)),
+        log_file_backup_count=int(file_values.get("log_file_backup_count", base.log_file_backup_count)),
     )
 
     cfg.polling_interval_minutes = int(os.getenv("POLLING_INTERVAL_MINUTES", cfg.polling_interval_minutes))
@@ -222,6 +234,12 @@ def load_config() -> AppConfig:
         ),
         cfg.transcript_general_error_slowdown_multiplier,
     )
+    cfg.log_level = os.getenv("LOG_LEVEL", cfg.log_level).upper()
+    cfg.log_to_file = _parse_env_bool(os.getenv("LOG_TO_FILE", str(cfg.log_to_file)))
+    cfg.log_dir = os.getenv("LOG_DIR", cfg.log_dir)
+    cfg.log_file_name = os.getenv("LOG_FILE_NAME", cfg.log_file_name)
+    cfg.log_file_max_bytes = int(os.getenv("LOG_FILE_MAX_BYTES", cfg.log_file_max_bytes))
+    cfg.log_file_backup_count = int(os.getenv("LOG_FILE_BACKUP_COUNT", cfg.log_file_backup_count))
 
     cfg.transcript_fetch_batch_size = max(1, cfg.transcript_fetch_batch_size)
     cfg.transcript_request_interval_seconds = max(1, cfg.transcript_request_interval_seconds)
