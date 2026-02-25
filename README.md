@@ -1,68 +1,55 @@
 # BriefTube
 
-BriefTube는 YouTube 콘텐츠를 수집하고, 자막을 기사 형태로 재구성해 로컬에서 확인하는 웹 앱 프로젝트입니다.
+YouTube 채널의 신규 영상을 자동 수집하고, 자막을 LLM으로 기사 형태로 재구성해 로컬에서 확인하는 웹 앱.
 
-## 참고 문서
+## 주요 기능
 
-- [기획서](./01_기획서.md)
-- [개발 스펙](./02_개발스펙.md)
+- RSS 기반 신규 영상 자동 감지 및 수집
+- YouTube 자막 추출 → LLM 기사 변환 (제목, 리드, 본문, 핵심 팩트, 타임스탬프)
+- 전문 검색 (자막 + 기사, SQLite FTS5)
+- Telegram 알림
+- 채널 일괄 추가 (텍스트 입력 / Google Takeout 파일)
+- 한국어 / English 전환
 
-## 현재 프로젝트 베이스
+## 요구사항
 
-- FastAPI + lifespan 기반 단일 프로세스 앱
-- `asyncio.create_task` 워커 4종
-  - RSS Poller
-  - Transcript Fetcher
-  - LLM Queue Worker
-  - Telegram Notifier
-- SQLite + FTS5 + 동기화 트리거
-- `/api/*`, `/views/*`, 페이지 라우트 분리
-- 공유 `httpx.AsyncClient` 인스턴스 사용
-- 설정 화면(`/settings`) 제공
-  - 앱 언어 전환(한국어/영어, DB 전역 설정)
-  - 채널 일괄 추가(텍스트 + Google Takeout 파일)
-  - 채널명/핸들/URL/ID 해석 후 후보 선택 저장
+- Python 3.11+
 
-## 최근 반영 사항 (2026-02-25)
-
-- 상단 네비게이션의 설정 메뉴 중복 제거 (`설정` 단일 탭 유지)
-- 설정 숫자 입력 필드(`페이지당 영상 수`, `초기 수집 하한선`, `보관 기준`)의 브라우저 기본 증감(위/아래키) 동작 복구
-- Transcript Guard / Danger Zone 영역 다국어(i18n) 키 기반으로 통합
-- Transcript Guard 상태값(adaptive factor/cooldown/error/success) 조회 및 초기화 경로 유지
-
-## 실행 방법
+## 시작하기
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 python scripts/init_db.py
-./scripts/run-dev.sh
 ```
 
-운영 모드 실행:
+`config.dev.yaml`을 복사해 필요한 값을 채운 뒤 실행:
 
 ```bash
-./scripts/run-prod.sh
+./scripts/run-dev.sh          # http://127.0.0.1:8000
 ```
 
-기본 설정 파일:
-
-- 개발: `config.dev.yaml`
-- 운영: `config.prod.yaml`
-
-설정 우선순위:
-
-1. 환경변수
-2. `APP_CONFIG_FILE`로 지정한 설정 파일
-3. 코드 기본값
-
-예시:
+운영 모드:
 
 ```bash
-APP_CONFIG_FILE=config.dev.yaml ./scripts/run-dev.sh
-APP_CONFIG_FILE=config.prod.yaml OPENCLAW_API_KEY=... ./scripts/run-prod.sh
+./scripts/run-prod.sh         # config.prod.yaml 사용
 ```
+
+## 설정
+
+환경변수 또는 `APP_CONFIG_FILE` (key: value yaml) 로 설정. 우선순위: 환경변수 > yaml > 기본값.
+
+| 키 | 설명 | 기본값 |
+|---|---|---|
+| `DB_PATH` | SQLite DB 파일 경로 | `./data.db` |
+| `OPENCLAW_API_URL` | LLM API 엔드포인트 | (없음) |
+| `OPENCLAW_API_KEY` | LLM API 키 | (없음) |
+| `TELEGRAM_BOT_TOKEN` | Telegram 봇 토큰 | (없음) |
+| `TELEGRAM_CHAT_ID` | Telegram 채팅 ID | (없음) |
+| `POLLING_INTERVAL_MINUTES` | RSS 폴링 주기 | `15` |
+
+전체 설정 키는 `app/config.py`의 `AppConfig` 참조.
 
 ## 테스트
 
@@ -71,51 +58,7 @@ pip install -e '.[dev]'
 pytest -q
 ```
 
-최소 스모크 테스트:
+## 참고 문서
 
-- `GET /healthz`
-- `POST/GET /api/channels` (JSON/form)
-- `GET /api/status`
-
-추가 단위테스트:
-
-- 설정 API (`/api/settings`, `/api/settings/language`)
-- 비디오 목록 projection (`channel_name`, `thumbnail_url`)
-- 채널 일괄 해석/저장 API
-- Takeout parser(JSON/CSV)
-
-## 주요 경로
-
-- `app/main.py`: 앱 엔트리 + lifespan
-- `app/logging_setup.py`: 로깅 초기화 정책 (콘솔 + 파일 로테이션)
-- `app/workers/`: 백그라운드 워커
-- `app/services/`: RSS/Transcript/LLM/Telegram 연동
-- `app/routers/`: API/HTMX/페이지 라우트
-- `sql/schema.sql`: DB 스키마(FTS5 트리거 포함)
-
-## 로그 정책
-
-- 기본: 콘솔 + 파일 동시 기록
-- 파일: RotatingFileHandler 사용 (크기 초과 시 로테이션)
-- 개발/운영 분리:
-  - 개발: `./logs/dev/brieftube-dev.log`
-  - 운영: `./logs/prod/brieftube-prod.log`
-- 관련 설정 키:
-  - `LOG_LEVEL`
-  - `LOG_TO_FILE`
-  - `LOG_DIR`
-  - `LOG_FILE_NAME`
-  - `LOG_FILE_MAX_BYTES`
-  - `LOG_FILE_BACKUP_COUNT`
-
-## 설정
-
-환경변수(`.env`) 또는 `APP_CONFIG_FILE`(간단 key:value yaml)로 설정 가능.
-
-핵심 키:
-
-- `DB_PATH`
-- `THUMBNAIL_DIR`
-- `POLLING_INTERVAL_MINUTES`
-- `OPENCLAW_API_URL`, `OPENCLAW_API_KEY`
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+- [기획서](./01_기획서.md)
+- [개발 스펙](./02_개발스펙.md)
