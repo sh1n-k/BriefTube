@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ txt.brand }} - {{ txt.retention_page_title }}{% endblock %}
+{% block content %}
+<div class="space-y-4">
+  <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <h1 class="text-xl font-semibold text-slate-900">{{ txt.retention_page_title }}</h1>
+    <p class="mt-1 text-sm text-slate-500">{{ txt.retention_page_subtitle }} ({{ retention_days }}{{ txt.retention_days_unit }})</p>
+    {% if deleted_count and deleted_count > 0 %}
+      <p class="mt-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{{ txt.retention_deleted_prefix }} {{ deleted_count }}{{ txt.retention_count_unit }}</p>
+    {% endif %}
+  </section>
+
+  <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    {% if expired_videos %}
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <p class="text-sm text-slate-600">{{ txt.retention_expired_count_label }}: <span class="font-semibold">{{ expired_videos|length }}</span></p>
+        <form method="post" action="/retention/delete-all">
+          <button class="rounded-md bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{{ txt.retention_delete_all }}</button>
+        </form>
+      </div>
+
+      <form method="post" action="/retention/delete-selected" data-retention-form>
+        <div class="mb-3">
+          <button data-retention-delete-button class="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50">{{ txt.retention_delete_selected }}</button>
+        </div>
+        <div class="overflow-hidden rounded-md border border-slate-200">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="w-28 whitespace-nowrap p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <button
+                    type="button"
+                    data-retention-select-toggle
+                    aria-label="{{ txt.retention_col_select_all }}"
+                    class="rounded px-1 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  >
+                    {{ txt.retention_col_select }}
+                  </button>
+                </th>
+                <th class="p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{{ txt.video_col_title }}</th>
+                <th class="p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{{ txt.video_col_channel }}</th>
+                <th class="w-52 whitespace-nowrap p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{{ txt.video_col_uploaded }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for video in expired_videos %}
+                <tr class="hover:bg-indigo-50/50">
+                  <td class="w-28 whitespace-nowrap p-3">
+                    <input type="checkbox" name="video_id" value="{{ video.video_id }}" data-retention-select-item class="h-4 w-4" />
+                  </td>
+                  <td class="p-3">
+                    <div class="font-medium text-slate-800">{{ video.title }}</div>
+                    <div class="text-xs font-mono text-slate-400">{{ video.video_id }}</div>
+                  </td>
+                  <td class="p-3 text-slate-600">{{ video.channel_name or video.channel_id }}</td>
+                  <td class="w-52 whitespace-nowrap p-3 text-slate-600" style="font-variant-numeric: tabular-nums;">{{ format_upload_time(video.upload_time, timezone) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    {% else %}
+      <p class="text-sm text-slate-500">{{ txt.retention_empty }}</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
