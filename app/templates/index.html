@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}BriefTube - Videos{% endblock %}
+{% block content %}
+<div class="grid gap-6 lg:grid-cols-[300px_1fr]">
+  <aside class="space-y-4">
+    <!-- Add Channel -->
+    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 class="mb-3 text-sm font-semibold text-slate-700">Add Channel</h2>
+      <form
+        class="space-y-2"
+        hx-post="/api/channels"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful){this.reset(); htmx.ajax('GET','/views/channel-list',{target:'#channel-list-wrap'})}"
+      >
+        <input name="channel_id" placeholder="Channel ID"
+               class="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+        <input name="channel_name" placeholder="Channel Name"
+               class="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+        <button class="w-full rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+          Add channel
+        </button>
+      </form>
+    </div>
+
+    <!-- Channel List -->
+    <div>
+      <h2 class="mb-2 text-sm font-semibold text-slate-700">Channels</h2>
+      {% include "fragments/channel_list.html" %}
+    </div>
+  </aside>
+
+  <section class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-semibold text-slate-900">Videos</h2>
+      <button
+        hx-post="/api/poll/trigger"
+        class="inline-flex items-center gap-1.5 rounded-md bg-teal-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+      >
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/>
+        </svg>
+        Poll now
+      </button>
+    </div>
+
+    <form hx-get="/views/search-results" hx-target="#search-results">
+      <div class="relative">
+        <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+        </svg>
+        <input name="q" placeholder="Search transcript / article..."
+               class="w-full rounded-md border border-slate-300 bg-white py-2 pl-10 pr-3 text-sm shadow-sm placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+      </div>
+    </form>
+
+    <div id="search-results"></div>
+
+    {% include "fragments/video_list.html" %}
+  </section>
+</div>
+{% endblock %}

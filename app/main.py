@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+import logging
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.templating import Jinja2Templates
+import httpx
+
+from app.config import load_config
+from app.database import init_database, open_database, recover_stuck_jobs
+from app.routers import api, pages, views
+from app.services.llm import OpenClawClient
+from app.services.rss import RSSService
+from app.services.telegram import TelegramNotifier
+from app.services.transcript import TranscriptService
+from app.state import AppState
+from app.workers.llm_worker import run_llm_queue_worker
+from app.workers.notifier_worker import run_telegram_notifier
+from app.workers.poller import run_rss_poller
+from app.workers.transcript_worker import run_transcript_fetcher
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def _build_templates() -> Jinja2Templates:
+    template_dir = Path(__file__).resolve().parent / "templates"
+    return Jinja2Templates(directory=str(template_dir))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    config = load_config()
+    Path(config.thumbnail_dir).mkdir(parents=True, exist_ok=True)
+
+    db = await open_database(config.db_path)
+    await init_database(db)
+    recovered = await recover_stuck_jobs(db)
+    logger.info("Recovered stuck jobs: %s", recovered)
+
+    http_client = httpx.AsyncClient(timeout=config.http_timeout_seconds)
+
+    runtime = AppState(
+        config=config,
+        db=db,
+        http_client=http_client,
+        rss_service=RSSService(http_client, timeout_seconds=config.rss_timeout_seconds),
+        transcript_service=TranscriptService(http_client),
+        llm_client=OpenClawClient(
+            client=http_client,
+            api_url=config.openclaw_api_url,
+            api_key=config.openclaw_api_key,
+            timeout_seconds=config.openclaw_timeout_seconds,
+        ),
+        telegram_notifier=TelegramNotifier(
+            token=config.telegram_bot_token,
+            chat_id=config.telegram_chat_id,
+            client=http_client,
+        ),
+    )
+
+    app.state.runtime = runtime
+    app.state.templates = _build_templates()
+
+    tasks = [
+        asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
+        asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"),
+        asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"),
+        asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),
+    ]
+
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await http_client.aclose()
+        await db.close()
+
+
+app = FastAPI(title="BriefTube", lifespan=lifespan)
+app.include_router(api.router)
+app.include_router(views.router)
+app.include_router(pages.router)
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}

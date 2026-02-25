@@ -1,0 +1,1 @@
+"""BriefTube application package."""

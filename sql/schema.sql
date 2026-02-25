@@ -1,0 +1,85 @@
+CREATE TABLE IF NOT EXISTS channels (
+    channel_id              TEXT PRIMARY KEY,
+    channel_name            TEXT NOT NULL,
+    rss_url                 TEXT NOT NULL,
+    is_active               INTEGER NOT NULL DEFAULT 1,
+    last_seen_published_at  TEXT,
+    created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS videos (
+    video_id            TEXT PRIMARY KEY,
+    channel_id          TEXT NOT NULL REFERENCES channels(channel_id),
+    title               TEXT NOT NULL,
+    upload_time         TEXT NOT NULL,
+    thumbnail_path      TEXT,
+    transcript_status   TEXT NOT NULL DEFAULT 'pending',
+    restructure_status  TEXT NOT NULL DEFAULT 'pending',
+    retry_count         INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS transcripts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id    TEXT NOT NULL UNIQUE REFERENCES videos(video_id),
+    raw_text    TEXT NOT NULL,
+    language    TEXT,
+    source_type TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS articles (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id    TEXT NOT NULL UNIQUE REFERENCES videos(video_id),
+    title       TEXT NOT NULL,
+    lead        TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    fact_box    TEXT,
+    timestamps  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
+    raw_text,
+    content=transcripts,
+    content_rowid=id
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+    title,
+    lead,
+    body,
+    content=articles,
+    content_rowid=id
+);
+
+CREATE TRIGGER IF NOT EXISTS transcripts_ai AFTER INSERT ON transcripts BEGIN
+    INSERT INTO transcripts_fts(rowid, raw_text) VALUES (new.id, new.raw_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS transcripts_ad AFTER DELETE ON transcripts BEGIN
+    INSERT INTO transcripts_fts(transcripts_fts, rowid, raw_text) VALUES ('delete', old.id, old.raw_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS transcripts_au AFTER UPDATE ON transcripts BEGIN
+    INSERT INTO transcripts_fts(transcripts_fts, rowid, raw_text) VALUES ('delete', old.id, old.raw_text);
+    INSERT INTO transcripts_fts(rowid, raw_text) VALUES (new.id, new.raw_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS articles_ai AFTER INSERT ON articles BEGIN
+    INSERT INTO articles_fts(rowid, title, lead, body) VALUES (new.id, new.title, new.lead, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS articles_ad AFTER DELETE ON articles BEGIN
+    INSERT INTO articles_fts(articles_fts, rowid, title, lead, body) VALUES ('delete', old.id, old.title, old.lead, old.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS articles_au AFTER UPDATE ON articles BEGIN
+    INSERT INTO articles_fts(articles_fts, rowid, title, lead, body) VALUES ('delete', old.id, old.title, old.lead, old.body);
+    INSERT INTO articles_fts(rowid, title, lead, body) VALUES (new.id, new.title, new.lead, new.body);
+END;
+
+CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
+CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
+CREATE INDEX IF NOT EXISTS idx_videos_restructure ON videos(restructure_status)
+WHERE restructure_status IN ('pending', 'processing', 'failed');

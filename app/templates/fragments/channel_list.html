@@ -1,0 +1,24 @@
+<div id="channel-list-wrap" class="rounded-lg border border-slate-200 bg-white shadow-sm">
+  <ul class="divide-y divide-slate-100">
+    {% for channel in channels %}
+      <li class="flex items-center justify-between p-3 transition-colors hover:bg-indigo-50">
+        <div class="min-w-0">
+          <div class="truncate text-sm font-medium text-slate-900">{{ channel.channel_name }}</div>
+          <div class="truncate text-xs font-mono text-slate-500">{{ channel.channel_id }}</div>
+        </div>
+        {% if channel.is_active == 1 %}
+          <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-300">active</span>
+        {% else %}
+          <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-300">inactive</span>
+        {% endif %}
+      </li>
+    {% else %}
+      <li class="p-8 text-center text-sm text-slate-400">
+        <svg class="mx-auto mb-2 h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H9m6 0a5.972 5.972 0 0 0-.786-3.07M9 19.128v-.003c0-1.113.285-2.16.786-3.07M9 19.128H3.375a4.125 4.125 0 0 1 7.533-2.493M9 19.128a5.972 5.972 0 0 1 .786-3.07m4.428 0a9.359 9.359 0 0 0-5.214 0"/>
+        </svg>
+        No channels yet.
+      </li>
+    {% endfor %}
+  </ul>
+</div>

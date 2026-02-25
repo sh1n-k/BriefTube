@@ -1,0 +1,24 @@
+{% if q %}
+<div class="rounded-lg border border-indigo-200 bg-indigo-50/30 p-4">
+  <h3 class="mb-3 text-sm font-semibold text-slate-700">Results for "{{ q }}"</h3>
+  <ul class="space-y-2">
+    {% for item in results %}
+    <li class="rounded-lg border border-slate-200 bg-white p-3 transition hover:border-indigo-300 hover:shadow-sm">
+      <div class="flex items-center gap-2">
+        <a class="font-medium text-indigo-700 hover:text-indigo-900" href="/videos/{{ item.video_id }}">{{ item.video_title }}</a>
+        {% if item.source == 'transcript' %}
+          <span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">transcript</span>
+        {% elif item.source == 'article' %}
+          <span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-700">article</span>
+        {% else %}
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{{ item.source }}</span>
+        {% endif %}
+      </div>
+      <p class="mt-1 text-sm text-slate-600 line-clamp-2">{{ item.snippet }}...</p>
+    </li>
+    {% else %}
+    <li class="py-4 text-center text-sm text-slate-400">No matches found.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}

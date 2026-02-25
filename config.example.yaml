@@ -1,0 +1,11 @@
+polling_interval_minutes: 15
+max_retry_count: 3
+openclaw_api_url: ""
+openclaw_api_key: ""
+openclaw_timeout_seconds: 120
+telegram_bot_token: ""
+telegram_chat_id: ""
+thumbnail_dir: "./thumbnails"
+db_path: "./data.db"
+rss_timeout_seconds: 20
+http_timeout_seconds: 30
