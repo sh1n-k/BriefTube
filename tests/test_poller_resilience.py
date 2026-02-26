@@ -32,7 +32,7 @@ def test_poll_once_deactivates_404_channel_and_continues(client) -> None:
         conn.commit()
 
     class FakeRSSService:
-        async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None):
+        async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
             if channel_id == "UC404resilience001":
                 request = httpx.Request("GET", "https://www.youtube.com/feeds/videos.xml")
                 response = httpx.Response(404, request=request)
@@ -107,7 +107,7 @@ def test_poll_once_applies_bootstrap_lookback_for_new_channels(client) -> None:
     recent = (started_at - timedelta(days=10)).isoformat()
 
     class FakeRSSService:
-        async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None):
+        async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
             return (
                 [
                     {

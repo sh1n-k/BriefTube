@@ -372,6 +372,7 @@ async def set_policy(request: Request):
     content_type = request.headers.get("content-type", "")
     lookback_value: int | None = None
     retention_value: int | None = None
+    feed_mode_value: str | None = None
 
     try:
         if "application/json" in content_type:
@@ -380,6 +381,8 @@ async def set_policy(request: Request):
                 lookback_value = int(payload.get("rss_bootstrap_lookback_days"))
             if "retention_days" in payload:
                 retention_value = int(payload.get("retention_days"))
+            if "rss_feed_mode" in payload:
+                feed_mode_value = str(payload["rss_feed_mode"])
         else:
             form = await request.form()
             lookback_raw = str(form.get("rss_bootstrap_lookback_days", "")).strip()
@@ -388,6 +391,9 @@ async def set_policy(request: Request):
                 lookback_value = int(lookback_raw)
             if retention_raw:
                 retention_value = int(retention_raw)
+            feed_mode_raw = str(form.get("rss_feed_mode", "")).strip()
+            if feed_mode_raw:
+                feed_mode_value = feed_mode_raw
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="policy values must be integers")
 
@@ -395,5 +401,6 @@ async def set_policy(request: Request):
         request.app.state.runtime.db,
         rss_bootstrap_lookback_days=lookback_value,
         retention_days=retention_value,
+        rss_feed_mode=feed_mode_value,
     )
     return {"ok": True, "policy": saved}

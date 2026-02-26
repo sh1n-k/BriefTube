@@ -22,8 +22,13 @@ class RSSService:
         channel_id: str,
         etag: str | None = None,
         last_modified: str | None = None,
+        feed_mode: str = "long_form_only",
     ) -> tuple[list[dict[str, str]], str | None, str | None]:
-        url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        if feed_mode == "long_form_only" and channel_id.startswith("UC"):
+            playlist_id = "UULF" + channel_id[2:]
+            url = f"https://www.youtube.com/feeds/videos.xml?playlist_id={playlist_id}"
+        else:
+            url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
         headers: dict[str, str] = {}
         if etag:
             headers["If-None-Match"] = etag

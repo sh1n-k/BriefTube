@@ -26,6 +26,9 @@ RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY = "rss_bootstrap_lookback_days"
 RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT = 60
 RETENTION_DAYS_KEY = "retention_days"
 RETENTION_DAYS_DEFAULT = 180
+RSS_FEED_MODE_KEY = "rss_feed_mode"
+RSS_FEED_MODE_DEFAULT = "long_form_only"
+RSS_FEED_MODE_OPTIONS = {"all", "long_form_only"}
 VIDEOS_PER_PAGE_KEY = "videos_per_page"
 VIDEOS_PER_PAGE_DEFAULT = 8
 TRANSCRIPT_GUARD_DEFAULTS: dict[str, str] = {
@@ -704,7 +707,7 @@ async def is_worker_enabled(db: aiosqlite.Connection, worker: str) -> bool:
     return _parse_bool_setting(raw, default=default)
 
 
-async def get_policy_settings(db: aiosqlite.Connection) -> dict[str, int]:
+async def get_policy_settings(db: aiosqlite.Connection) -> dict[str, int | str]:
     lookback_raw = await get_setting(
         db,
         key=RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY,
@@ -715,6 +718,10 @@ async def get_policy_settings(db: aiosqlite.Connection) -> dict[str, int]:
         key=RETENTION_DAYS_KEY,
         default=str(RETENTION_DAYS_DEFAULT),
     )
+    feed_mode_raw = await get_setting(db, key=RSS_FEED_MODE_KEY, default=RSS_FEED_MODE_DEFAULT)
+    feed_mode = str(feed_mode_raw).strip().lower() if feed_mode_raw else RSS_FEED_MODE_DEFAULT
+    if feed_mode not in RSS_FEED_MODE_OPTIONS:
+        feed_mode = RSS_FEED_MODE_DEFAULT
     return {
         "rss_bootstrap_lookback_days": _parse_int_setting(
             lookback_raw,
@@ -728,6 +735,7 @@ async def get_policy_settings(db: aiosqlite.Connection) -> dict[str, int]:
             min_value=1,
             max_value=3650,
         ),
+        "rss_feed_mode": feed_mode,
     }
 
 
@@ -735,7 +743,8 @@ async def set_policy_settings(
     db: aiosqlite.Connection,
     rss_bootstrap_lookback_days: int | None = None,
     retention_days: int | None = None,
-) -> dict[str, int]:
+    rss_feed_mode: str | None = None,
+) -> dict[str, int | str]:
     current = await get_policy_settings(db)
     lookback_value = current["rss_bootstrap_lookback_days"]
     retention_value = current["retention_days"]
@@ -758,10 +767,13 @@ async def set_policy_settings(
         )
         await set_setting(db, key=RETENTION_DAYS_KEY, value=str(retention_value))
 
-    return {
-        "rss_bootstrap_lookback_days": lookback_value,
-        "retention_days": retention_value,
-    }
+    if rss_feed_mode is not None:
+        normalized = str(rss_feed_mode).strip().lower()
+        if normalized not in RSS_FEED_MODE_OPTIONS:
+            normalized = RSS_FEED_MODE_DEFAULT
+        await set_setting(db, key=RSS_FEED_MODE_KEY, value=normalized)
+
+    return await get_policy_settings(db)
 
 
 async def get_videos_per_page_setting(db: aiosqlite.Connection) -> int:

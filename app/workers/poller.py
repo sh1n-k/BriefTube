@@ -63,6 +63,7 @@ async def poll_once(state: AppState) -> int:
     channels = await repository.list_active_channels(state.db)
     policy = await repository.get_policy_settings(state.db)
     lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
+    feed_mode = str(policy.get("rss_feed_mode", "long_form_only"))
     started_at = getattr(state, "started_at", datetime.now(timezone.utc))
     lower_bound = started_at - timedelta(days=lookback_days)
     total_inserted = 0
@@ -71,14 +72,18 @@ async def poll_once(state: AppState) -> int:
         channel_id = channel["channel_id"]
         channel_name = channel.get("channel_name") or channel_id
         cache = state.rss_cache.get(channel_id, {})
-        etag = cache.get("etag")
-        last_modified = cache.get("last_modified")
+        if cache.get("feed_mode", "") != feed_mode:
+            etag, last_modified = None, None
+        else:
+            etag = cache.get("etag")
+            last_modified = cache.get("last_modified")
 
         try:
             entries, new_etag, new_last_modified = await state.rss_service.fetch_channel_feed(
                 channel_id=channel_id,
                 etag=etag,
                 last_modified=last_modified,
+                feed_mode=feed_mode,
             )
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
@@ -111,6 +116,7 @@ async def poll_once(state: AppState) -> int:
         state.rss_cache[channel_id] = {
             "etag": new_etag or "",
             "last_modified": new_last_modified or "",
+            "feed_mode": feed_mode,
         }
 
         watermark = channel.get("last_seen_published_at")
