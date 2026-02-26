@@ -17,6 +17,7 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
     assert initial.json()["policy"] == {
         "rss_bootstrap_lookback_days": 60,
         "retention_days": 180,
+        "rss_feed_mode": "long_form_only",
     }
     assert initial.json()["videos_per_page"] == 8
 
@@ -100,6 +101,7 @@ def test_settings_policy_update(client: TestClient) -> None:
     assert response.json()["policy"] == {
         "rss_bootstrap_lookback_days": 45,
         "retention_days": 120,
+        "rss_feed_mode": "long_form_only",
     }
 
     after = client.get("/api/settings")
@@ -107,4 +109,20 @@ def test_settings_policy_update(client: TestClient) -> None:
     assert after.json()["policy"] == {
         "rss_bootstrap_lookback_days": 45,
         "retention_days": 120,
+        "rss_feed_mode": "long_form_only",
     }
+
+
+def test_settings_feed_mode_update(client: TestClient) -> None:
+    resp = client.put("/api/settings/policy", json={"rss_feed_mode": "all"})
+    assert resp.status_code == 200
+    assert resp.json()["policy"]["rss_feed_mode"] == "all"
+
+    after = client.get("/api/settings")
+    assert after.json()["policy"]["rss_feed_mode"] == "all"
+
+
+def test_settings_feed_mode_invalid_fallback(client: TestClient) -> None:
+    resp = client.put("/api/settings/policy", json={"rss_feed_mode": "invalid"})
+    assert resp.status_code == 200
+    assert resp.json()["policy"]["rss_feed_mode"] == "long_form_only"
