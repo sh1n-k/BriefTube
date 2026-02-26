@@ -25,6 +25,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'id="channel-list-wrap"' not in response.text
     assert 'href="/settings"' in response.text
     assert response.text.count('href="/settings"') == 1
+    assert 'href="/channels"' in response.text
+    assert "채널 등록/일괄 추가는 채널 관리 페이지에서 진행합니다." in response.text
     assert "자막 보호 상태" in response.text
     assert "주의 구역: 자막 보호 상태 초기화" in response.text
     assert len(re.findall(r'type="number"', response.text)) >= 3

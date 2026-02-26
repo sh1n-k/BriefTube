@@ -99,3 +99,50 @@ def test_bulk_resolve_google_csv_upload_directly_resolves(client: TestClient) ->
     assert len(payload["resolved"]) == 1
     assert payload["resolved"][0]["resolved"]["channel_id"] == "UC0byV7SMA-MjzByM5fZR1EA"
     assert len(payload["needs_selection"]) == 0
+
+
+def test_bulk_resolve_handles_resolver_exception(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver = client.app.state.runtime.channel_resolver
+
+    async def fake_resolve_input(raw_input: str) -> dict:
+        if raw_input == "raise-input":
+            raise RuntimeError("unexpected")
+        return {
+            "input": raw_input,
+            "status": "resolved",
+            "resolved": {
+                "channel_id": "UCok001",
+                "channel_name": "Resolved OK",
+                "channel_url": "https://www.youtube.com/channel/UCok001",
+            },
+        }
+
+    monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
+
+    response = client.post("/api/channels/bulk/resolve", json={"bulk_text": "raise-input\nsafe-input"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["resolved"]) == 1
+    assert len(payload["failed"]) == 1
+    assert payload["failed"][0]["input"] == "raise-input"
+    assert payload["failed"][0]["reason"] == "resolver exception: RuntimeError"
+
+
+def test_bulk_resolve_json_takeout_entries_uses_parser(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver = client.app.state.runtime.channel_resolver
+    seen_inputs: list[str] = []
+
+    async def fake_resolve_input(raw_input: str) -> dict:
+        seen_inputs.append(raw_input)
+        return {"input": raw_input, "status": "failed", "reason": "mock"}
+
+    monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
+
+    response = client.post(
+        "/api/channels/bulk/resolve",
+        json={"takeout_entries": ["hello https://www.youtube.com/@alpha world"]},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_inputs"] >= 1
+    assert any("youtube.com/@alpha" in item for item in seen_inputs)

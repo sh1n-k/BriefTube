@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 
 def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient) -> None:
@@ -40,3 +41,83 @@ def test_index_does_not_render_channel_panels(client: TestClient) -> None:
     html = response.text
     assert 'hx-post="/api/channels"' not in html
     assert 'id="channel-list-wrap"' not in html
+
+
+def test_channels_page_renders_add_and_bulk_forms(client: TestClient) -> None:
+    response = client.get("/channels")
+    assert response.status_code == 200
+    html = response.text
+    assert 'hx-post="/views/channels/add"' in html
+    assert 'name="source"' in html
+    assert 'hx-post="/views/channels/bulk-resolve"' in html
+    assert 'name="takeout_file"' in html
+
+
+def test_add_channel_view_saves_resolved_channel(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver = client.app.state.runtime.channel_resolver
+
+    async def fake_resolve_input(raw_input: str) -> dict:
+        return {
+            "input": raw_input,
+            "status": "resolved",
+            "resolved": {
+                "channel_id": "UCsingle001",
+                "channel_name": "Single Channel",
+                "channel_url": "https://www.youtube.com/channel/UCsingle001",
+            },
+        }
+
+    monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
+
+    response = client.post("/views/channels/add", data={"source": "@single"})
+    assert response.status_code == 200
+    assert "채널이 저장되었습니다." in response.text
+    assert 'id="channel-list-wrap" hx-swap-oob="true"' in response.text
+
+    channels = client.get("/api/channels").json()
+    assert any(item["channel_id"] == "UCsingle001" for item in channels)
+
+
+def test_add_channel_view_requires_selection_when_multiple_candidates(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = client.app.state.runtime.channel_resolver
+
+    async def fake_resolve_input(raw_input: str) -> dict:
+        return {
+            "input": raw_input,
+            "status": "needs_selection",
+            "candidates": [
+                {
+                    "channel_id": "UCcand001",
+                    "channel_name": "Candidate One",
+                    "channel_url": "https://www.youtube.com/channel/UCcand001",
+                },
+                {
+                    "channel_id": "UCcand002",
+                    "channel_name": "Candidate Two",
+                    "channel_url": "https://www.youtube.com/channel/UCcand002",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
+
+    response = client.post("/views/channels/add", data={"source": "candidate search"})
+    assert response.status_code == 200
+    assert 'name="selected_candidate"' in response.text
+    assert "선택 채널 저장" in response.text
+    assert "Candidate One" in response.text
+
+
+def test_add_channel_view_saves_selected_candidate(client: TestClient) -> None:
+    response = client.post(
+        "/views/channels/add",
+        data={"source": "candidate search", "selected_candidate": "UCpicked001|||Picked Channel"},
+    )
+    assert response.status_code == 200
+    assert "채널이 저장되었습니다." in response.text
+
+    channels = client.get("/api/channels").json()
+    assert any(item["channel_id"] == "UCpicked001" and item["channel_name"] == "Picked Channel" for item in channels)

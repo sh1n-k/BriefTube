@@ -12,6 +12,15 @@ YOUTUBE_URL_RE = re.compile(r"https?://(?:www\.)?youtube\.com/[^\s\"'<>]+", re.I
 HANDLE_RE = re.compile(r"@[A-Za-z0-9_.-]+")
 
 
+def _decode_bytes(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "cp949"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="ignore")
+
+
 def _unique(values: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -80,22 +89,28 @@ def parse_takeout_file_details(filename: str, content: bytes) -> ParsedTakeout:
     if lowered.endswith(".csv"):
         return _parse_csv(content)
 
-    text = content.decode("utf-8", errors="ignore")
+    text = _decode_bytes(content)
     tokens = _extract_tokens(text)
     return ParsedTakeout(direct_channels=[], inputs=tokens)
 
 
 def _parse_csv(content: bytes) -> ParsedTakeout:
-    text = content.decode("utf-8", errors="ignore")
-    reader = csv.DictReader(io.StringIO(text))
+    text = _decode_bytes(content)
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
 
     entries: list[str] = []
     direct_channels: list[dict[str, str]] = []
     seen_ids: set[str] = set()
 
-    id_aliases = {"channelid", "channelidentifier", "id"}
-    title_aliases = {"channeltitle", "channelname", "title", "name"}
-    url_aliases = {"channelurl", "url", "link"}
+    id_aliases = {"channelid", "channelidentifier", "id", "채널id", "채널아이디", "아이디"}
+    title_aliases = {"channeltitle", "channelname", "title", "name", "채널명", "채널이름", "이름", "제목"}
+    url_aliases = {"channelurl", "url", "link", "채널url", "채널링크", "주소", "링크"}
+    fallback_header_terms = ("channel", "url", "id", "title", "name", "handle", "채널", "이름", "제목", "링크", "주소", "아이디", "핸들")
 
     for row in reader:
         normalized_row = {str(key or "").strip(): str(value or "").strip() for key, value in row.items()}
@@ -104,13 +119,13 @@ def _parse_csv(content: bytes) -> ParsedTakeout:
         channel_name = _find_value(normalized_row, title_aliases)
         channel_url = _find_value(normalized_row, url_aliases)
 
-        if CHANNEL_ID_RE.fullmatch(channel_id) and channel_name:
+        if CHANNEL_ID_RE.fullmatch(channel_id):
             if channel_id not in seen_ids:
                 seen_ids.add(channel_id)
                 direct_channels.append(
                     {
                         "channel_id": channel_id,
-                        "channel_name": channel_name,
+                        "channel_name": channel_name or channel_id,
                         "channel_url": channel_url or f"https://www.youtube.com/channel/{channel_id}",
                     }
                 )
@@ -119,11 +134,11 @@ def _parse_csv(content: bytes) -> ParsedTakeout:
         for key, value in row.items():
             if value is None:
                 continue
-            key_lower = (key or "").lower()
+            key_normalized = _normalize_header(key or "")
             candidate = value.strip()
             if not candidate:
                 continue
-            if "channel" in key_lower or "url" in key_lower or "id" in key_lower or "title" in key_lower or "name" in key_lower:
+            if any(term in key_normalized for term in fallback_header_terms):
                 entries.append(candidate)
                 entries.extend(_extract_tokens(candidate))
 
@@ -134,7 +149,7 @@ def _parse_csv(content: bytes) -> ParsedTakeout:
 
 
 def _parse_json(content: bytes) -> list[str]:
-    parsed = json.loads(content.decode("utf-8", errors="ignore"))
+    parsed = json.loads(_decode_bytes(content))
     entries: list[str] = []
 
     def walk(node: Any) -> None:

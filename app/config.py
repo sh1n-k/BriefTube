@@ -7,6 +7,7 @@ import os
 
 @dataclass(slots=True)
 class AppConfig:
+    env: str = "prod"
     polling_interval_minutes: int = 15
     max_retry_count: int = 3
     openclaw_api_url: str = ""
@@ -32,12 +33,15 @@ class AppConfig:
     transcript_hard_cooldown_max_seconds: int = 3600
     transcript_recovery_success_window: int = 5
     transcript_general_error_slowdown_multiplier: float = 1.25
-    log_level: str = "INFO"
+    log_level: str = "AUTO"
     log_to_file: bool = True
     log_dir: str = "./logs"
     log_file_name: str = "brieftube.log"
-    log_file_max_bytes: int = 5 * 1024 * 1024
-    log_file_backup_count: int = 5
+    log_file_max_bytes: int = 10 * 1024 * 1024
+    log_file_backup_count: int = 10
+    log_noise_window_seconds: int = 60
+    log_noise_suppress_threshold: int = 1
+    log_dependency_level: str = "WARNING"
 
 
 def _parse_scalar(value: str) -> str | int | bool:
@@ -86,6 +90,7 @@ def load_config() -> AppConfig:
     file_values = _load_simple_yaml(Path(config_file)) if config_file else {}
 
     cfg = AppConfig(
+        env=str(file_values.get("env", base.env)),
         polling_interval_minutes=int(file_values.get("polling_interval_minutes", base.polling_interval_minutes)),
         max_retry_count=int(file_values.get("max_retry_count", base.max_retry_count)),
         openclaw_api_url=str(file_values.get("openclaw_api_url", base.openclaw_api_url)),
@@ -175,8 +180,14 @@ def load_config() -> AppConfig:
         log_file_name=str(file_values.get("log_file_name", base.log_file_name)),
         log_file_max_bytes=int(file_values.get("log_file_max_bytes", base.log_file_max_bytes)),
         log_file_backup_count=int(file_values.get("log_file_backup_count", base.log_file_backup_count)),
+        log_noise_window_seconds=int(file_values.get("log_noise_window_seconds", base.log_noise_window_seconds)),
+        log_noise_suppress_threshold=int(
+            file_values.get("log_noise_suppress_threshold", base.log_noise_suppress_threshold)
+        ),
+        log_dependency_level=str(file_values.get("log_dependency_level", base.log_dependency_level)),
     )
 
+    cfg.env = os.getenv("ENV", cfg.env).strip().lower() or "prod"
     cfg.polling_interval_minutes = int(os.getenv("POLLING_INTERVAL_MINUTES", cfg.polling_interval_minutes))
     cfg.max_retry_count = int(os.getenv("MAX_RETRY_COUNT", cfg.max_retry_count))
     cfg.openclaw_api_url = os.getenv("OPENCLAW_API_URL", cfg.openclaw_api_url)
@@ -260,12 +271,17 @@ def load_config() -> AppConfig:
         ),
         cfg.transcript_general_error_slowdown_multiplier,
     )
-    cfg.log_level = os.getenv("LOG_LEVEL", cfg.log_level).upper()
+    cfg.log_level = os.getenv("LOG_LEVEL", cfg.log_level).strip().upper() or "AUTO"
     cfg.log_to_file = _parse_env_bool(os.getenv("LOG_TO_FILE", str(cfg.log_to_file)))
     cfg.log_dir = os.getenv("LOG_DIR", cfg.log_dir)
     cfg.log_file_name = os.getenv("LOG_FILE_NAME", cfg.log_file_name)
     cfg.log_file_max_bytes = int(os.getenv("LOG_FILE_MAX_BYTES", cfg.log_file_max_bytes))
     cfg.log_file_backup_count = int(os.getenv("LOG_FILE_BACKUP_COUNT", cfg.log_file_backup_count))
+    cfg.log_noise_window_seconds = int(os.getenv("LOG_NOISE_WINDOW_SECONDS", cfg.log_noise_window_seconds))
+    cfg.log_noise_suppress_threshold = int(
+        os.getenv("LOG_NOISE_SUPPRESS_THRESHOLD", cfg.log_noise_suppress_threshold)
+    )
+    cfg.log_dependency_level = os.getenv("LOG_DEPENDENCY_LEVEL", cfg.log_dependency_level).strip().upper()
 
     cfg.transcript_fetch_batch_size = max(1, cfg.transcript_fetch_batch_size)
     cfg.transcript_request_interval_seconds = max(1, cfg.transcript_request_interval_seconds)
@@ -289,4 +305,9 @@ def load_config() -> AppConfig:
         1.0,
         cfg.transcript_general_error_slowdown_multiplier,
     )
+    cfg.log_file_max_bytes = max(1024, cfg.log_file_max_bytes)
+    cfg.log_file_backup_count = max(1, cfg.log_file_backup_count)
+    cfg.log_noise_window_seconds = max(1, cfg.log_noise_window_seconds)
+    cfg.log_noise_suppress_threshold = max(1, cfg.log_noise_suppress_threshold)
+    cfg.log_dependency_level = cfg.log_dependency_level or "WARNING"
     return cfg

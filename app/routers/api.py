@@ -69,8 +69,11 @@ async def resolve_bulk_channels(request: Request):
     if "application/json" in content_type:
         payload = await request.json()
         bulk_text = str(payload.get("bulk_text", ""))
-        takeout_data = parse_takeout_entries("takeout.txt", b"")
-        takeout_data.inputs.extend([str(item) for item in payload.get("takeout_entries", [])])
+        raw_entries = [str(item).strip() for item in payload.get("takeout_entries", []) if str(item).strip()]
+        if raw_entries:
+            takeout_data = parse_takeout_entries("takeout.txt", "\n".join(raw_entries).encode("utf-8"))
+        else:
+            takeout_data = parse_takeout_entries("takeout.txt", b"")
     else:
         form = await request.form()
         bulk_text = str(form.get("bulk_text", ""))

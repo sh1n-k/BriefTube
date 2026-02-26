@@ -1,0 +1,41 @@
+{% if add_mode == "success" %}
+<div class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+  {{ add_message }}
+</div>
+{% elif add_mode == "error" %}
+<div class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+  {{ add_message }}
+  {% if add_reason %}
+  <span class="mt-1 block text-xs text-rose-700">{{ add_reason }}</span>
+  {% endif %}
+</div>
+{% elif add_mode == "selection" %}
+<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+  <p class="font-medium">{{ add_message }}</p>
+  <form
+    class="mt-2 space-y-2"
+    hx-post="/views/channels/add"
+    hx-target="#channel-add-result"
+    hx-swap="innerHTML"
+  >
+    <input type="hidden" name="source" value="{{ add_source }}" />
+    <label class="block text-xs text-amber-800">{{ txt.channel_add_select_label }}</label>
+    <select name="selected_candidate" class="w-full rounded border border-amber-300 bg-white px-2 py-1 text-sm">
+      {% for candidate in add_candidates %}
+      <option value="{{ candidate.channel_id }}|||{{ candidate.channel_name }}">
+        {{ candidate.channel_name }} ({{ candidate.channel_id }})
+      </option>
+      {% endfor %}
+    </select>
+    <button class="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700">
+      {{ txt.channel_add_select_submit }}
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{% if channels is defined %}
+<div id="channel-list-wrap" hx-swap-oob="true">
+  {% include "fragments/channel_list.html" %}
+</div>
+{% endif %}

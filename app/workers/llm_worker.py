@@ -45,6 +45,11 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         "lead": article["lead"],
                     }
                 )
+                logger.info(
+                    "event=llm.restructure_succeeded worker=llm video_id=%s",
+                    video_id,
+                    extra={"event": "llm.restructure_succeeded", "worker": "llm"},
+                )
             except Exception:
                 next_status = await repository.mark_restructure_failed(
                     state.db,
@@ -53,10 +58,14 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     max_retry_count=state.config.max_retry_count,
                 )
                 logger.exception(
-                    "LLM restructure failed. video_id=%s next_status=%s",
+                    "event=llm.restructure_failed worker=llm video_id=%s next_status=%s",
                     video_id,
                     next_status,
+                    extra={"event": "llm.restructure_failed", "worker": "llm"},
                 )
         except Exception:
-            logger.exception("LLM worker loop failed")
+            logger.exception(
+                "event=llm.worker_loop_failed worker=llm",
+                extra={"event": "llm.worker_loop_failed", "worker": "llm"},
+            )
             await asyncio.sleep(5)

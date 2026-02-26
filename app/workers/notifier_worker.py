@@ -50,7 +50,21 @@ async def run_telegram_notifier(state: AppState) -> None:
             message = _format_batch_message(batch)
             response = await state.telegram_notifier.send(message)
             if not response.get("ok", False):
-                logger.warning("Telegram send skipped/failed: %s", response)
+                logger.warning(
+                    "event=notifier.send_failed worker=notifier batch_size=%s response=%s",
+                    len(batch),
+                    response,
+                    extra={"event": "notifier.send_failed", "worker": "notifier"},
+                )
+            else:
+                logger.info(
+                    "event=notifier.send_succeeded worker=notifier batch_size=%s",
+                    len(batch),
+                    extra={"event": "notifier.send_succeeded", "worker": "notifier"},
+                )
         except Exception:
-            logger.exception("Notifier loop failed")
+            logger.exception(
+                "event=notifier.worker_loop_failed worker=notifier",
+                extra={"event": "notifier.worker_loop_failed", "worker": "notifier"},
+            )
             await asyncio.sleep(3)

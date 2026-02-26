@@ -50,6 +50,16 @@ python scripts/init_db.py
 | `POLLING_INTERVAL_MINUTES` | RSS 폴링 주기 | `15` |
 | `TRANSCRIPT_RETRY_MAX_ATTEMPTS` | 자막 수집 재시도 최대 횟수 | `8` |
 | `TRANSCRIPT_FETCH_TIMEOUT_SECONDS` | 자막 수집 요청 타임아웃(초) | `45` |
+| `ENV` | 실행 환경 (`dev/local/development`면 DEBUG 기본) | `prod` |
+| `LOG_LEVEL` | 로그 레벨 (`AUTO`면 ENV 기반 자동) | `AUTO` |
+| `LOG_TO_FILE` | 파일 로그 활성화 여부 | `true` |
+| `LOG_FILE_MAX_BYTES` | 파일 로테이션 최대 바이트 | `10485760` |
+| `LOG_FILE_BACKUP_COUNT` | 백업 파일 개수 | `10` |
+| `LOG_NOISE_WINDOW_SECONDS` | 반복 경고/에러 집계 시간창(초) | `60` |
+| `LOG_NOISE_SUPPRESS_THRESHOLD` | 시간창 내 상세 출력 허용 횟수 | `1` |
+| `LOG_DEPENDENCY_LEVEL` | 외부 라이브러리 로그 레벨 | `WARNING` |
+
+로그 파일 최대 사용량은 대략 `LOG_FILE_MAX_BYTES * (LOG_FILE_BACKUP_COUNT + 1)` 입니다.
 
 전체 설정 키는 `app/config.py`의 `AppConfig` 참조.
 

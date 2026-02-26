@@ -196,13 +196,14 @@ async def run_transcript_fetcher(state: AppState) -> None:
     next_request_monotonic_at = 0.0
 
     logger.info(
-        "Transcript guard enabled. batch=%s interval=%ss jitter=%.2f adaptive=%s factor=%.2f cooldown_until=%s",
+        "event=transcript.guard_enabled worker=transcript batch=%s interval=%ss jitter=%.2f adaptive=%s factor=%.2f cooldown_until=%s",
         fetch_batch_size,
         request_interval_seconds,
         jitter_ratio,
         adaptive_enabled,
         guard.adaptive_factor,
         guard.cooldown_until.isoformat() if guard.cooldown_until else "-",
+        extra={"event": "transcript.guard_enabled", "worker": "transcript"},
     )
 
     while True:
@@ -219,7 +220,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
             guard.cooldown_until = None
             guard.consecutive_hard_errors = 0
             await _save_guard_state(state, guard)
-            logger.info("Transcript guard cooldown released")
+            logger.info(
+                "event=transcript.cooldown_released worker=transcript",
+                extra={"event": "transcript.cooldown_released", "worker": "transcript"},
+            )
 
         try:
             pending = await repository.pop_pending_transcript_videos(state.db, limit=fetch_batch_size)
@@ -317,7 +321,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.consecutive_successes = 0
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
                         await _save_guard_state(state, guard)
-                        logger.info("No subtitle for video_id=%s", video_id)
+                        logger.info(
+                            "event=transcript.no_subtitle worker=transcript video_id=%s",
+                            video_id,
+                            extra={"event": "transcript.no_subtitle", "worker": "transcript"},
+                        )
                         continue
 
                     if error_category == TranscriptErrorCategory.HARD_THROTTLE:
@@ -347,11 +355,16 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 error_message=error_message,
                             )
                             logger.warning(
-                                "Transcript hard throttle reached retry limit. video_id=%s retry=%s factor=%.2f error=%s",
+                                "event=transcript.hard_throttle_limit worker=transcript video_id=%s retry=%s factor=%.2f error=%s",
                                 video_id,
                                 next_retry_count,
                                 guard.adaptive_factor,
                                 error_message,
+                                extra={
+                                    "event": "transcript.hard_throttle_limit",
+                                    "worker": "transcript",
+                                    "category": "hard_throttle",
+                                },
                             )
                         else:
                             await repository.schedule_transcript_retry(
@@ -361,12 +374,17 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 error_message=error_message,
                             )
                             logger.warning(
-                                "Transcript hard throttle detected. video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
+                                "event=transcript.hard_throttle worker=transcript video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
                                 video_id,
                                 next_retry_count,
                                 cooldown_seconds,
                                 guard.adaptive_factor,
                                 error_message,
+                                extra={
+                                    "event": "transcript.hard_throttle",
+                                    "worker": "transcript",
+                                    "category": "hard_throttle",
+                                },
                             )
                         continue
 
@@ -430,5 +448,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             error_message,
                         )
         except Exception:
-            logger.exception("Transcript worker loop failed")
+            logger.exception(
+                "event=transcript.worker_loop_failed worker=transcript",
+                extra={"event": "transcript.worker_loop_failed", "worker": "transcript"},
+            )
             await asyncio.sleep(idle_sleep_seconds)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 
 from fastapi import APIRouter, Form, Query, Request, Response
 from starlette.datastructures import UploadFile
 
 from app import repository
+from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.routers.template_context import build_template_context
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
@@ -14,6 +16,7 @@ from app.services.bulk_channels import (
 )
 
 router = APIRouter(prefix="/views", tags=["views"])
+logger = logging.getLogger(__name__)
 
 
 def _safe_int(value: str | None, default: int) -> int:
@@ -48,6 +51,163 @@ async def channel_list(request: Request):
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/channel_list.html",
+        context=context,
+    )
+
+
+def _unpack_candidate(value: str) -> tuple[str, str] | None:
+    packed = value.strip()
+    if "|||" not in packed:
+        return None
+    channel_id, channel_name = packed.split("|||", 1)
+    normalized_id = channel_id.strip()
+    normalized_name = channel_name.strip()
+    if not normalized_id or not normalized_name:
+        return None
+    return normalized_id, normalized_name
+
+
+async def _texts(request: Request) -> dict[str, str]:
+    language = normalize_language(
+        await repository.get_setting(
+            request.app.state.runtime.db,
+            key="language",
+            default=DEFAULT_LANGUAGE,
+        )
+    )
+    return get_texts(language)
+
+
+@router.post("/channels/add")
+async def add_channel(request: Request):
+    form = await request.form()
+    selected_candidate = str(form.get("selected_candidate", "")).strip()
+    source = str(form.get("source", "")).strip()
+    txt = await _texts(request)
+
+    if selected_candidate:
+        unpacked = _unpack_candidate(selected_candidate)
+        if not unpacked:
+            context = await build_template_context(
+                request,
+                add_mode="error",
+                add_message=txt["channel_add_invalid_selection"],
+                add_source=source,
+                add_candidates=[],
+            )
+            return request.app.state.templates.TemplateResponse(
+                request=request,
+                name="fragments/channel_add_result.html",
+                context=context,
+            )
+
+        channel_id, channel_name = unpacked
+        await repository.add_channel(
+            request.app.state.runtime.db,
+            channel_id=channel_id,
+            channel_name=channel_name,
+        )
+        channels = await repository.list_channels(request.app.state.runtime.db)
+        context = await build_template_context(
+            request,
+            add_mode="success",
+            add_message=txt["channel_add_saved"],
+            add_source="",
+            add_candidates=[],
+            channels=channels,
+        )
+        return request.app.state.templates.TemplateResponse(
+            request=request,
+            name="fragments/channel_add_result.html",
+            context=context,
+        )
+
+    if not source:
+        context = await build_template_context(
+            request,
+            add_mode="error",
+            add_message=txt["channel_add_empty_input"],
+            add_source="",
+            add_candidates=[],
+        )
+        return request.app.state.templates.TemplateResponse(
+            request=request,
+            name="fragments/channel_add_result.html",
+            context=context,
+        )
+
+    try:
+        resolved = await request.app.state.runtime.channel_resolver.resolve_input(source)
+    except Exception as exc:
+        logger.warning(
+            "event=channels.single_resolve_error source=%s error_type=%s",
+            source,
+            exc.__class__.__name__,
+        )
+        context = await build_template_context(
+            request,
+            add_mode="error",
+            add_message=txt["channel_add_resolve_error"],
+            add_source=source,
+            add_candidates=[],
+        )
+        return request.app.state.templates.TemplateResponse(
+            request=request,
+            name="fragments/channel_add_result.html",
+            context=context,
+        )
+
+    status = resolved.get("status")
+    if status == "resolved":
+        item = resolved.get("resolved") or {}
+        channel_id = str(item.get("channel_id", "")).strip()
+        channel_name = str(item.get("channel_name", "")).strip()
+        if channel_id and channel_name:
+            await repository.add_channel(
+                request.app.state.runtime.db,
+                channel_id=channel_id,
+                channel_name=channel_name,
+            )
+            channels = await repository.list_channels(request.app.state.runtime.db)
+            context = await build_template_context(
+                request,
+                add_mode="success",
+                add_message=txt["channel_add_saved"],
+                add_source="",
+                add_candidates=[],
+                channels=channels,
+            )
+            return request.app.state.templates.TemplateResponse(
+                request=request,
+                name="fragments/channel_add_result.html",
+                context=context,
+            )
+
+    if status == "needs_selection":
+        context = await build_template_context(
+            request,
+            add_mode="selection",
+            add_message=txt["channel_add_needs_selection"],
+            add_source=source,
+            add_candidates=resolved.get("candidates", []),
+        )
+        return request.app.state.templates.TemplateResponse(
+            request=request,
+            name="fragments/channel_add_result.html",
+            context=context,
+        )
+
+    context = await build_template_context(
+        request,
+        add_mode="error",
+        add_message=txt["channel_add_failed"],
+        add_source=source,
+        add_candidates=[],
+        add_reason=str(resolved.get("reason", "")).strip(),
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/channel_add_result.html",
         context=context,
     )
 

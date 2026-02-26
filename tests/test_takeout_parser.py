@@ -56,3 +56,40 @@ def test_collect_inputs_merges_takeout_and_text_inputs() -> None:
     assert collected["direct_channels"][0]["channel_id"] == "UC0oRRcVleNBmELYTgzwoBpg"
     assert "@GoogleDevelopers" in collected["inputs"]
     assert "https://www.youtube.com/@MKBHD" in collected["inputs"]
+
+
+def test_parse_takeout_json_supports_utf8_bom() -> None:
+    content = b'\xef\xbb\xbf{"subscriptions":[{"channelId":"UCbom001","url":"https://www.youtube.com/@bom"}]}'
+    items = parse_takeout_file("subscriptions.json", content)
+    assert "UCbom001" in items
+    assert "https://www.youtube.com/@bom" in items
+
+
+def test_parse_takeout_csv_supports_semicolon_delimiter() -> None:
+    content = (
+        "Channel Id;Channel Url;Channel Title\n"
+        "UC0byV7SMA-MjzByM5fZR1EA;https://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA;Semi Channel\n"
+    ).encode("utf-8")
+    parsed = parse_takeout_file_details("subscriptions.csv", content)
+    assert len(parsed.direct_channels) == 1
+    assert parsed.direct_channels[0]["channel_name"] == "Semi Channel"
+
+
+def test_parse_takeout_csv_supports_korean_headers_and_cp949() -> None:
+    content = (
+        "채널 아이디,채널 이름,채널 링크\n"
+        "UC0oRRcVleNBmELYTgzwoBpg,테스트 채널,https://www.youtube.com/channel/UC0oRRcVleNBmELYTgzwoBpg\n"
+    ).encode("cp949")
+    parsed = parse_takeout_file_details("subscriptions.csv", content)
+    assert len(parsed.direct_channels) == 1
+    assert parsed.direct_channels[0]["channel_name"] == "테스트 채널"
+
+
+def test_parse_takeout_csv_falls_back_to_channel_id_when_name_missing() -> None:
+    content = (
+        "Channel Id,Channel Url,Channel Title\n"
+        "UC0byV7SMA-MjzByM5fZR1EA,https://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA,\n"
+    ).encode("utf-8")
+    parsed = parse_takeout_file_details("subscriptions.csv", content)
+    assert len(parsed.direct_channels) == 1
+    assert parsed.direct_channels[0]["channel_name"] == "UC0byV7SMA-MjzByM5fZR1EA"
