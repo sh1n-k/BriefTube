@@ -17,9 +17,13 @@ def test_get_settings_includes_transcript_guard_defaults(client: TestClient) -> 
     assert "transcript_guard" in payload
     assert payload["transcript_guard"] == {
         "adaptive_factor": 1.0,
+        "breaker_state": "closed",
         "cooldown_until": None,
         "consecutive_hard_errors": 0,
         "consecutive_successes": 0,
+        "half_open_probe_remaining": 1,
+        "last_channel_attempt_at": None,
+        "last_channel_id": None,
     }
 
 
@@ -50,9 +54,13 @@ def test_reset_transcript_guard_api_resets_persisted_state(client: TestClient) -
     assert reset.json()["ok"] is True
     assert reset.json()["transcript_guard"] == {
         "adaptive_factor": 1.0,
+        "breaker_state": "closed",
         "cooldown_until": None,
         "consecutive_hard_errors": 0,
         "consecutive_successes": 0,
+        "half_open_probe_remaining": 1,
+        "last_channel_attempt_at": None,
+        "last_channel_id": None,
     }
 
 

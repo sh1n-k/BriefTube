@@ -25,3 +25,12 @@ def test_classify_transcript_error_distinguishes_retryable_and_non_retryable() -
     unavailable = VideoUnavailable("vid-demo-004")
     assert _classify_transcript_error(generic) == TranscriptErrorCategory.RETRYABLE_TRANSIENT
     assert _classify_transcript_error(unavailable) == TranscriptErrorCategory.NON_RETRYABLE_FAILURE
+
+
+def test_classify_transcript_error_treats_ip_block_message_as_hard_throttle() -> None:
+    class IpBlockedLikeError(CouldNotRetrieveTranscript):
+        def __str__(self) -> str:
+            return "YouTube is blocking requests from your IP"
+
+    blocked_like = IpBlockedLikeError("vid-demo-005")
+    assert _classify_transcript_error(blocked_like) == TranscriptErrorCategory.HARD_THROTTLE

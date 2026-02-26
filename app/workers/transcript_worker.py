@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 import logging
+import os
 import random
 import time
 from typing import Any
+import uuid
 
 from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImports]
     AgeRestricted,
@@ -36,6 +38,12 @@ class TranscriptErrorCategory(str, Enum):
     NON_RETRYABLE_FAILURE = "non_retryable_failure"
 
 
+class TranscriptBreakerState(str, Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
 def _extract_status_code(exc: Exception) -> int | None:
     response = getattr(exc, "response", None)
     if response is None:
@@ -54,10 +62,15 @@ def _is_hard_throttle_error(exc: Exception) -> bool:
     markers = [
         " 403",
         " 429",
+        "youtube is blocking requests from your ip",
+        "ip has been blocked",
+        "request blocked",
         "forbidden",
         "too many requests",
         "rate limit",
         "quota",
+        "captcha",
+        "unusual traffic",
     ]
     return any(marker in message for marker in markers)
 
@@ -67,14 +80,14 @@ def _classify_transcript_error(exc: Exception) -> TranscriptErrorCategory:
         return TranscriptErrorCategory.NO_SUBTITLE
     if isinstance(exc, (RequestBlocked, IpBlocked)):
         return TranscriptErrorCategory.HARD_THROTTLE
+    if _is_hard_throttle_error(exc):
+        return TranscriptErrorCategory.HARD_THROTTLE
     if isinstance(exc, (InvalidVideoId, VideoUnavailable, AgeRestricted, VideoUnplayable)):
         return TranscriptErrorCategory.NON_RETRYABLE_FAILURE
     if isinstance(exc, asyncio.TimeoutError):
         return TranscriptErrorCategory.RETRYABLE_TRANSIENT
     if isinstance(exc, (YouTubeRequestFailed, YouTubeDataUnparsable, CouldNotRetrieveTranscript)):
         return TranscriptErrorCategory.RETRYABLE_TRANSIENT
-    if _is_hard_throttle_error(exc):
-        return TranscriptErrorCategory.HARD_THROTTLE
     return TranscriptErrorCategory.RETRYABLE_TRANSIENT
 
 
@@ -139,14 +152,25 @@ class TranscriptGuardState:
     cooldown_until: datetime | None = None
     consecutive_hard_errors: int = 0
     consecutive_successes: int = 0
+    breaker_state: TranscriptBreakerState = TranscriptBreakerState.CLOSED
+    half_open_probe_remaining: int = 1
+    last_channel_id: str | None = None
+    last_channel_attempt_at: datetime | None = None
 
     @classmethod
     def from_repository(cls, payload: dict[str, Any]) -> "TranscriptGuardState":
+        state_raw = str(payload.get("breaker_state") or TranscriptBreakerState.CLOSED.value).strip().lower()
+        if state_raw not in {item.value for item in TranscriptBreakerState}:
+            state_raw = TranscriptBreakerState.CLOSED.value
         return cls(
             adaptive_factor=max(1.0, float(payload.get("adaptive_factor") or 1.0)),
             cooldown_until=_parse_cooldown(payload.get("cooldown_until")),
             consecutive_hard_errors=max(0, int(payload.get("consecutive_hard_errors") or 0)),
             consecutive_successes=max(0, int(payload.get("consecutive_successes") or 0)),
+            breaker_state=TranscriptBreakerState(state_raw),
+            half_open_probe_remaining=max(1, int(payload.get("half_open_probe_remaining") or 1)),
+            last_channel_id=str(payload.get("last_channel_id") or "").strip() or None,
+            last_channel_attempt_at=_parse_cooldown(payload.get("last_channel_attempt_at")),
         )
 
     def to_repository_payload(self) -> dict[str, Any]:
@@ -155,6 +179,12 @@ class TranscriptGuardState:
             "cooldown_until": self.cooldown_until.isoformat() if self.cooldown_until else None,
             "consecutive_hard_errors": self.consecutive_hard_errors,
             "consecutive_successes": self.consecutive_successes,
+            "breaker_state": self.breaker_state.value,
+            "half_open_probe_remaining": self.half_open_probe_remaining,
+            "last_channel_id": self.last_channel_id,
+            "last_channel_attempt_at": (
+                self.last_channel_attempt_at.isoformat() if self.last_channel_attempt_at else None
+            ),
         }
 
 
@@ -166,7 +196,28 @@ async def _save_guard_state(state: AppState, guard: TranscriptGuardState) -> Non
         cooldown_until=payload["cooldown_until"],
         consecutive_hard_errors=int(payload["consecutive_hard_errors"]),
         consecutive_successes=int(payload["consecutive_successes"]),
+        breaker_state=str(payload["breaker_state"]),
+        half_open_probe_remaining=int(payload["half_open_probe_remaining"]),
+        last_channel_id=payload["last_channel_id"],
+        last_channel_attempt_at=payload["last_channel_attempt_at"],
     )
+
+
+def _open_breaker(
+    guard: TranscriptGuardState,
+    *,
+    cooldown_seconds: int,
+    half_open_probe_count: int,
+) -> None:
+    guard.breaker_state = TranscriptBreakerState.OPEN
+    guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=max(1, int(cooldown_seconds)))
+    guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
+
+
+def _close_breaker(guard: TranscriptGuardState, *, half_open_probe_count: int) -> None:
+    guard.breaker_state = TranscriptBreakerState.CLOSED
+    guard.cooldown_until = None
+    guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
 
 
 async def run_transcript_fetcher(state: AppState) -> None:
@@ -190,163 +241,366 @@ async def run_transcript_fetcher(state: AppState) -> None:
         1.0,
         float(state.config.transcript_general_error_slowdown_multiplier),
     )
+    channel_min_interval_seconds = max(0, int(state.config.transcript_channel_min_interval_seconds))
+    channel_pick_lookahead = max(fetch_batch_size, int(state.config.transcript_channel_pick_lookahead))
+    channel_hard_cooldown_seconds = max(1, int(state.config.transcript_channel_hard_cooldown_seconds))
+    half_open_probe_count = max(1, int(state.config.transcript_breaker_half_open_probe_count))
+    lease_enabled = bool(state.config.transcript_worker_lease_enabled)
+    lease_ttl_seconds = max(
+        5,
+        int(state.config.transcript_worker_lease_ttl_seconds),
+        fetch_timeout_seconds + 10,
+    )
+    lease_owner_id = f"transcript-{os.getpid()}-{uuid.uuid4().hex[:10]}"
+    lease_held = False
+    lease_renew_interval_seconds = max(1.0, lease_ttl_seconds / 3.0)
+    next_lease_renew_monotonic_at = 0.0
 
     persisted = await repository.get_transcript_guard_state(state.db)
     guard = TranscriptGuardState.from_repository(persisted)
+    guard.half_open_probe_remaining = max(1, guard.half_open_probe_remaining)
     next_request_monotonic_at = 0.0
 
     logger.info(
-        "event=transcript.guard_enabled worker=transcript batch=%s interval=%ss jitter=%.2f adaptive=%s factor=%.2f cooldown_until=%s",
+        (
+            "event=transcript.guard_enabled worker=transcript batch=%s interval=%ss jitter=%.2f "
+            "adaptive=%s factor=%.2f breaker=%s cooldown_until=%s lease_enabled=%s"
+        ),
         fetch_batch_size,
         request_interval_seconds,
         jitter_ratio,
         adaptive_enabled,
         guard.adaptive_factor,
+        guard.breaker_state.value,
         guard.cooldown_until.isoformat() if guard.cooldown_until else "-",
+        lease_enabled,
         extra={"event": "transcript.guard_enabled", "worker": "transcript"},
     )
 
-    while True:
-        if not await repository.is_worker_enabled(state.db, "transcript"):
-            await asyncio.sleep(idle_sleep_seconds)
-            continue
-
-        now_utc = datetime.now(timezone.utc)
-        if guard.cooldown_until and now_utc < guard.cooldown_until:
-            remaining = (guard.cooldown_until - now_utc).total_seconds()
-            await asyncio.sleep(min(idle_sleep_seconds, max(1.0, remaining)))
-            continue
-        if guard.cooldown_until and now_utc >= guard.cooldown_until:
-            guard.cooldown_until = None
-            guard.consecutive_hard_errors = 0
-            await _save_guard_state(state, guard)
-            logger.info(
-                "event=transcript.cooldown_released worker=transcript",
-                extra={"event": "transcript.cooldown_released", "worker": "transcript"},
-            )
-
-        try:
-            pending = await repository.pop_pending_transcript_videos(state.db, limit=fetch_batch_size)
-            if not pending:
+    try:
+        while True:
+            if not await repository.is_worker_enabled(state.db, "transcript"):
+                if lease_enabled and lease_held:
+                    await repository.release_transcript_worker_lease(state.db, lease_owner_id)
+                    lease_held = False
                 await asyncio.sleep(idle_sleep_seconds)
                 continue
 
-            for video in pending:
-                if not await repository.is_worker_enabled(state.db, "transcript"):
-                    break
-                if guard.cooldown_until and datetime.now(timezone.utc) < guard.cooldown_until:
-                    break
-
-                video_id = video["video_id"]
-                preferred_language = str(video.get("transcript_target_language") or "").strip().lower() or None
-                try:
-                    await _wait_until(next_request_monotonic_at)
-                    raw_text, language, source_type = await asyncio.wait_for(
-                        state.transcript_service.fetch_transcript(
-                            video_id,
-                            preferred_language=preferred_language,
-                        ),
-                        timeout=fetch_timeout_seconds,
-                    )
-                    interval_after_fetch = _compute_jittered_interval_seconds(
-                        request_interval_seconds,
-                        guard.adaptive_factor if adaptive_enabled else 1.0,
-                        jitter_ratio,
-                    )
-                    next_request_monotonic_at = time.monotonic() + interval_after_fetch
-
-                    if not raw_text.strip():
-                        raise ValueError("Transcript payload is empty")
-
-                    await repository.save_transcript(
+            if lease_enabled:
+                now_mono = time.monotonic()
+                if not lease_held:
+                    lease_held = await repository.acquire_transcript_worker_lease(
                         state.db,
-                        video_id=video_id,
-                        raw_text=raw_text,
-                        language=language,
-                        source_type=source_type,
-                        thumbnail_path=None,
+                        owner_id=lease_owner_id,
+                        ttl_seconds=lease_ttl_seconds,
                     )
+                    if not lease_held:
+                        await asyncio.sleep(idle_sleep_seconds)
+                        continue
+                    next_lease_renew_monotonic_at = now_mono + lease_renew_interval_seconds
+                    logger.info(
+                        "event=transcript.lease_acquired worker=transcript owner=%s",
+                        lease_owner_id,
+                        extra={"event": "transcript.lease_acquired", "worker": "transcript"},
+                    )
+                elif now_mono >= next_lease_renew_monotonic_at:
+                    renewed = await repository.renew_transcript_worker_lease(
+                        state.db,
+                        owner_id=lease_owner_id,
+                        ttl_seconds=lease_ttl_seconds,
+                    )
+                    if not renewed:
+                        lease_held = False
+                        await asyncio.sleep(idle_sleep_seconds)
+                        continue
+                    next_lease_renew_monotonic_at = now_mono + lease_renew_interval_seconds
 
-                    guard.consecutive_successes += 1
-                    guard.consecutive_hard_errors = 0
-                    if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
-                        guard.consecutive_successes = 0
-                        guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
-                    await _save_guard_state(state, guard)
+            now_utc = datetime.now(timezone.utc)
+            if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until and now_utc < guard.cooldown_until:
+                remaining = (guard.cooldown_until - now_utc).total_seconds()
+                await asyncio.sleep(min(idle_sleep_seconds, max(1.0, remaining)))
+                continue
 
-                    await _wait_until(next_request_monotonic_at)
-                    thumbnail_path: str | None = None
+            if guard.breaker_state == TranscriptBreakerState.OPEN and (
+                guard.cooldown_until is None or now_utc >= guard.cooldown_until
+            ):
+                guard.breaker_state = TranscriptBreakerState.HALF_OPEN
+                guard.cooldown_until = None
+                guard.consecutive_hard_errors = 0
+                guard.half_open_probe_remaining = max(1, half_open_probe_count)
+                await _save_guard_state(state, guard)
+                logger.info(
+                    "event=transcript.breaker_half_open worker=transcript probes=%s",
+                    guard.half_open_probe_remaining,
+                    extra={"event": "transcript.breaker_half_open", "worker": "transcript"},
+                )
+
+            avoid_channel_id: str | None = None
+            remaining_channel_wait = 0.0
+            if (
+                channel_min_interval_seconds > 0
+                and guard.last_channel_id
+                and guard.last_channel_attempt_at is not None
+            ):
+                elapsed = (now_utc - guard.last_channel_attempt_at).total_seconds()
+                remaining = float(channel_min_interval_seconds) - elapsed
+                if remaining > 0:
+                    avoid_channel_id = guard.last_channel_id
+                    remaining_channel_wait = remaining
+
+            try:
+                pending = await repository.pop_pending_transcript_videos(
+                    state.db,
+                    limit=fetch_batch_size,
+                    lookahead=channel_pick_lookahead,
+                    avoid_channel_id=avoid_channel_id,
+                )
+                if not pending:
+                    sleep_seconds = idle_sleep_seconds
+                    if remaining_channel_wait > 0:
+                        sleep_seconds = min(sleep_seconds, max(1.0, remaining_channel_wait))
+                    await asyncio.sleep(sleep_seconds)
+                    continue
+
+                if (
+                    avoid_channel_id
+                    and pending
+                    and str(pending[0].get("channel_id") or "").strip() == avoid_channel_id
+                    and remaining_channel_wait > 0
+                ):
+                    await asyncio.sleep(min(idle_sleep_seconds, max(1.0, remaining_channel_wait)))
+                    continue
+
+                for video in pending:
+                    if not await repository.is_worker_enabled(state.db, "transcript"):
+                        break
+                    if lease_enabled and not lease_held:
+                        break
+                    if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until:
+                        if datetime.now(timezone.utc) < guard.cooldown_until:
+                            break
+
+                    video_id = video["video_id"]
+                    channel_id = str(video.get("channel_id") or "").strip()
+                    preferred_language = str(video.get("transcript_target_language") or "").strip().lower() or None
+
+                    if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                        if guard.half_open_probe_remaining <= 0:
+                            break
+                        guard.half_open_probe_remaining -= 1
+                        await _save_guard_state(state, guard)
+
                     try:
-                        thumbnail_path = await state.transcript_service.download_thumbnail(
-                            video_id,
-                            state.config.thumbnail_dir,
-                        )
-                    except Exception as thumbnail_exc:
-                        logger.warning(
-                            "Thumbnail download failed. video_id=%s error=%s",
-                            video_id,
-                            thumbnail_exc,
-                        )
+                        guard.last_channel_id = channel_id or guard.last_channel_id
+                        guard.last_channel_attempt_at = datetime.now(timezone.utc)
+                        await _save_guard_state(state, guard)
 
-                    if thumbnail_path:
-                        await repository.update_video_thumbnail(
+                        await _wait_until(next_request_monotonic_at)
+                        raw_text, language, source_type = await asyncio.wait_for(
+                            state.transcript_service.fetch_transcript(
+                                video_id,
+                                preferred_language=preferred_language,
+                            ),
+                            timeout=fetch_timeout_seconds,
+                        )
+                        interval_after_fetch = _compute_jittered_interval_seconds(
+                            request_interval_seconds,
+                            guard.adaptive_factor if adaptive_enabled else 1.0,
+                            jitter_ratio,
+                        )
+                        next_request_monotonic_at = time.monotonic() + interval_after_fetch
+
+                        if not raw_text.strip():
+                            raise ValueError("Transcript payload is empty")
+
+                        await repository.save_transcript(
                             state.db,
                             video_id=video_id,
-                            thumbnail_path=thumbnail_path,
+                            raw_text=raw_text,
+                            language=language,
+                            source_type=source_type,
+                            thumbnail_path=None,
                         )
-                    interval_after_thumbnail = _compute_jittered_interval_seconds(
-                        request_interval_seconds,
-                        guard.adaptive_factor if adaptive_enabled else 1.0,
-                        jitter_ratio,
-                    )
-                    next_request_monotonic_at = time.monotonic() + interval_after_thumbnail
-                except Exception as exc:
-                    error_message = str(exc).strip() or exc.__class__.__name__
-                    error_category = _classify_transcript_error(exc)
-                    interval_after_error = _compute_jittered_interval_seconds(
-                        request_interval_seconds,
-                        guard.adaptive_factor if adaptive_enabled else 1.0,
-                        jitter_ratio,
-                    )
-                    next_request_monotonic_at = time.monotonic() + interval_after_error
 
-                    current_retry_count = int(video.get("transcript_retry_count") or 0)
-                    next_retry_count = current_retry_count + 1
-
-                    if error_category == TranscriptErrorCategory.NO_SUBTITLE:
-                        await repository.mark_no_subtitle(state.db, video_id)
                         guard.consecutive_successes += 1
                         guard.consecutive_hard_errors = 0
+                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                            _close_breaker(guard, half_open_probe_count=half_open_probe_count)
                         if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
                             guard.consecutive_successes = 0
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
                         await _save_guard_state(state, guard)
-                        logger.info(
-                            "event=transcript.no_subtitle worker=transcript video_id=%s",
-                            video_id,
-                            extra={"event": "transcript.no_subtitle", "worker": "transcript"},
-                        )
-                        continue
 
-                    if error_category == TranscriptErrorCategory.HARD_THROTTLE:
+                        await _wait_until(next_request_monotonic_at)
+                        thumbnail_path: str | None = None
+                        try:
+                            thumbnail_path = await state.transcript_service.download_thumbnail(
+                                video_id,
+                                state.config.thumbnail_dir,
+                            )
+                        except Exception as thumbnail_exc:
+                            logger.warning(
+                                "Thumbnail download failed. video_id=%s error=%s",
+                                video_id,
+                                thumbnail_exc,
+                            )
+
+                        if thumbnail_path:
+                            await repository.update_video_thumbnail(
+                                state.db,
+                                video_id=video_id,
+                                thumbnail_path=thumbnail_path,
+                            )
+                        interval_after_thumbnail = _compute_jittered_interval_seconds(
+                            request_interval_seconds,
+                            guard.adaptive_factor if adaptive_enabled else 1.0,
+                            jitter_ratio,
+                        )
+                        next_request_monotonic_at = time.monotonic() + interval_after_thumbnail
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        error_message = str(exc).strip() or exc.__class__.__name__
+                        error_category = _classify_transcript_error(exc)
+                        interval_after_error = _compute_jittered_interval_seconds(
+                            request_interval_seconds,
+                            guard.adaptive_factor if adaptive_enabled else 1.0,
+                            jitter_ratio,
+                        )
+                        next_request_monotonic_at = time.monotonic() + interval_after_error
+
+                        current_retry_count = int(video.get("transcript_retry_count") or 0)
+                        next_retry_count = current_retry_count + 1
+
+                        if error_category == TranscriptErrorCategory.NO_SUBTITLE:
+                            await repository.mark_no_subtitle(state.db, video_id)
+                            guard.consecutive_successes += 1
+                            guard.consecutive_hard_errors = 0
+                            if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                                _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+                            if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
+                                guard.consecutive_successes = 0
+                                guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
+                            await _save_guard_state(state, guard)
+                            logger.info(
+                                "event=transcript.no_subtitle worker=transcript video_id=%s",
+                                video_id,
+                                extra={"event": "transcript.no_subtitle", "worker": "transcript"},
+                            )
+                            continue
+
+                        if error_category == TranscriptErrorCategory.HARD_THROTTLE:
+                            next_delay_seconds = _compute_retry_delay_seconds(
+                                retry_base_delay_seconds,
+                                retry_max_delay_seconds,
+                                current_retry_count,
+                            )
+
+                            guard.consecutive_hard_errors += 1
+                            guard.consecutive_successes = 0
+                            guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+                            breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
+                                hard_cooldown_base_seconds,
+                                hard_cooldown_max_seconds,
+                                guard.consecutive_hard_errors,
+                            )
+                            _open_breaker(
+                                guard,
+                                cooldown_seconds=breaker_cooldown_seconds,
+                                half_open_probe_count=half_open_probe_count,
+                            )
+                            next_delay_seconds = max(
+                                next_delay_seconds,
+                                breaker_cooldown_seconds,
+                                channel_hard_cooldown_seconds,
+                            )
+                            await _save_guard_state(state, guard)
+
+                            if channel_id:
+                                await repository.defer_channel_transcript_retries(
+                                    state.db,
+                                    channel_id=channel_id,
+                                    delay_seconds=channel_hard_cooldown_seconds,
+                                    exclude_video_id=video_id,
+                                )
+
+                            if next_retry_count > retry_max_attempts:
+                                await repository.mark_transcript_failed(
+                                    state.db,
+                                    video_id=video_id,
+                                    retry_count=next_retry_count,
+                                    error_message=error_message,
+                                )
+                                logger.warning(
+                                    "event=transcript.hard_throttle_limit worker=transcript video_id=%s retry=%s factor=%.2f error=%s",
+                                    video_id,
+                                    next_retry_count,
+                                    guard.adaptive_factor,
+                                    error_message,
+                                    extra={
+                                        "event": "transcript.hard_throttle_limit",
+                                        "worker": "transcript",
+                                        "category": "hard_throttle",
+                                    },
+                                )
+                            else:
+                                await repository.schedule_transcript_retry(
+                                    state.db,
+                                    video_id=video_id,
+                                    delay_seconds=next_delay_seconds,
+                                    error_message=error_message,
+                                )
+                                logger.warning(
+                                    (
+                                        "event=transcript.hard_throttle worker=transcript video_id=%s retry=%s "
+                                        "cooldown=%ss channel_cooldown=%ss factor=%.2f error=%s"
+                                    ),
+                                    video_id,
+                                    next_retry_count,
+                                    breaker_cooldown_seconds,
+                                    channel_hard_cooldown_seconds,
+                                    guard.adaptive_factor,
+                                    error_message,
+                                    extra={
+                                        "event": "transcript.hard_throttle",
+                                        "worker": "transcript",
+                                        "category": "hard_throttle",
+                                    },
+                                )
+                            continue
+
+                        guard.consecutive_successes = 0
+                        guard.consecutive_hard_errors = 0
+                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                            _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+                        if adaptive_enabled:
+                            guard.adaptive_factor = min(
+                                adaptive_max_factor,
+                                guard.adaptive_factor * general_error_slowdown_multiplier,
+                            )
+                        await _save_guard_state(state, guard)
+
+                        if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:
+                            await repository.mark_transcript_failed(
+                                state.db,
+                                video_id=video_id,
+                                retry_count=next_retry_count,
+                                error_message=error_message,
+                            )
+                            logger.warning(
+                                "Transcript non-retryable failure. video_id=%s retry=%s factor=%.2f error=%s",
+                                video_id,
+                                next_retry_count,
+                                guard.adaptive_factor,
+                                error_message,
+                            )
+                            continue
+
                         next_delay_seconds = _compute_retry_delay_seconds(
                             retry_base_delay_seconds,
                             retry_max_delay_seconds,
                             current_retry_count,
                         )
-
-                        guard.consecutive_hard_errors += 1
-                        guard.consecutive_successes = 0
-                        guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
-                        cooldown_seconds = _compute_hard_cooldown_seconds(
-                            hard_cooldown_base_seconds,
-                            hard_cooldown_max_seconds,
-                            guard.consecutive_hard_errors,
-                        )
-                        guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
-                        next_delay_seconds = max(next_delay_seconds, cooldown_seconds)
-                        await _save_guard_state(state, guard)
-
                         if next_retry_count > retry_max_attempts:
                             await repository.mark_transcript_failed(
                                 state.db,
@@ -355,16 +609,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 error_message=error_message,
                             )
                             logger.warning(
-                                "event=transcript.hard_throttle_limit worker=transcript video_id=%s retry=%s factor=%.2f error=%s",
+                                "Transcript retry limit reached. video_id=%s retry=%s factor=%.2f error=%s",
                                 video_id,
                                 next_retry_count,
                                 guard.adaptive_factor,
                                 error_message,
-                                extra={
-                                    "event": "transcript.hard_throttle_limit",
-                                    "worker": "transcript",
-                                    "category": "hard_throttle",
-                                },
                             )
                         else:
                             await repository.schedule_transcript_retry(
@@ -374,82 +623,28 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 error_message=error_message,
                             )
                             logger.warning(
-                                "event=transcript.hard_throttle worker=transcript video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
+                                "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
                                 video_id,
                                 next_retry_count,
-                                cooldown_seconds,
                                 guard.adaptive_factor,
+                                next_delay_seconds,
                                 error_message,
-                                extra={
-                                    "event": "transcript.hard_throttle",
-                                    "worker": "transcript",
-                                    "category": "hard_throttle",
-                                },
                             )
-                        continue
-
-                    guard.consecutive_successes = 0
-                    guard.consecutive_hard_errors = 0
-                    if adaptive_enabled:
-                        guard.adaptive_factor = min(
-                            adaptive_max_factor,
-                            guard.adaptive_factor * general_error_slowdown_multiplier,
-                        )
-                    await _save_guard_state(state, guard)
-
-                    if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:
-                        await repository.mark_transcript_failed(
-                            state.db,
-                            video_id=video_id,
-                            retry_count=next_retry_count,
-                            error_message=error_message,
-                        )
-                        logger.warning(
-                            "Transcript non-retryable failure. video_id=%s retry=%s factor=%.2f error=%s",
-                            video_id,
-                            next_retry_count,
-                            guard.adaptive_factor,
-                            error_message,
-                        )
-                        continue
-
-                    next_delay_seconds = _compute_retry_delay_seconds(
-                        retry_base_delay_seconds,
-                        retry_max_delay_seconds,
-                        current_retry_count,
-                    )
-                    if next_retry_count > retry_max_attempts:
-                        await repository.mark_transcript_failed(
-                            state.db,
-                            video_id=video_id,
-                            retry_count=next_retry_count,
-                            error_message=error_message,
-                        )
-                        logger.warning(
-                            "Transcript retry limit reached. video_id=%s retry=%s factor=%.2f error=%s",
-                            video_id,
-                            next_retry_count,
-                            guard.adaptive_factor,
-                            error_message,
-                        )
-                    else:
-                        await repository.schedule_transcript_retry(
-                            state.db,
-                            video_id=video_id,
-                            delay_seconds=next_delay_seconds,
-                            error_message=error_message,
-                        )
-                        logger.warning(
-                            "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
-                            video_id,
-                            next_retry_count,
-                            guard.adaptive_factor,
-                            next_delay_seconds,
-                            error_message,
-                        )
-        except Exception:
-            logger.exception(
-                "event=transcript.worker_loop_failed worker=transcript",
-                extra={"event": "transcript.worker_loop_failed", "worker": "transcript"},
-            )
-            await asyncio.sleep(idle_sleep_seconds)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "event=transcript.worker_loop_failed worker=transcript",
+                    extra={"event": "transcript.worker_loop_failed", "worker": "transcript"},
+                )
+                await asyncio.sleep(idle_sleep_seconds)
+    finally:
+        if lease_enabled and lease_held:
+            try:
+                await repository.release_transcript_worker_lease(state.db, lease_owner_id)
+            except Exception:
+                logger.exception(
+                    "event=transcript.lease_release_failed worker=transcript owner=%s",
+                    lease_owner_id,
+                    extra={"event": "transcript.lease_release_failed", "worker": "transcript"},
+                )

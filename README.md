@@ -50,6 +50,12 @@ python scripts/init_db.py
 | `POLLING_INTERVAL_MINUTES` | RSS 폴링 주기 | `15` |
 | `TRANSCRIPT_RETRY_MAX_ATTEMPTS` | 자막 수집 재시도 최대 횟수 | `8` |
 | `TRANSCRIPT_FETCH_TIMEOUT_SECONDS` | 자막 수집 요청 타임아웃(초) | `45` |
+| `TRANSCRIPT_CHANNEL_MIN_INTERVAL_SECONDS` | 동일 채널 연속 요청 최소 간격(초) | `180` |
+| `TRANSCRIPT_CHANNEL_PICK_LOOKAHEAD` | 채널 분산 선택을 위한 후보 조회 개수 | `20` |
+| `TRANSCRIPT_CHANNEL_HARD_COOLDOWN_SECONDS` | 하드 차단 시 동일 채널 일괄 지연(초) | `900` |
+| `TRANSCRIPT_BREAKER_HALF_OPEN_PROBE_COUNT` | 브레이커 half-open probe 요청 횟수 | `1` |
+| `TRANSCRIPT_WORKER_LEASE_ENABLED` | transcript 워커 DB 리스 잠금 사용 여부 | `true` |
+| `TRANSCRIPT_WORKER_LEASE_TTL_SECONDS` | transcript 워커 리스 TTL(초) | `45` |
 | `ENV` | 실행 환경 (`dev/local/development`면 DEBUG 기본) | `prod` |
 | `LOG_LEVEL` | 로그 레벨 (`AUTO`면 ENV 기반 자동) | `AUTO` |
 | `LOG_TO_FILE` | 파일 로그 활성화 여부 | `true` |

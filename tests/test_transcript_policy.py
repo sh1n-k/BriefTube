@@ -207,3 +207,157 @@ def test_save_transcript_sets_target_language_and_clears_last_error(client) -> N
     assert target_language == "ko"
     assert last_error is None
     assert last_error_at is None
+
+
+def test_pop_pending_transcript_videos_can_avoid_last_channel(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1), (?, ?, ?, 1)
+            """,
+            (
+                "UCfair001",
+                "Fair Channel A",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCfair001",
+                "UCfair002",
+                "Fair Channel B",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCfair002",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, transcript_status)
+            VALUES
+              (?, ?, ?, ?, 'pending'),
+              (?, ?, ?, ?, 'pending')
+            """,
+            (
+                "vid-fair-a",
+                "UCfair001",
+                "newest",
+                "2026-02-28T00:00:00+00:00",
+                "vid-fair-b",
+                "UCfair002",
+                "older",
+                "2026-02-27T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[str, str]:
+        db = await open_database(db_path)
+        try:
+            normal = await repository.pop_pending_transcript_videos(db, limit=1, lookahead=10)
+            avoided = await repository.pop_pending_transcript_videos(
+                db,
+                limit=1,
+                lookahead=10,
+                avoid_channel_id="UCfair001",
+            )
+            return normal[0]["video_id"], avoided[0]["video_id"]
+        finally:
+            await db.close()
+
+    normal_id, avoided_id = asyncio.run(_run())
+    assert normal_id == "vid-fair-a"
+    assert avoided_id == "vid-fair-b"
+
+
+def test_defer_channel_transcript_retries_defers_same_channel_except_excluded(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCdefer001", "Defer Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCdefer001"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, transcript_status)
+            VALUES
+              (?, ?, ?, ?, 'pending'),
+              (?, ?, ?, ?, 'pending')
+            """,
+            (
+                "vid-defer-keep",
+                "UCdefer001",
+                "keep",
+                "2026-02-25T00:00:00+00:00",
+                "vid-defer-move",
+                "UCdefer001",
+                "move",
+                "2026-02-24T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[str | None, str | None]:
+        db = await open_database(db_path)
+        try:
+            await repository.defer_channel_transcript_retries(
+                db,
+                channel_id="UCdefer001",
+                delay_seconds=600,
+                exclude_video_id="vid-defer-keep",
+            )
+            cursor = await db.execute(
+                """
+                SELECT video_id, transcript_next_attempt_at
+                FROM videos
+                WHERE video_id IN ('vid-defer-keep', 'vid-defer-move')
+                ORDER BY video_id ASC
+                """
+            )
+            rows = await cursor.fetchall()
+            return rows[0]["transcript_next_attempt_at"], rows[1]["transcript_next_attempt_at"]
+        finally:
+            await db.close()
+
+    keep_next_attempt_at, move_next_attempt_at = asyncio.run(_run())
+    assert keep_next_attempt_at is None
+    assert move_next_attempt_at is not None
+
+
+def test_transcript_worker_lease_allows_single_owner(client) -> None:
+    db_path = os.environ["DB_PATH"]
+
+    async def _run() -> tuple[bool, bool, bool, bool, bool, bool]:
+        db = await open_database(db_path)
+        try:
+            acquired_a = await repository.acquire_transcript_worker_lease(
+                db,
+                owner_id="owner-a",
+                ttl_seconds=60,
+            )
+            acquired_b = await repository.acquire_transcript_worker_lease(
+                db,
+                owner_id="owner-b",
+                ttl_seconds=60,
+            )
+            renewed_a = await repository.renew_transcript_worker_lease(
+                db,
+                owner_id="owner-a",
+                ttl_seconds=60,
+            )
+            released_b = await repository.release_transcript_worker_lease(db, owner_id="owner-b")
+            released_a = await repository.release_transcript_worker_lease(db, owner_id="owner-a")
+            acquired_b_after_release = await repository.acquire_transcript_worker_lease(
+                db,
+                owner_id="owner-b",
+                ttl_seconds=60,
+            )
+            return acquired_a, acquired_b, renewed_a, released_b, released_a, acquired_b_after_release
+        finally:
+            await db.close()
+
+    acquired_a, acquired_b, renewed_a, released_b, released_a, acquired_b_after_release = asyncio.run(_run())
+    assert acquired_a is True
+    assert acquired_b is False
+    assert renewed_a is True
+    assert released_b is False
+    assert released_a is True
+    assert acquired_b_after_release is True

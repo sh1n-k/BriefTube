@@ -24,6 +24,12 @@ transcript_hard_cooldown_base_seconds: 300
 transcript_hard_cooldown_max_seconds: 3600
 transcript_recovery_success_window: 5
 transcript_general_error_slowdown_multiplier: 1.25
+transcript_channel_min_interval_seconds: 180
+transcript_channel_pick_lookahead: 20
+transcript_channel_hard_cooldown_seconds: 900
+transcript_breaker_half_open_probe_count: 1
+transcript_worker_lease_enabled: true
+transcript_worker_lease_ttl_seconds: 45
 log_level: "AUTO"
 log_to_file: true
 log_dir: "./logs"

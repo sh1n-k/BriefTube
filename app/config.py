@@ -33,6 +33,12 @@ class AppConfig:
     transcript_hard_cooldown_max_seconds: int = 3600
     transcript_recovery_success_window: int = 5
     transcript_general_error_slowdown_multiplier: float = 1.25
+    transcript_channel_min_interval_seconds: int = 180
+    transcript_channel_pick_lookahead: int = 20
+    transcript_channel_hard_cooldown_seconds: int = 900
+    transcript_breaker_half_open_probe_count: int = 1
+    transcript_worker_lease_enabled: bool = True
+    transcript_worker_lease_ttl_seconds: int = 45
     log_level: str = "AUTO"
     log_to_file: bool = True
     log_dir: str = "./logs"
@@ -174,6 +180,42 @@ def load_config() -> AppConfig:
             ),
             base.transcript_general_error_slowdown_multiplier,
         ),
+        transcript_channel_min_interval_seconds=int(
+            file_values.get(
+                "transcript_channel_min_interval_seconds",
+                base.transcript_channel_min_interval_seconds,
+            )
+        ),
+        transcript_channel_pick_lookahead=int(
+            file_values.get(
+                "transcript_channel_pick_lookahead",
+                base.transcript_channel_pick_lookahead,
+            )
+        ),
+        transcript_channel_hard_cooldown_seconds=int(
+            file_values.get(
+                "transcript_channel_hard_cooldown_seconds",
+                base.transcript_channel_hard_cooldown_seconds,
+            )
+        ),
+        transcript_breaker_half_open_probe_count=int(
+            file_values.get(
+                "transcript_breaker_half_open_probe_count",
+                base.transcript_breaker_half_open_probe_count,
+            )
+        ),
+        transcript_worker_lease_enabled=_parse_env_bool(
+            file_values.get(
+                "transcript_worker_lease_enabled",
+                base.transcript_worker_lease_enabled,
+            )
+        ),
+        transcript_worker_lease_ttl_seconds=int(
+            file_values.get(
+                "transcript_worker_lease_ttl_seconds",
+                base.transcript_worker_lease_ttl_seconds,
+            )
+        ),
         log_level=str(file_values.get("log_level", base.log_level)),
         log_to_file=_parse_env_bool(file_values.get("log_to_file", base.log_to_file)),
         log_dir=str(file_values.get("log_dir", base.log_dir)),
@@ -271,6 +313,39 @@ def load_config() -> AppConfig:
         ),
         cfg.transcript_general_error_slowdown_multiplier,
     )
+    cfg.transcript_channel_min_interval_seconds = int(
+        os.getenv(
+            "TRANSCRIPT_CHANNEL_MIN_INTERVAL_SECONDS",
+            cfg.transcript_channel_min_interval_seconds,
+        )
+    )
+    cfg.transcript_channel_pick_lookahead = int(
+        os.getenv(
+            "TRANSCRIPT_CHANNEL_PICK_LOOKAHEAD",
+            cfg.transcript_channel_pick_lookahead,
+        )
+    )
+    cfg.transcript_channel_hard_cooldown_seconds = int(
+        os.getenv(
+            "TRANSCRIPT_CHANNEL_HARD_COOLDOWN_SECONDS",
+            cfg.transcript_channel_hard_cooldown_seconds,
+        )
+    )
+    cfg.transcript_breaker_half_open_probe_count = int(
+        os.getenv(
+            "TRANSCRIPT_BREAKER_HALF_OPEN_PROBE_COUNT",
+            cfg.transcript_breaker_half_open_probe_count,
+        )
+    )
+    cfg.transcript_worker_lease_enabled = _parse_env_bool(
+        os.getenv("TRANSCRIPT_WORKER_LEASE_ENABLED", str(cfg.transcript_worker_lease_enabled))
+    )
+    cfg.transcript_worker_lease_ttl_seconds = int(
+        os.getenv(
+            "TRANSCRIPT_WORKER_LEASE_TTL_SECONDS",
+            cfg.transcript_worker_lease_ttl_seconds,
+        )
+    )
     cfg.log_level = os.getenv("LOG_LEVEL", cfg.log_level).strip().upper() or "AUTO"
     cfg.log_to_file = _parse_env_bool(os.getenv("LOG_TO_FILE", str(cfg.log_to_file)))
     cfg.log_dir = os.getenv("LOG_DIR", cfg.log_dir)
@@ -305,6 +380,11 @@ def load_config() -> AppConfig:
         1.0,
         cfg.transcript_general_error_slowdown_multiplier,
     )
+    cfg.transcript_channel_min_interval_seconds = max(0, cfg.transcript_channel_min_interval_seconds)
+    cfg.transcript_channel_pick_lookahead = max(1, cfg.transcript_channel_pick_lookahead)
+    cfg.transcript_channel_hard_cooldown_seconds = max(1, cfg.transcript_channel_hard_cooldown_seconds)
+    cfg.transcript_breaker_half_open_probe_count = max(1, cfg.transcript_breaker_half_open_probe_count)
+    cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
     cfg.log_file_max_bytes = max(1024, cfg.log_file_max_bytes)
     cfg.log_file_backup_count = max(1, cfg.log_file_backup_count)
     cfg.log_noise_window_seconds = max(1, cfg.log_noise_window_seconds)
