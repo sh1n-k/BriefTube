@@ -22,6 +22,16 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 continue
 
             video_id = candidate["video_id"]
+
+            if not state.config.openclaw_api_url:
+                logger.debug(
+                    "event=llm.skipped_no_api_url worker=llm video_id=%s",
+                    video_id,
+                    extra={"event": "llm.skipped_no_api_url", "worker": "llm"},
+                )
+                await asyncio.sleep(10)
+                continue
+
             await repository.mark_restructure_processing(state.db, video_id)
 
             try:
