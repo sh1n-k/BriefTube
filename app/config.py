@@ -23,6 +23,8 @@ class AppConfig:
     transcript_idle_sleep_seconds: int = 5
     transcript_retry_base_delay_seconds: int = 120
     transcript_retry_max_delay_seconds: int = 3600
+    transcript_retry_max_attempts: int = 8
+    transcript_fetch_timeout_seconds: int = 45
     transcript_jitter_ratio: float = 0.30
     transcript_adaptive_enabled: bool = True
     transcript_adaptive_max_factor: float = 8.0
@@ -119,6 +121,18 @@ def load_config() -> AppConfig:
                 base.transcript_retry_max_delay_seconds,
             )
         ),
+        transcript_retry_max_attempts=int(
+            file_values.get(
+                "transcript_retry_max_attempts",
+                base.transcript_retry_max_attempts,
+            )
+        ),
+        transcript_fetch_timeout_seconds=int(
+            file_values.get(
+                "transcript_fetch_timeout_seconds",
+                base.transcript_fetch_timeout_seconds,
+            )
+        ),
         transcript_jitter_ratio=_parse_float(
             file_values.get("transcript_jitter_ratio", base.transcript_jitter_ratio),
             base.transcript_jitter_ratio,
@@ -198,6 +212,18 @@ def load_config() -> AppConfig:
             cfg.transcript_retry_max_delay_seconds,
         )
     )
+    cfg.transcript_retry_max_attempts = int(
+        os.getenv(
+            "TRANSCRIPT_RETRY_MAX_ATTEMPTS",
+            cfg.transcript_retry_max_attempts,
+        )
+    )
+    cfg.transcript_fetch_timeout_seconds = int(
+        os.getenv(
+            "TRANSCRIPT_FETCH_TIMEOUT_SECONDS",
+            cfg.transcript_fetch_timeout_seconds,
+        )
+    )
     cfg.transcript_jitter_ratio = _parse_float(
         os.getenv("TRANSCRIPT_JITTER_RATIO", cfg.transcript_jitter_ratio),
         cfg.transcript_jitter_ratio,
@@ -249,6 +275,8 @@ def load_config() -> AppConfig:
         cfg.transcript_retry_base_delay_seconds,
         cfg.transcript_retry_max_delay_seconds,
     )
+    cfg.transcript_retry_max_attempts = max(1, cfg.transcript_retry_max_attempts)
+    cfg.transcript_fetch_timeout_seconds = max(1, cfg.transcript_fetch_timeout_seconds)
     cfg.transcript_jitter_ratio = max(0.0, min(0.5, cfg.transcript_jitter_ratio))
     cfg.transcript_adaptive_max_factor = max(1.0, cfg.transcript_adaptive_max_factor)
     cfg.transcript_hard_cooldown_base_seconds = max(1, cfg.transcript_hard_cooldown_base_seconds)

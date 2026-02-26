@@ -48,6 +48,8 @@ python scripts/init_db.py
 | `TELEGRAM_BOT_TOKEN` | Telegram 봇 토큰 | (없음) |
 | `TELEGRAM_CHAT_ID` | Telegram 채팅 ID | (없음) |
 | `POLLING_INTERVAL_MINUTES` | RSS 폴링 주기 | `15` |
+| `TRANSCRIPT_RETRY_MAX_ATTEMPTS` | 자막 수집 재시도 최대 횟수 | `8` |
+| `TRANSCRIPT_FETCH_TIMEOUT_SECONDS` | 자막 수집 요청 타임아웃(초) | `45` |
 
 전체 설정 키는 `app/config.py`의 `AppConfig` 참조.
 

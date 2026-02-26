@@ -244,6 +244,14 @@ async def retry_video(video_id: str, request: Request):
     return {"ok": True, "video_id": video_id}
 
 
+@router.post("/videos/{video_id}/transcript/retry")
+async def retry_transcript(video_id: str, request: Request):
+    affected = await repository.reset_transcript_for_retry(request.app.state.runtime.db, video_id)
+    if affected == 0:
+        raise HTTPException(status_code=404, detail="Transcript retry target not found")
+    return {"ok": True, "video_id": video_id}
+
+
 @router.get("/settings")
 async def get_settings(request: Request):
     language = await repository.get_setting(

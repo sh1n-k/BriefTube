@@ -14,6 +14,8 @@ transcript_request_interval_seconds: 15
 transcript_idle_sleep_seconds: 5
 transcript_retry_base_delay_seconds: 120
 transcript_retry_max_delay_seconds: 3600
+transcript_retry_max_attempts: 8
+transcript_fetch_timeout_seconds: 45
 transcript_jitter_ratio: 0.30
 transcript_adaptive_enabled: true
 transcript_adaptive_max_factor: 8.0

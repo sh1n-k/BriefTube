@@ -96,3 +96,114 @@ def test_schedule_transcript_retry_updates_retry_count_and_next_attempt(client) 
     retry_count, next_attempt_at = asyncio.run(_run())
     assert retry_count == 1
     assert next_attempt_at is not None
+
+
+def test_schedule_transcript_retry_persists_last_error(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCretry002", "Retry Channel 2", "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry002"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, transcript_status)
+            VALUES (?, ?, ?, ?, 'pending')
+            """,
+            ("vid-retry-002", "UCretry002", "retry2", "2026-02-11T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[int, str | None]:
+        db = await open_database(db_path)
+        try:
+            await repository.schedule_transcript_retry(
+                db,
+                "vid-retry-002",
+                delay_seconds=120,
+                error_message="network timeout",
+            )
+            cursor = await db.execute(
+                "SELECT transcript_retry_count, transcript_last_error FROM videos WHERE video_id = ?",
+                ("vid-retry-002",),
+            )
+            row = await cursor.fetchone()
+            return int(row["transcript_retry_count"]), row["transcript_last_error"]
+        finally:
+            await db.close()
+
+    retry_count, last_error = asyncio.run(_run())
+    assert retry_count == 1
+    assert last_error == "network timeout"
+
+
+def test_save_transcript_sets_target_language_and_clears_last_error(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCsave001", "Save Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCsave001"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(
+                video_id,
+                channel_id,
+                title,
+                upload_time,
+                transcript_status,
+                transcript_last_error,
+                transcript_last_error_at
+            ) VALUES (?, ?, ?, ?, 'pending', ?, ?)
+            """,
+            (
+                "vid-save-001",
+                "UCsave001",
+                "save",
+                "2026-02-12T00:00:00+00:00",
+                "old error",
+                "2026-02-12T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[str, str | None, str | None, str | None]:
+        db = await open_database(db_path)
+        try:
+            await repository.save_transcript(
+                db,
+                video_id="vid-save-001",
+                raw_text="hello",
+                language="ko",
+                source_type="manual",
+                thumbnail_path=None,
+            )
+            cursor = await db.execute(
+                """
+                SELECT transcript_status, transcript_target_language, transcript_last_error, transcript_last_error_at
+                FROM videos
+                WHERE video_id = ?
+                """,
+                ("vid-save-001",),
+            )
+            row = await cursor.fetchone()
+            return (
+                str(row["transcript_status"]),
+                row["transcript_target_language"],
+                row["transcript_last_error"],
+                row["transcript_last_error_at"],
+            )
+        finally:
+            await db.close()
+
+    status, target_language, last_error, last_error_at = asyncio.run(_run())
+    assert status == "done"
+    assert target_language == "ko"
+    assert last_error is None
+    assert last_error_at is None

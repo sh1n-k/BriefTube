@@ -37,6 +37,7 @@ TRANSCRIPT_GUARD_DEFAULTS: dict[str, str] = {
     "transcript_guard_consecutive_hard_errors": "0",
     "transcript_guard_consecutive_successes": "0",
 }
+TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -88,6 +89,15 @@ def _parse_float_setting(value: str | None, default: float, min_value: float, ma
 def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
     item["thumbnail_url"] = _thumbnail_url(item.get("thumbnail_path"))
     return item
+
+
+def _normalize_error_message(value: str | None) -> str:
+    if not value:
+        return ""
+    trimmed = str(value).strip()
+    if len(trimmed) <= TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH:
+        return trimmed
+    return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
 
 
 async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
@@ -425,7 +435,8 @@ async def pop_pending_transcript_videos(db: aiosqlite.Connection, limit: int = 3
             title,
             upload_time,
             transcript_retry_count,
-            transcript_next_attempt_at
+            transcript_next_attempt_at,
+            transcript_target_language
         FROM videos
         WHERE transcript_status = 'pending'
           AND (
@@ -466,7 +477,28 @@ async def save_transcript(
         SET transcript_status = 'done',
             transcript_retry_count = 0,
             transcript_next_attempt_at = NULL,
+            transcript_target_language = COALESCE(?, transcript_target_language),
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL,
             thumbnail_path = COALESCE(?, thumbnail_path)
+        WHERE video_id = ?
+        """,
+        (language, thumbnail_path, video_id),
+    )
+    await db.commit()
+
+
+async def update_video_thumbnail(
+    db: aiosqlite.Connection,
+    video_id: str,
+    thumbnail_path: str | None,
+) -> None:
+    if not thumbnail_path:
+        return
+    await db.execute(
+        """
+        UPDATE videos
+        SET thumbnail_path = ?
         WHERE video_id = ?
         """,
         (thumbnail_path, video_id),
@@ -480,7 +512,9 @@ async def mark_no_subtitle(db: aiosqlite.Connection, video_id: str) -> None:
         UPDATE videos
         SET transcript_status = 'no_subtitle',
             transcript_retry_count = 0,
-            transcript_next_attempt_at = NULL
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL
         WHERE video_id = ?
         """,
         (video_id,),
@@ -492,19 +526,67 @@ async def schedule_transcript_retry(
     db: aiosqlite.Connection,
     video_id: str,
     delay_seconds: int,
-) -> None:
+    error_message: str | None = None,
+) -> int:
     safe_delay = max(1, int(delay_seconds))
-    await db.execute(
+    safe_error = _normalize_error_message(error_message)
+    cursor = await db.execute(
         """
         UPDATE videos
         SET transcript_retry_count = transcript_retry_count + 1,
-            transcript_next_attempt_at = datetime('now', ?)
+            transcript_next_attempt_at = datetime('now', ?),
+            transcript_last_error = ?,
+            transcript_last_error_at = datetime('now')
         WHERE video_id = ?
           AND transcript_status = 'pending'
         """,
-        (f"+{safe_delay} seconds", video_id),
+        (f"+{safe_delay} seconds", safe_error, video_id),
     )
     await db.commit()
+    return cursor.rowcount
+
+
+async def mark_transcript_failed(
+    db: aiosqlite.Connection,
+    video_id: str,
+    retry_count: int,
+    error_message: str | None = None,
+) -> int:
+    safe_retry = max(0, int(retry_count))
+    safe_error = _normalize_error_message(error_message)
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET transcript_status = 'failed',
+            transcript_retry_count = ?,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = ?,
+            transcript_last_error_at = datetime('now')
+        WHERE video_id = ?
+          AND transcript_status IN ('pending', 'failed', 'no_subtitle')
+        """,
+        (safe_retry, safe_error, video_id),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET transcript_status = 'pending',
+            transcript_retry_count = 0,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL
+        WHERE video_id = ?
+          AND transcript_status IN ('failed', 'no_subtitle')
+        """,
+        (video_id,),
+    )
+    await db.commit()
+    return cursor.rowcount
 
 
 async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> dict[str, Any] | None:

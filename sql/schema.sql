@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS videos (
     transcript_status   TEXT NOT NULL DEFAULT 'pending',
     transcript_retry_count INTEGER NOT NULL DEFAULT 0,
     transcript_next_attempt_at TEXT,
+    transcript_target_language TEXT,
+    transcript_last_error TEXT,
+    transcript_last_error_at TEXT,
     restructure_status  TEXT NOT NULL DEFAULT 'pending',
     retry_count         INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))

@@ -3,10 +3,25 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 import logging
 import random
 import time
 from typing import Any
+
+from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImports]
+    AgeRestricted,
+    CouldNotRetrieveTranscript,
+    InvalidVideoId,
+    IpBlocked,
+    NoTranscriptFound,
+    RequestBlocked,
+    TranscriptsDisabled,
+    VideoUnavailable,
+    VideoUnplayable,
+    YouTubeDataUnparsable,
+    YouTubeRequestFailed,
+)
 
 from app import repository
 from app.state import AppState
@@ -14,16 +29,11 @@ from app.state import AppState
 logger = logging.getLogger(__name__)
 
 
-def _is_no_subtitle_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    markers = [
-        "transcript is disabled",
-        "transcript not available",
-        "no transcript available",
-        "no transcripts",
-        "could not retrieve a transcript",
-    ]
-    return any(marker in message for marker in markers)
+class TranscriptErrorCategory(str, Enum):
+    NO_SUBTITLE = "no_subtitle"
+    HARD_THROTTLE = "hard_throttle"
+    RETRYABLE_TRANSIENT = "retryable_transient"
+    NON_RETRYABLE_FAILURE = "non_retryable_failure"
 
 
 def _extract_status_code(exc: Exception) -> int | None:
@@ -50,6 +60,22 @@ def _is_hard_throttle_error(exc: Exception) -> bool:
         "quota",
     ]
     return any(marker in message for marker in markers)
+
+
+def _classify_transcript_error(exc: Exception) -> TranscriptErrorCategory:
+    if isinstance(exc, (NoTranscriptFound, TranscriptsDisabled)):
+        return TranscriptErrorCategory.NO_SUBTITLE
+    if isinstance(exc, (RequestBlocked, IpBlocked)):
+        return TranscriptErrorCategory.HARD_THROTTLE
+    if isinstance(exc, (InvalidVideoId, VideoUnavailable, AgeRestricted, VideoUnplayable)):
+        return TranscriptErrorCategory.NON_RETRYABLE_FAILURE
+    if isinstance(exc, asyncio.TimeoutError):
+        return TranscriptErrorCategory.RETRYABLE_TRANSIENT
+    if isinstance(exc, (YouTubeRequestFailed, YouTubeDataUnparsable, CouldNotRetrieveTranscript)):
+        return TranscriptErrorCategory.RETRYABLE_TRANSIENT
+    if _is_hard_throttle_error(exc):
+        return TranscriptErrorCategory.HARD_THROTTLE
+    return TranscriptErrorCategory.RETRYABLE_TRANSIENT
 
 
 def _compute_retry_delay_seconds(base_delay: int, max_delay: int, retry_count: int) -> int:
@@ -149,6 +175,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
     idle_sleep_seconds = max(1, int(state.config.transcript_idle_sleep_seconds))
     retry_base_delay_seconds = max(1, int(state.config.transcript_retry_base_delay_seconds))
     retry_max_delay_seconds = max(retry_base_delay_seconds, int(state.config.transcript_retry_max_delay_seconds))
+    retry_max_attempts = max(1, int(state.config.transcript_retry_max_attempts))
+    fetch_timeout_seconds = max(1, int(state.config.transcript_fetch_timeout_seconds))
     jitter_ratio = max(0.0, min(0.5, float(state.config.transcript_jitter_ratio)))
     adaptive_enabled = bool(state.config.transcript_adaptive_enabled)
     adaptive_max_factor = max(1.0, float(state.config.transcript_adaptive_max_factor))
@@ -206,9 +234,16 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     break
 
                 video_id = video["video_id"]
+                preferred_language = str(video.get("transcript_target_language") or "").strip().lower() or None
                 try:
                     await _wait_until(next_request_monotonic_at)
-                    raw_text, language, source_type = await state.transcript_service.fetch_transcript(video_id)
+                    raw_text, language, source_type = await asyncio.wait_for(
+                        state.transcript_service.fetch_transcript(
+                            video_id,
+                            preferred_language=preferred_language,
+                        ),
+                        timeout=fetch_timeout_seconds,
+                    )
                     interval_after_fetch = _compute_jittered_interval_seconds(
                         request_interval_seconds,
                         guard.adaptive_factor if adaptive_enabled else 1.0,
@@ -216,17 +251,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     )
                     next_request_monotonic_at = time.monotonic() + interval_after_fetch
 
-                    await _wait_until(next_request_monotonic_at)
-                    thumbnail_path = await state.transcript_service.download_thumbnail(
-                        video_id,
-                        state.config.thumbnail_dir,
-                    )
-                    interval_after_thumbnail = _compute_jittered_interval_seconds(
-                        request_interval_seconds,
-                        guard.adaptive_factor if adaptive_enabled else 1.0,
-                        jitter_ratio,
-                    )
-                    next_request_monotonic_at = time.monotonic() + interval_after_thumbnail
+                    if not raw_text.strip():
+                        raise ValueError("Transcript payload is empty")
 
                     await repository.save_transcript(
                         state.db,
@@ -234,7 +260,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         raw_text=raw_text,
                         language=language,
                         source_type=source_type,
-                        thumbnail_path=thumbnail_path,
+                        thumbnail_path=None,
                     )
 
                     guard.consecutive_successes += 1
@@ -243,7 +269,36 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         guard.consecutive_successes = 0
                         guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
                     await _save_guard_state(state, guard)
+
+                    await _wait_until(next_request_monotonic_at)
+                    thumbnail_path: str | None = None
+                    try:
+                        thumbnail_path = await state.transcript_service.download_thumbnail(
+                            video_id,
+                            state.config.thumbnail_dir,
+                        )
+                    except Exception as thumbnail_exc:
+                        logger.warning(
+                            "Thumbnail download failed. video_id=%s error=%s",
+                            video_id,
+                            thumbnail_exc,
+                        )
+
+                    if thumbnail_path:
+                        await repository.update_video_thumbnail(
+                            state.db,
+                            video_id=video_id,
+                            thumbnail_path=thumbnail_path,
+                        )
+                    interval_after_thumbnail = _compute_jittered_interval_seconds(
+                        request_interval_seconds,
+                        guard.adaptive_factor if adaptive_enabled else 1.0,
+                        jitter_ratio,
+                    )
+                    next_request_monotonic_at = time.monotonic() + interval_after_thumbnail
                 except Exception as exc:
+                    error_message = str(exc).strip() or exc.__class__.__name__
+                    error_category = _classify_transcript_error(exc)
                     interval_after_error = _compute_jittered_interval_seconds(
                         request_interval_seconds,
                         guard.adaptive_factor if adaptive_enabled else 1.0,
@@ -251,7 +306,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     )
                     next_request_monotonic_at = time.monotonic() + interval_after_error
 
-                    if _is_no_subtitle_error(exc):
+                    current_retry_count = int(video.get("transcript_retry_count") or 0)
+                    next_retry_count = current_retry_count + 1
+
+                    if error_category == TranscriptErrorCategory.NO_SUBTITLE:
                         await repository.mark_no_subtitle(state.db, video_id)
                         guard.consecutive_successes += 1
                         guard.consecutive_hard_errors = 0
@@ -260,56 +318,116 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
                         await _save_guard_state(state, guard)
                         logger.info("No subtitle for video_id=%s", video_id)
-                    else:
-                        current_retry_count = int(video.get("transcript_retry_count") or 0)
+                        continue
+
+                    if error_category == TranscriptErrorCategory.HARD_THROTTLE:
                         next_delay_seconds = _compute_retry_delay_seconds(
                             retry_base_delay_seconds,
                             retry_max_delay_seconds,
                             current_retry_count,
                         )
 
-                        if adaptive_enabled and _is_hard_throttle_error(exc):
-                            guard.consecutive_hard_errors += 1
-                            guard.consecutive_successes = 0
-                            guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
-                            cooldown_seconds = _compute_hard_cooldown_seconds(
-                                hard_cooldown_base_seconds,
-                                hard_cooldown_max_seconds,
-                                guard.consecutive_hard_errors,
+                        guard.consecutive_hard_errors += 1
+                        guard.consecutive_successes = 0
+                        guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+                        cooldown_seconds = _compute_hard_cooldown_seconds(
+                            hard_cooldown_base_seconds,
+                            hard_cooldown_max_seconds,
+                            guard.consecutive_hard_errors,
+                        )
+                        guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+                        next_delay_seconds = max(next_delay_seconds, cooldown_seconds)
+                        await _save_guard_state(state, guard)
+
+                        if next_retry_count > retry_max_attempts:
+                            await repository.mark_transcript_failed(
+                                state.db,
+                                video_id=video_id,
+                                retry_count=next_retry_count,
+                                error_message=error_message,
                             )
-                            guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
-                            next_delay_seconds = max(next_delay_seconds, cooldown_seconds)
-                            await _save_guard_state(state, guard)
+                            logger.warning(
+                                "Transcript hard throttle reached retry limit. video_id=%s retry=%s factor=%.2f error=%s",
+                                video_id,
+                                next_retry_count,
+                                guard.adaptive_factor,
+                                error_message,
+                            )
+                        else:
+                            await repository.schedule_transcript_retry(
+                                state.db,
+                                video_id=video_id,
+                                delay_seconds=next_delay_seconds,
+                                error_message=error_message,
+                            )
                             logger.warning(
                                 "Transcript hard throttle detected. video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
                                 video_id,
-                                current_retry_count + 1,
+                                next_retry_count,
                                 cooldown_seconds,
                                 guard.adaptive_factor,
-                                exc,
+                                error_message,
                             )
-                        else:
-                            guard.consecutive_successes = 0
-                            guard.consecutive_hard_errors = 0
-                            if adaptive_enabled:
-                                guard.adaptive_factor = min(
-                                    adaptive_max_factor,
-                                    guard.adaptive_factor * general_error_slowdown_multiplier,
-                                )
-                            await _save_guard_state(state, guard)
-                            logger.warning(
-                                "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
-                                video_id,
-                                current_retry_count + 1,
-                                guard.adaptive_factor,
-                                next_delay_seconds,
-                                exc,
-                            )
+                        continue
 
+                    guard.consecutive_successes = 0
+                    guard.consecutive_hard_errors = 0
+                    if adaptive_enabled:
+                        guard.adaptive_factor = min(
+                            adaptive_max_factor,
+                            guard.adaptive_factor * general_error_slowdown_multiplier,
+                        )
+                    await _save_guard_state(state, guard)
+
+                    if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:
+                        await repository.mark_transcript_failed(
+                            state.db,
+                            video_id=video_id,
+                            retry_count=next_retry_count,
+                            error_message=error_message,
+                        )
+                        logger.warning(
+                            "Transcript non-retryable failure. video_id=%s retry=%s factor=%.2f error=%s",
+                            video_id,
+                            next_retry_count,
+                            guard.adaptive_factor,
+                            error_message,
+                        )
+                        continue
+
+                    next_delay_seconds = _compute_retry_delay_seconds(
+                        retry_base_delay_seconds,
+                        retry_max_delay_seconds,
+                        current_retry_count,
+                    )
+                    if next_retry_count > retry_max_attempts:
+                        await repository.mark_transcript_failed(
+                            state.db,
+                            video_id=video_id,
+                            retry_count=next_retry_count,
+                            error_message=error_message,
+                        )
+                        logger.warning(
+                            "Transcript retry limit reached. video_id=%s retry=%s factor=%.2f error=%s",
+                            video_id,
+                            next_retry_count,
+                            guard.adaptive_factor,
+                            error_message,
+                        )
+                    else:
                         await repository.schedule_transcript_retry(
                             state.db,
                             video_id=video_id,
                             delay_seconds=next_delay_seconds,
+                            error_message=error_message,
+                        )
+                        logger.warning(
+                            "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
+                            video_id,
+                            next_retry_count,
+                            guard.adaptive_factor,
+                            next_delay_seconds,
+                            error_message,
                         )
         except Exception:
             logger.exception("Transcript worker loop failed")

@@ -50,6 +50,12 @@ async def _ensure_video_columns(db: aiosqlite.Connection) -> None:
         )
     if not await _column_exists(db, "videos", "transcript_next_attempt_at"):
         await db.execute("ALTER TABLE videos ADD COLUMN transcript_next_attempt_at TEXT")
+    if not await _column_exists(db, "videos", "transcript_target_language"):
+        await db.execute("ALTER TABLE videos ADD COLUMN transcript_target_language TEXT")
+    if not await _column_exists(db, "videos", "transcript_last_error"):
+        await db.execute("ALTER TABLE videos ADD COLUMN transcript_last_error TEXT")
+    if not await _column_exists(db, "videos", "transcript_last_error_at"):
+        await db.execute("ALTER TABLE videos ADD COLUMN transcript_last_error_at TEXT")
 
 
 async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:

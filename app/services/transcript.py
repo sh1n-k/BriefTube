@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import httpx
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -12,8 +13,28 @@ class TranscriptService:
         self.client = client
         self.api = YouTubeTranscriptApi()
 
-    async def fetch_transcript(self, video_id: str) -> tuple[str, str | None, str]:
-        transcript_obj = await asyncio.to_thread(self.api.fetch, video_id)
+    def _select_default_track(self, transcript_list: Any) -> Any:
+        tracks = list(transcript_list)
+        if not tracks:
+            raise RuntimeError("No transcript tracks found")
+        manual = next((track for track in tracks if not bool(getattr(track, "is_generated", False))), None)
+        return manual or tracks[0]
+
+    def _fetch_default_language_track(self, video_id: str) -> Any:
+        transcript_list = self.api.list(video_id)
+        selected = self._select_default_track(transcript_list)
+        return selected.fetch()
+
+    async def fetch_transcript(
+        self,
+        video_id: str,
+        preferred_language: str | None = None,
+    ) -> tuple[str, str | None, str]:
+        preferred = (preferred_language or "").strip().lower()
+        if preferred:
+            transcript_obj = await asyncio.to_thread(self.api.fetch, video_id, [preferred])
+        else:
+            transcript_obj = await asyncio.to_thread(self._fetch_default_language_track, video_id)
         raw_data = transcript_obj.to_raw_data()
         raw_text = "\n".join(segment.get("text", "").strip() for segment in raw_data if segment.get("text"))
         language = getattr(transcript_obj, "language_code", None)

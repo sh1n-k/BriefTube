@@ -56,7 +56,12 @@ async def home(
 @router.get("/videos/{video_id}")
 async def video_page(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
-    context = await build_template_context(request, video=detail)
+    transcript_retry_done = request.query_params.get("transcript_retry") == "1"
+    context = await build_template_context(
+        request,
+        video=detail,
+        transcript_retry_done=transcript_retry_done,
+    )
     return request.app.state.templates.TemplateResponse(request=request, name="video_detail.html", context=context)
 
 
@@ -96,6 +101,13 @@ async def settings_reset_transcript_guard(request: Request):
 
     await repository.reset_transcript_guard_state(request.app.state.runtime.db)
     return RedirectResponse(url="/settings?guard_reset=1", status_code=303)
+
+
+@router.post("/videos/{video_id}/transcript/retry")
+async def retry_transcript(video_id: str, request: Request):
+    affected = await repository.reset_transcript_for_retry(request.app.state.runtime.db, video_id)
+    retry_flag = "1" if affected > 0 else "0"
+    return RedirectResponse(url=f"/videos/{video_id}?transcript_retry={retry_flag}", status_code=303)
 
 
 @router.get("/retention")
