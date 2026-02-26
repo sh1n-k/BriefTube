@@ -1,3 +1,4 @@
+env: "dev"
 polling_interval_minutes: 15
 max_retry_count: 3
 openclaw_api_url: ""
@@ -14,9 +15,12 @@ transcript_request_interval_seconds: 15
 transcript_idle_sleep_seconds: 5
 transcript_retry_base_delay_seconds: 120
 transcript_retry_max_delay_seconds: 3600
-log_level: "INFO"
-log_to_file: true
+log_level: "AUTO"
+log_to_file: false
 log_dir: "./logs/dev"
 log_file_name: "brieftube-dev.log"
 log_file_max_bytes: 5242880
-log_file_backup_count: 5
+log_file_backup_count: 3
+log_noise_window_seconds: 60
+log_noise_suppress_threshold: 1
+log_dependency_level: "WARNING"

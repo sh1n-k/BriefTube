@@ -36,9 +36,16 @@ async def run_rss_poller(state: AppState) -> None:
         try:
             inserted = await poll_once(state)
             if inserted:
-                logger.info("RSS poll completed. inserted=%s", inserted)
+                logger.info(
+                    "event=rss.poll_completed worker=rss inserted=%s",
+                    inserted,
+                    extra={"event": "rss.poll_completed", "worker": "rss"},
+                )
         except Exception:
-            logger.exception("RSS poll failed")
+            logger.exception(
+                "event=rss.poll_failed worker=rss",
+                extra={"event": "rss.poll_failed", "worker": "rss"},
+            )
 
         try:
             remaining = interval_seconds
@@ -51,12 +58,18 @@ async def run_rss_poller(state: AppState) -> None:
                 try:
                     await asyncio.wait_for(state.poll_now_event.wait(), timeout=step)
                     state.poll_now_event.clear()
-                    logger.info("Manual poll trigger consumed")
+                    logger.debug(
+                        "event=rss.manual_trigger_consumed worker=rss",
+                        extra={"event": "rss.manual_trigger_consumed", "worker": "rss"},
+                    )
                     break
                 except asyncio.TimeoutError:
                     remaining -= step
         except Exception:
-            logger.exception("RSS poll wait loop failed")
+            logger.exception(
+                "event=rss.wait_loop_failed worker=rss",
+                extra={"event": "rss.wait_loop_failed", "worker": "rss"},
+            )
 
 
 async def poll_once(state: AppState) -> int:
@@ -98,19 +111,30 @@ async def poll_once(state: AppState) -> int:
                 )
                 state.rss_cache.pop(channel_id, None)
                 logger.warning(
-                    "RSS feed missing. channel_id=%s channel_name=%s has been deactivated",
+                    "event=rss.feed_missing worker=rss channel_id=%s channel_name=%s action=deactivate",
                     channel_id,
                     channel_name,
+                    extra={
+                        "event": "rss.feed_missing",
+                        "worker": "rss",
+                        "category": "rss_channel_not_found",
+                        "code": "404",
+                    },
                 )
                 continue
             logger.warning(
-                "RSS fetch failed for channel_id=%s status=%s",
+                "event=rss.fetch_failed worker=rss channel_id=%s status=%s",
                 channel_id,
                 status_code,
+                extra={"event": "rss.fetch_failed", "worker": "rss", "code": str(status_code or "-")},
             )
             continue
         except Exception:
-            logger.exception("RSS fetch failed for channel_id=%s", channel_id)
+            logger.exception(
+                "event=rss.fetch_exception worker=rss channel_id=%s",
+                channel_id,
+                extra={"event": "rss.fetch_exception", "worker": "rss"},
+            )
             continue
 
         state.rss_cache[channel_id] = {

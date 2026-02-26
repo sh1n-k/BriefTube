@@ -168,13 +168,14 @@ async def run_transcript_fetcher(state: AppState) -> None:
     next_request_monotonic_at = 0.0
 
     logger.info(
-        "Transcript guard enabled. batch=%s interval=%ss jitter=%.2f adaptive=%s factor=%.2f cooldown_until=%s",
+        "event=transcript.guard_enabled worker=transcript batch=%s interval=%ss jitter=%.2f adaptive=%s factor=%.2f cooldown_until=%s",
         fetch_batch_size,
         request_interval_seconds,
         jitter_ratio,
         adaptive_enabled,
         guard.adaptive_factor,
         guard.cooldown_until.isoformat() if guard.cooldown_until else "-",
+        extra={"event": "transcript.guard_enabled", "worker": "transcript"},
     )
 
     while True:
@@ -191,7 +192,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
             guard.cooldown_until = None
             guard.consecutive_hard_errors = 0
             await _save_guard_state(state, guard)
-            logger.info("Transcript guard cooldown released")
+            logger.info(
+                "event=transcript.cooldown_released worker=transcript",
+                extra={"event": "transcript.cooldown_released", "worker": "transcript"},
+            )
 
         try:
             pending = await repository.pop_pending_transcript_videos(state.db, limit=fetch_batch_size)
@@ -259,7 +263,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.consecutive_successes = 0
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
                         await _save_guard_state(state, guard)
-                        logger.info("No subtitle for video_id=%s", video_id)
+                        logger.info(
+                            "event=transcript.no_subtitle worker=transcript video_id=%s",
+                            video_id,
+                            extra={"event": "transcript.no_subtitle", "worker": "transcript"},
+                        )
                     else:
                         current_retry_count = int(video.get("transcript_retry_count") or 0)
                         next_delay_seconds = _compute_retry_delay_seconds(
@@ -281,12 +289,17 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             next_delay_seconds = max(next_delay_seconds, cooldown_seconds)
                             await _save_guard_state(state, guard)
                             logger.warning(
-                                "Transcript hard throttle detected. video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
+                                "event=transcript.hard_throttle worker=transcript video_id=%s retry=%s cooldown=%ss factor=%.2f error=%s",
                                 video_id,
                                 current_retry_count + 1,
                                 cooldown_seconds,
                                 guard.adaptive_factor,
                                 exc,
+                                extra={
+                                    "event": "transcript.hard_throttle",
+                                    "worker": "transcript",
+                                    "category": "hard_throttle",
+                                },
                             )
                         else:
                             guard.consecutive_successes = 0
@@ -298,12 +311,13 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 )
                             await _save_guard_state(state, guard)
                             logger.warning(
-                                "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
+                                "event=transcript.fetch_failed worker=transcript video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
                                 video_id,
                                 current_retry_count + 1,
                                 guard.adaptive_factor,
                                 next_delay_seconds,
                                 exc,
+                                extra={"event": "transcript.fetch_failed", "worker": "transcript"},
                             )
 
                         await repository.schedule_transcript_retry(
@@ -312,5 +326,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             delay_seconds=next_delay_seconds,
                         )
         except Exception:
-            logger.exception("Transcript worker loop failed")
+            logger.exception(
+                "event=transcript.worker_loop_failed worker=transcript",
+                extra={"event": "transcript.worker_loop_failed", "worker": "transcript"},
+            )
             await asyncio.sleep(idle_sleep_seconds)

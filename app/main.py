@@ -43,7 +43,11 @@ async def lifespan(app: FastAPI):
     db = await open_database(config.db_path)
     await init_database(db)
     recovered = await recover_stuck_jobs(db)
-    logger.info("Recovered stuck jobs: %s", recovered)
+    logger.info(
+        "event=app.recovered_stuck_jobs recovered=%s",
+        recovered,
+        extra={"event": "app.recovered_stuck_jobs"},
+    )
 
     http_client = httpx.AsyncClient(timeout=config.http_timeout_seconds)
 
