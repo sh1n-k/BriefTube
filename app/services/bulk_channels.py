@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 from app.services.channel_resolver import ChannelResolverService
@@ -8,6 +9,8 @@ from app.services.takeout_parser import (
     parse_bulk_text_inputs,
     parse_takeout_file_details,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _unique(values: Iterable[str]) -> list[str]:
@@ -76,7 +79,21 @@ async def resolve_bulk_inputs(
             )
 
     for raw in inputs:
-        result = await resolver.resolve_input(raw)
+        try:
+            result = await resolver.resolve_input(raw)
+        except Exception as exc:
+            logger.warning(
+                "event=channels.bulk_resolve_error input=%s error_type=%s",
+                raw,
+                exc.__class__.__name__,
+            )
+            failed.append(
+                {
+                    "input": raw,
+                    "reason": f"resolver exception: {exc.__class__.__name__}",
+                }
+            )
+            continue
         status = result.get("status")
         if status == "resolved":
             resolved.append(
@@ -112,5 +129,10 @@ async def resolve_bulk_inputs(
 def parse_takeout_entries(filename: str, content: bytes) -> ParsedTakeout:
     try:
         return parse_takeout_file_details(filename=filename, content=content)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "event=channels.takeout_parse_failed filename=%s error_type=%s",
+            filename,
+            exc.__class__.__name__,
+        )
         return ParsedTakeout(direct_channels=[], inputs=[])
