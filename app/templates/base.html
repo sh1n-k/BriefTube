@@ -297,9 +297,63 @@
         root.querySelectorAll("[data-retention-notice]").forEach(initRetentionNotice);
       }
 
+      function initVideoManageForm(form) {
+        if (form.dataset.videoManageBound === "1") return;
+        form.dataset.videoManageBound = "1";
+
+        const selectAll = form.querySelector("[data-video-select-all]");
+        const deleteBtn = form.querySelector("[data-video-delete-selected]");
+        const items = () => form.querySelectorAll("[data-video-select-item]");
+        if (!selectAll || !deleteBtn) return;
+
+        function sync() {
+          const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
+          const all = items();
+          deleteBtn.disabled = checked === 0;
+          selectAll.checked = all.length > 0 && checked === all.length;
+          selectAll.indeterminate = checked > 0 && checked < all.length;
+        }
+
+        selectAll.addEventListener("change", () => {
+          items().forEach(cb => { cb.checked = selectAll.checked; });
+          sync();
+        });
+        form.addEventListener("change", (e) => {
+          if (e.target.matches("[data-video-select-item]")) sync();
+        });
+        sync();
+      }
+
+      function bindVideoManageForms(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-video-manage-form]").forEach(initVideoManageForm);
+      }
+
+      function bindThumbPreviews(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-thumb-hover]").forEach(el => {
+          if (el.dataset.thumbBound === "1") return;
+          el.dataset.thumbBound = "1";
+          el.addEventListener("mouseenter", () => {
+            const preview = el.querySelector("[data-thumb-preview]");
+            if (!preview) return;
+            const rect = el.getBoundingClientRect();
+            if (rect.bottom + 278 > window.innerHeight) {
+              preview.style.bottom = (el.offsetHeight + 4) + "px";
+              preview.style.top = "auto";
+            } else {
+              preview.style.top = (el.offsetHeight + 4) + "px";
+              preview.style.bottom = "auto";
+            }
+          });
+        });
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         bindChannelSearch(document);
         bindChannelManageForms(document);
+        bindVideoManageForms(document);
+        bindThumbPreviews(document);
         bindDigitsOnlyInputs(document);
         bindAlertToasts(document);
         bindRetentionForms(document);
@@ -320,6 +374,8 @@
       document.addEventListener("htmx:afterSwap", (event) => {
         bindChannelSearch(event.target);
         bindChannelManageForms(event.target);
+        bindVideoManageForms(event.target);
+        bindThumbPreviews(event.target);
         bindDigitsOnlyInputs(event.target);
         bindAlertToasts(event.target);
         bindRetentionForms(event.target);
