@@ -421,6 +421,45 @@
         root.querySelectorAll("[data-video-manage-form]").forEach(initVideoManageForm);
       }
 
+      function initCopyButton(btn) {
+        if (btn.dataset.copyBound === "1") return;
+        btn.dataset.copyBound = "1";
+        btn.addEventListener("click", () => {
+          const targetId = btn.getAttribute("data-copy-target");
+          const toastMsg = btn.getAttribute("data-copy-toast") || "Copied";
+          const target = document.getElementById(targetId);
+          if (!target) return;
+          const text = target.textContent || "";
+          navigator.clipboard.writeText(text.trim()).then(() => {
+            showUiToast(toastMsg, "success");
+          });
+        });
+      }
+
+      function bindCopyButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-copy-target]").forEach(initCopyButton);
+      }
+
+      function initCollapsible(section) {
+        if (section.dataset.collapsibleBound === "1") return;
+        section.dataset.collapsibleBound = "1";
+        const toggle = section.querySelector("[data-collapsible-toggle]");
+        const body = section.querySelector("[data-collapsible-body]");
+        const icon = toggle?.querySelector("[data-collapsible-icon]");
+        if (!toggle || !body) return;
+        body.classList.add("hidden");
+        toggle.addEventListener("click", () => {
+          const isHidden = body.classList.toggle("hidden");
+          if (icon) icon.style.transform = isHidden ? "" : "rotate(180deg)";
+        });
+      }
+
+      function bindCollapsibles(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-collapsible]").forEach(initCollapsible);
+      }
+
       function bindThumbPreviews(scope) {
         const root = scope instanceof Element ? scope : document;
         root.querySelectorAll("[data-thumb-hover]").forEach(el => {
@@ -452,6 +491,8 @@
         bindAlertToasts(document);
         bindRetentionForms(document);
         bindRetentionNotices(document);
+        bindCopyButtons(document);
+        bindCollapsibles(document);
       });
       document.addEventListener("htmx:afterRequest", (event) => {
         if (!event.detail.successful) return;
@@ -476,6 +517,8 @@
         bindAlertToasts(event.target);
         bindRetentionForms(event.target);
         bindRetentionNotices(event.target);
+        bindCopyButtons(event.target);
+        bindCollapsibles(event.target);
       });
     })();
   </script>

@@ -165,6 +165,12 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "video_delete_success": "영상 삭제 완료",
         "video_filter_all_channels": "전체 채널",
         "video_retry_success": "재시도 요청 완료",
+        "detail_copy_article": "기사 복사됨",
+        "detail_copy_transcript": "자막 복사됨",
+        "detail_collapse_toggle": "접기/펼치기",
+        "detail_youtube_link": "YouTube에서 보기",
+        "detail_badge_language": "언어",
+        "detail_badge_source": "소스",
     },
     "en": {
         "brand": "BriefTube",
@@ -325,6 +331,12 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "video_delete_success": "Videos deleted",
         "video_filter_all_channels": "All channels",
         "video_retry_success": "Retry requested",
+        "detail_copy_article": "Article copied",
+        "detail_copy_transcript": "Transcript copied",
+        "detail_collapse_toggle": "Collapse/Expand",
+        "detail_youtube_link": "View on YouTube",
+        "detail_badge_language": "Language",
+        "detail_badge_source": "Source",
     },
 }
 
