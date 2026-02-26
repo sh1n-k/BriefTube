@@ -163,7 +163,9 @@
       </div>
       <div class="rounded-md border border-slate-200 bg-slate-50 p-3">
         <dt class="text-xs uppercase tracking-wide text-slate-500">{{ txt.settings_guard_cooldown_until }}</dt>
-        <dd class="mt-1 font-mono text-slate-900">{{ transcript_guard.cooldown_until or "-" }}</dd>
+        <dd class="mt-1 font-mono text-slate-900">
+          {{ format_upload_time(transcript_guard.cooldown_until, timezone) if transcript_guard.cooldown_until else "-" }}
+        </dd>
       </div>
       <div class="rounded-md border border-slate-200 bg-slate-50 p-3">
         <dt class="text-xs uppercase tracking-wide text-slate-500">{{ txt.settings_guard_hard_errors }}</dt>

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import sqlite3
+
 from fastapi.testclient import TestClient
 import pytest
 import re
@@ -30,6 +33,31 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "자막 보호 상태" in response.text
     assert "주의 구역: 자막 보호 상태 초기화" in response.text
     assert len(re.findall(r'type="number"', response.text)) >= 3
+
+
+def test_settings_page_guard_cooldown_until_respects_timezone_setting(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES('timezone', 'America/New_York')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES('transcript_guard_cooldown_until', '2026-02-25T00:00:00+00:00')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """
+        )
+        conn.commit()
+
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert "2026-02-24 19:00" in response.text
+    assert "2026-02-25T00:00:00+00:00" not in response.text
 
 
 @pytest.mark.parametrize("bulk_text", ["resolved-only"])
