@@ -138,6 +138,11 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "detail_back_to_home": "홈으로 돌아가기",
         "detail_label_transcript": "자막:",
         "detail_label_restructure": "구조화:",
+        "video_select_all": "전체 선택",
+        "video_delete_selected": "선택 삭제",
+        "video_delete_success": "영상 삭제 완료",
+        "video_filter_all_channels": "전체 채널",
+        "video_retry_success": "재시도 요청 완료",
     },
     "en": {
         "brand": "BriefTube",
@@ -271,6 +276,11 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "detail_back_to_home": "Back to home",
         "detail_label_transcript": "Transcript:",
         "detail_label_restructure": "Restructure:",
+        "video_select_all": "Select all",
+        "video_delete_selected": "Delete selected",
+        "video_delete_success": "Videos deleted",
+        "video_filter_all_channels": "All channels",
+        "video_retry_success": "Retry requested",
     },
 }
 

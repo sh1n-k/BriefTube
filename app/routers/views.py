@@ -16,6 +16,15 @@ from app.services.bulk_channels import (
 router = APIRouter(prefix="/views", tags=["views"])
 
 
+def _safe_int(value: str | None, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 def _cleanup_thumbnail_files(thumbnail_paths: list[str], thumbnail_dir: str) -> None:
     base_dir = Path(thumbnail_dir).resolve()
     for raw_path in thumbnail_paths:
@@ -112,9 +121,11 @@ async def video_list(
         page=current_page,
         limit=limit,
     )
+    channels = await repository.list_channels(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         videos=videos,
+        channels=channels,
         pagination={
             "page": current_page,
             "limit": limit,
@@ -126,6 +137,61 @@ async def video_list(
         },
     )
     return request.app.state.templates.TemplateResponse(request=request, name="fragments/video_list.html", context=context)
+
+
+@router.post("/videos/delete-selected")
+async def delete_selected_videos(request: Request):
+    form = await request.form()
+    video_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
+
+    if video_ids:
+        result = await repository.delete_videos_by_ids(
+            request.app.state.runtime.db, video_ids,
+        )
+        _cleanup_thumbnail_files(
+            result["thumbnail_paths"],
+            request.app.state.runtime.config.thumbnail_dir,
+        )
+
+    page = _safe_int(form.get("_page"), 1)
+    limit_val = _safe_int(form.get("_limit"), 0)
+    if limit_val <= 0:
+        limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+    sort = str(form.get("_sort") or "upload_time")
+    order = str(form.get("_order") or "desc")
+    channel_id = str(form.get("_channel_id") or "") or None
+
+    total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+    total_pages = max(1, (total + limit_val - 1) // limit_val)
+    current_page = min(max(1, page), total_pages)
+    videos = await repository.list_videos(
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+        sort=sort,
+        order=order,
+        page=current_page,
+        limit=limit_val,
+    )
+    channels = await repository.list_channels(request.app.state.runtime.db)
+    context = await build_template_context(
+        request,
+        videos=videos,
+        channels=channels,
+        pagination={
+            "page": current_page,
+            "limit": limit_val,
+            "total": total,
+            "total_pages": total_pages,
+            "channel_id": channel_id or "",
+            "sort": sort,
+            "order": order,
+        },
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/video_list.html",
+        context=context,
+    )
 
 
 @router.get("/video-detail/{video_id}")
