@@ -47,9 +47,17 @@ def test_channels_page_renders_add_and_bulk_forms(client: TestClient) -> None:
     response = client.get("/channels")
     assert response.status_code == 200
     html = response.text
+    assert 'data-channel-compose' in html
+    assert 'data-channel-compose-toggle' in html
+    assert 'data-channel-compose-body' in html
+    assert 'aria-controls="channel-compose-body"' in html
+    assert 'aria-expanded="true"' in html
     assert 'hx-post="/views/channels/add"' in html
+    assert 'data-channel-compose-form' in html
+    assert 'data-submit-busy-label="등록 중..."' in html
     assert 'name="source"' in html
     assert 'hx-post="/views/channels/bulk-resolve"' in html
+    assert 'data-submit-busy-label="해석 중..."' in html
     assert 'name="takeout_file"' in html
 
 
