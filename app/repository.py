@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,7 @@ TRANSCRIPT_GUARD_DEFAULTS: dict[str, str] = {
 TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
 TRANSCRIPT_WORKER_LEASE_OWNER_KEY = "transcript_worker_lease_owner"
 TRANSCRIPT_WORKER_LEASE_UNTIL_KEY = "transcript_worker_lease_until"
+TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY = "transcript_request_headers_overrides_json"
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -762,6 +764,41 @@ async def set_setting(db: aiosqlite.Connection, key: str, value: str) -> None:
         (key, value),
     )
     await db.commit()
+
+
+async def get_transcript_request_header_overrides(db: aiosqlite.Connection) -> dict[str, str]:
+    raw = await get_setting(
+        db,
+        key=TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY,
+        default="{}",
+    )
+    text = str(raw or "").strip() or "{}"
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    overrides: dict[str, str] = {}
+    for key, value in parsed.items():
+        overrides[str(key).strip()] = str(value).strip()
+    return overrides
+
+
+async def save_transcript_request_header_overrides(
+    db: aiosqlite.Connection,
+    overrides: dict[str, str],
+) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for key, value in overrides.items():
+        normalized[str(key).strip()] = str(value).strip()
+    payload = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
+    await set_setting(
+        db,
+        key=TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY,
+        value=payload,
+    )
+    return await get_transcript_request_header_overrides(db)
 
 
 async def acquire_transcript_worker_lease(

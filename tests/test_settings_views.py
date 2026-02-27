@@ -30,6 +30,16 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert response.text.count('href="/settings"') == 1
     assert 'href="/channels"' in response.text
     assert "채널 등록/일괄 추가는 채널 관리 페이지에서 진행합니다." in response.text
+    assert "자막 요청 헤더" in response.text
+    assert "Firefox(Windows) 한국어 프로필을 기본으로 사용합니다." in response.text
+    assert "고정 키별 값 입력 (빈 값 저장 시 기본값 복원)" in response.text
+    assert 'name="transcript_header_user_agent"' in response.text
+    assert 'name="transcript_header_accept"' in response.text
+    assert 'name="transcript_header_accept_language"' in response.text
+    assert 'name="transcript_header_dnt"' in response.text
+    assert 'name="transcript_header_upgrade_insecure_requests"' in response.text
+    assert 'name="transcript_request_headers"' not in response.text
+    assert 'placeholder="ko-KR,ko;q=0.9,en-US;q=0.6,en;q=0.3"' in response.text
     assert "자막 보호 상태" in response.text
     assert "주의 구역: 자막 보호 상태 초기화" in response.text
     assert len(re.findall(r'type="number"', response.text)) >= 3

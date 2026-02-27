@@ -5,13 +5,35 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from requests import Session
 from youtube_transcript_api import YouTubeTranscriptApi
+
+from app.services.transcript_headers import (
+    TRANSCRIPT_REQUEST_HEADER_KEYS,
+    default_transcript_request_headers,
+    merge_with_default_headers,
+)
 
 
 class TranscriptService:
     def __init__(self, client: httpx.AsyncClient):
         self.client = client
-        self.api = YouTubeTranscriptApi()
+        self._requests_session = Session()
+        self.api = YouTubeTranscriptApi(http_client=self._requests_session)
+        self.apply_transcript_request_headers(default_transcript_request_headers())
+
+    def apply_transcript_request_headers(self, values: dict[str, str]) -> None:
+        merged = merge_with_default_headers(values)
+        for key in TRANSCRIPT_REQUEST_HEADER_KEYS:
+            self._requests_session.headers[key] = merged[key]
+
+    def get_transcript_request_headers(self) -> dict[str, str]:
+        current: dict[str, str] = {}
+        defaults = default_transcript_request_headers()
+        for key in TRANSCRIPT_REQUEST_HEADER_KEYS:
+            value = str(self._requests_session.headers.get(key) or "").strip()
+            current[key] = value or defaults[key]
+        return current
 
     def _select_default_track(self, transcript_list: Any) -> Any:
         tracks = list(transcript_list)
