@@ -64,6 +64,7 @@
   </section>
 </div>
 
+{% if expired_videos %}
 <div
   id="delete-all-modal"
   class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4"
@@ -136,4 +137,5 @@
     });
   })();
 </script>
+{% endif %}
 {% endblock %}
