@@ -440,32 +440,6 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
                         await _save_guard_state(state, guard)
 
-                        await _wait_until(next_request_monotonic_at)
-                        thumbnail_path: str | None = None
-                        try:
-                            thumbnail_path = await state.transcript_service.download_thumbnail(
-                                video_id,
-                                state.config.thumbnail_dir,
-                            )
-                        except Exception as thumbnail_exc:
-                            logger.warning(
-                                "Thumbnail download failed. video_id=%s error=%s",
-                                video_id,
-                                thumbnail_exc,
-                            )
-
-                        if thumbnail_path:
-                            await repository.update_video_thumbnail(
-                                state.db,
-                                video_id=video_id,
-                                thumbnail_path=thumbnail_path,
-                            )
-                        interval_after_thumbnail = _compute_jittered_interval_seconds(
-                            request_interval_seconds,
-                            guard.adaptive_factor if adaptive_enabled else 1.0,
-                            jitter_ratio,
-                        )
-                        next_request_monotonic_at = time.monotonic() + interval_after_thumbnail
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:

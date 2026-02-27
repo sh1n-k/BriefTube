@@ -102,10 +102,19 @@
             <td class="p-3 align-middle">
               <div class="group relative inline-block" data-thumb-hover>
                 {% if video.thumbnail_url %}
-                  <img src="{{ video.thumbnail_url }}" alt="thumbnail" class="h-14 w-24 rounded object-cover ring-1 ring-slate-200" />
+                  <div class="relative h-14 w-24">
+                    <img
+                      src="{{ video.thumbnail_url }}"
+                      alt="thumbnail"
+                      loading="lazy"
+                      class="h-14 w-24 rounded object-cover ring-1 ring-slate-200"
+                      onerror="this.classList.add('hidden'); const fallback = this.parentElement?.querySelector('[data-thumb-fallback]'); if (fallback) fallback.classList.remove('hidden');"
+                    />
+                    <div data-thumb-fallback class="hidden flex items-center justify-center rounded bg-slate-100 text-xs text-slate-400 ring-1 ring-slate-200 h-14 w-24">N/A</div>
+                  </div>
                   <div data-thumb-preview
                        class="pointer-events-none absolute left-0 z-30 hidden group-hover:block">
-                    <img src="{{ video.thumbnail_url }}" alt="thumbnail full"
+                    <img src="{{ video.thumbnail_url }}" alt="thumbnail full" loading="lazy"
                          class="max-h-[270px] max-w-[480px] rounded-lg border border-slate-300 bg-white shadow-lg" />
                   </div>
                 {% else %}

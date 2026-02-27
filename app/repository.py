@@ -71,12 +71,18 @@ def _rows_to_dicts(rows: list[aiosqlite.Row]) -> list[dict[str, Any]]:
     return [{k: row[k] for k in row.keys()} for row in rows]
 
 
-def _thumbnail_url(path: str | None) -> str | None:
+def _thumbnail_url(path: str | None, video_id: str | None = None) -> str | None:
     if not path:
-        return None
+        safe_video_id = str(video_id or "").strip()
+        if not safe_video_id:
+            return None
+        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
     filename = Path(path).name
     if not filename:
-        return None
+        safe_video_id = str(video_id or "").strip()
+        if not safe_video_id:
+            return None
+        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
     return f"/thumbnails/{filename}"
 
 
@@ -108,7 +114,10 @@ def _parse_float_setting(value: str | None, default: float, min_value: float, ma
 
 
 def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
-    item["thumbnail_url"] = _thumbnail_url(item.get("thumbnail_path"))
+    item["thumbnail_url"] = _thumbnail_url(
+        item.get("thumbnail_path"),
+        item.get("video_id"),
+    )
     return item
 
 

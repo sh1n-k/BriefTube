@@ -115,3 +115,13 @@ def test_video_list_sort_order(client: TestClient) -> None:
     pos_a0 = html.index("vid-a-000")
     pos_b1 = html.index("vid-b-001")
     assert pos_a0 < pos_b1, "Ascending: earlier upload should appear first"
+
+
+def test_video_list_renders_cdn_thumbnail_for_missing_local_path(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/views/video-list", params={"limit": "20"})
+    assert response.status_code == 200
+    html = response.text
+    assert "https://i.ytimg.com/vi/vid-a-000/hqdefault.jpg" in html
+    assert 'loading="lazy"' in html
