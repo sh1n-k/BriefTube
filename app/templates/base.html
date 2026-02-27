@@ -24,6 +24,7 @@
       document.documentElement.dataset.theme = effectiveTheme;
       document.documentElement.dataset.themeMode = mode;
       document.documentElement.dataset.darkTone = tone;
+      document.documentElement.dataset.pageTransition = "1";
     })();
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -355,6 +356,31 @@
       color: var(--text-main) !important;
     }
 
+    html[data-page-transition="1"] [data-page-shell] {
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 120ms ease-out, transform 120ms ease-out;
+      will-change: opacity, transform;
+    }
+
+    html[data-page-transition="1"] [data-page-shell].is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    html[data-page-transition="1"] [data-page-shell].is-leaving {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html[data-page-transition="1"] [data-page-shell] {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+    }
+
     html[data-theme="dark"] .bg-white { background-color: var(--surface-1) !important; }
     html[data-theme="dark"] .bg-slate-50 { background-color: var(--surface-2) !important; }
     html[data-theme="dark"] .bg-slate-100 { background-color: var(--app-bg) !important; }
@@ -445,6 +471,7 @@
       const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
       const THEME_MODES = new Set(["light", "dark", "system"]);
       const THEME_TONES = new Set(["brand", "neutral", "high-contrast"]);
+      const NAV_FADE_DURATION_MS = 120;
       const MATCH_CLASSES = ["bg-amber-50", "ring-1", "ring-inset", "ring-amber-200"];
       const ACTIVE_CLASSES = ["bg-indigo-100", "ring-indigo-300"];
 
@@ -1225,6 +1252,74 @@
         root.querySelectorAll("[data-youtube-embed]").forEach(initYouTubeEmbed);
       }
 
+      function revealPageShell() {
+        const shell = document.querySelector("[data-page-shell]");
+        if (!(shell instanceof HTMLElement)) return;
+        shell.classList.remove("is-leaving");
+        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          shell.classList.add("is-visible");
+          return;
+        }
+        window.requestAnimationFrame(() => {
+          shell.classList.add("is-visible");
+        });
+      }
+
+      function isPrimaryNavigationEvent(event) {
+        return (
+          event.button === 0 &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          !event.altKey
+        );
+      }
+
+      function initNavTransitionLink(link) {
+        if (link.dataset.navTransitionBound === "1") return;
+        link.dataset.navTransitionBound = "1";
+
+        link.addEventListener("click", (event) => {
+          if (!isPrimaryNavigationEvent(event)) return;
+          if (link.target && link.target !== "_self") return;
+          if (event.defaultPrevented) return;
+          if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+          const href = link.getAttribute("href");
+          if (!href) return;
+          const nextUrl = new URL(href, window.location.href);
+          if (nextUrl.origin !== window.location.origin) return;
+
+          const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+          const target = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+          if (current === target) return;
+
+          const shell = document.querySelector("[data-page-shell]");
+          if (!(shell instanceof HTMLElement)) return;
+          if (window.__navTransitionLock === true) {
+            event.preventDefault();
+            return;
+          }
+
+          event.preventDefault();
+          window.__navTransitionLock = true;
+          shell.classList.remove("is-visible");
+          shell.classList.add("is-leaving");
+          window.setTimeout(() => {
+            window.location.assign(nextUrl.toString());
+          }, NAV_FADE_DURATION_MS);
+        });
+      }
+
+      function bindNavTransitions(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-nav-transition]").forEach((node) => {
+          if (node instanceof HTMLAnchorElement) {
+            initNavTransitionLink(node);
+          }
+        });
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         const themeState = getThemeState();
         applyTheme(themeState.mode, themeState.tone, { persist: false });
@@ -1243,6 +1338,11 @@
         bindCopyButtons(document);
         bindCollapsibles(document);
         bindYouTubeEmbeds(document);
+        bindNavTransitions(document);
+        revealPageShell();
+      });
+      window.addEventListener("pageshow", () => {
+        revealPageShell();
       });
       document.addEventListener("htmx:afterRequest", (event) => {
         if (!event.detail.successful) return;
@@ -1287,21 +1387,25 @@
       <nav class="flex items-center gap-1 text-sm">
         {% set path = request.url.path %}
         <a href="/"
+           data-nav-transition
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/' or path.startswith('/videos') %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_videos }}
         </a>
         <a href="/channels"
+           data-nav-transition
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/channels' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_channels }}
         </a>
         <a href="/settings"
+           data-nav-transition
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/settings' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_settings }}
         </a>
         <a href="/retention"
+           data-nav-transition
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_retention }}
@@ -1358,7 +1462,7 @@
   </div>
   {% endif %}
 
-  <main class="mx-auto max-w-7xl px-4 py-6">
+  <main class="mx-auto max-w-7xl px-4 py-6" data-page-shell>
     {% block content %}{% endblock %}
   </main>
 </body>
