@@ -14,7 +14,7 @@
   </a>
 
   <!-- Meta header -->
-  <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+  <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-detail-meta-card>
     <h1 class="text-xl font-semibold text-slate-900">{{ video.title }}</h1>
     <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
       <div>
@@ -55,8 +55,65 @@
     </div>
   </section>
 
+  <!-- YouTube Player -->
+  <section
+    class="rounded-lg border border-slate-200 bg-white shadow-sm"
+    data-detail-player-card
+    data-youtube-embed
+    data-youtube-video-id="{{ video.video_id }}"
+    data-youtube-state="loading"
+  >
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-rose-700">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5v3m-7.5-6.75A2.25 2.25 0 0 1 10.5 4.5h3A2.25 2.25 0 0 1 15.75 6.75m-7.5 0A2.25 2.25 0 0 0 6 9v6a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 15V9a2.25 2.25 0 0 0-2.25-2.25m-7.5 0h7.5"/>
+        </svg>
+        {{ txt.detail_section_video_player }}
+      </h2>
+      <a
+        href="https://www.youtube.com/watch?v={{ video.video_id }}"
+        target="_blank" rel="noopener noreferrer"
+        class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+      >
+        {{ txt.detail_youtube_link }}
+      </a>
+    </div>
+    <div class="p-5">
+      <div class="aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+        <div data-youtube-loading class="flex h-full items-center justify-center px-4 text-sm text-slate-500">
+          {{ txt.detail_player_loading }}
+        </div>
+        <div data-youtube-player-slot class="hidden h-full w-full"></div>
+        <div data-youtube-fallback-blocked class="hidden h-full flex items-center justify-center p-5">
+          <div class="space-y-3 text-center">
+            <p class="text-sm text-slate-600">{{ txt.detail_player_embed_blocked }}</p>
+            <a
+              href="https://www.youtube.com/watch?v={{ video.video_id }}"
+              target="_blank" rel="noopener noreferrer"
+              class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-slate-100"
+            >
+              {{ txt.detail_youtube_link }}
+            </a>
+          </div>
+        </div>
+        <div data-youtube-fallback-error class="hidden h-full flex items-center justify-center p-5">
+          <div class="space-y-3 text-center">
+            <p class="text-sm text-slate-600">{{ txt.detail_player_error_generic }}</p>
+            <a
+              href="https://www.youtube.com/watch?v={{ video.video_id }}"
+              target="_blank" rel="noopener noreferrer"
+              class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-slate-100"
+            >
+              {{ txt.detail_youtube_link }}
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Article (primary content for investment info) -->
-  <section class="rounded-lg border border-slate-200 bg-white shadow-sm" data-collapsible>
+  <section class="rounded-lg border border-slate-200 bg-white shadow-sm" data-collapsible data-detail-article-card>
     <div class="border-b border-slate-200 px-5 py-3 cursor-pointer flex items-center justify-between" data-collapsible-toggle>
       <h2 class="flex items-center gap-2 text-sm font-semibold text-teal-700">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
