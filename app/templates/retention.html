@@ -14,9 +14,7 @@
     {% if expired_videos %}
       <div class="mb-3 flex items-center justify-between gap-2">
         <p class="text-sm text-slate-600">{{ txt.retention_expired_count_label }}: <span class="font-semibold">{{ expired_videos|length }}</span></p>
-        <form method="post" action="/retention/delete-all">
-          <button class="rounded-md bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{{ txt.retention_delete_all }}</button>
-        </form>
+        <button id="open-delete-all-modal" type="button" class="rounded-md bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{{ txt.retention_delete_all }}</button>
       </div>
 
       <form method="post" action="/retention/delete-selected" data-retention-form>
@@ -65,4 +63,79 @@
     {% endif %}
   </section>
 </div>
+
+{% if expired_videos %}
+<div
+  id="delete-all-modal"
+  class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4"
+  aria-hidden="true"
+>
+  <div class="w-full max-w-lg rounded-lg border border-rose-300 bg-white p-5 shadow-xl">
+    <h3 class="text-base font-semibold text-slate-900">{{ txt.retention_delete_all_modal_title }}</h3>
+    <p class="mt-2 text-sm text-slate-600">{{ txt.retention_delete_all_modal_desc.replace('{count}', expired_videos|length|string) }}</p>
+    <form method="post" action="/retention/delete-all" class="mt-4 space-y-4">
+      <label class="flex items-start gap-2 text-sm text-slate-700">
+        <input id="confirm-delete-all" type="checkbox" name="confirm_delete_all" class="mt-0.5 h-4 w-4" />
+        <span>{{ txt.retention_delete_all_confirm_label }}</span>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button
+          id="cancel-delete-all"
+          type="button"
+          class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+        >
+          {{ txt.retention_delete_all_cancel }}
+        </button>
+        <button
+          id="submit-delete-all"
+          type="submit"
+          disabled
+          class="rounded-md bg-rose-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ txt.retention_delete_all }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const openButton = document.getElementById("open-delete-all-modal");
+    const modal = document.getElementById("delete-all-modal");
+    const cancelButton = document.getElementById("cancel-delete-all");
+    const confirmBox = document.getElementById("confirm-delete-all");
+    const submitButton = document.getElementById("submit-delete-all");
+    if (!openButton || !modal || !cancelButton || !confirmBox || !submitButton) return;
+
+    const openModal = () => {
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      confirmBox.checked = false;
+      submitButton.disabled = true;
+    };
+
+    const closeModal = () => {
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+    };
+
+    openButton.addEventListener("click", openModal);
+    cancelButton.addEventListener("click", closeModal);
+    confirmBox.addEventListener("change", () => {
+      submitButton.disabled = !confirmBox.checked;
+    });
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !modal.classList.contains("hidden")) {
+        closeModal();
+      }
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}
