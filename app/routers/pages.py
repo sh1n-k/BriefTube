@@ -7,6 +7,15 @@ from fastapi.responses import RedirectResponse
 
 from app import repository
 from app.routers.template_context import build_template_context
+from app.services.transcript_headers import (
+    TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
+    TRANSCRIPT_REQUEST_HEADER_KEYS,
+    TRANSCRIPT_REQUEST_HEADER_PROFILE,
+    compact_header_overrides,
+    default_transcript_request_headers,
+    format_headers_multiline,
+    merge_with_default_headers,
+)
 
 router = APIRouter(tags=["pages"])
 
@@ -77,12 +86,26 @@ async def settings_page(request: Request):
     worker_settings = await repository.get_worker_settings(request.app.state.runtime.db)
     videos_per_page = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
     guard = await repository.get_transcript_guard_state(request.app.state.runtime.db)
+    transcript_header_overrides = await repository.get_transcript_request_header_overrides(
+        request.app.state.runtime.db
+    )
+    compact = compact_header_overrides(transcript_header_overrides, strict=False)
+    values = merge_with_default_headers(compact)
+    defaults = default_transcript_request_headers()
     reset_done = request.query_params.get("guard_reset") == "1"
     context = await build_template_context(
         request,
         worker_settings=worker_settings,
         videos_per_page=videos_per_page,
         transcript_guard=guard,
+        transcript_request_headers={
+            "profile": TRANSCRIPT_REQUEST_HEADER_PROFILE,
+            "keys": list(TRANSCRIPT_REQUEST_HEADER_KEYS),
+            "field_names": dict(TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS),
+            "defaults": defaults,
+            "values": values,
+            "multiline": format_headers_multiline(values),
+        },
         guard_reset_done=reset_done,
     )
     return request.app.state.templates.TemplateResponse(

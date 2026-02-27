@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import httpx
 
+from app import repository
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
 from app.logging_setup import configure_logging
@@ -18,6 +19,7 @@ from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import OpenClawClient
 from app.services.rss import RSSService
+from app.services.transcript_headers import merge_with_default_headers
 from app.services.telegram import TelegramNotifier
 from app.services.transcript import TranscriptService
 from app.state import AppState
@@ -70,6 +72,10 @@ async def lifespan(app: FastAPI):
             client=http_client,
         ),
         started_at=datetime.now(timezone.utc),
+    )
+    transcript_header_overrides = await repository.get_transcript_request_header_overrides(db)
+    runtime.transcript_service.apply_transcript_request_headers(
+        merge_with_default_headers(transcript_header_overrides)
     )
 
     app.state.runtime = runtime
