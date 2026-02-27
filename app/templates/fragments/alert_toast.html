@@ -1,6 +1,12 @@
 {% if alerts %}
 <div class="pointer-events-none fixed bottom-24 right-4 z-50 w-full max-w-sm space-y-2">
   {% for alert in alerts %}
+    {% set alert_text_key = 'alert_incident_generic' %}
+    {% if alert.alert_type == 'rss_channel_not_found' %}
+      {% set alert_text_key = 'alert_incident_rss_404' %}
+    {% elif alert.alert_type == 'llm_config_missing' %}
+      {% set alert_text_key = 'alert_incident_llm_config_missing' %}
+    {% endif %}
     <form
       data-alert-toast
       class="pointer-events-auto rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-lg"
@@ -19,7 +25,7 @@
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 1 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>
         </button>
       </div>
-      <p class="mt-1 text-sm font-medium text-amber-900">{{ txt.alert_incident_rss_404 }}</p>
+      <p class="mt-1 text-sm font-medium text-amber-900">{{ txt.get(alert_text_key, txt.alert_incident_generic) }}</p>
       <p class="mt-1 text-sm text-amber-900">
         {{ txt.alert_channel_label }}:
         <span class="font-semibold">{{ alert.channel_name or alert.channel_id or "-" }}</span>

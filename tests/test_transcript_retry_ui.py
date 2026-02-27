@@ -6,7 +6,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 
-def _seed_video(video_id: str, transcript_status: str) -> None:
+def _seed_video(video_id: str, pipeline_status: str) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -22,7 +22,7 @@ def _seed_video(video_id: str, transcript_status: str) -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, transcript_status)
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
             VALUES (?, ?, ?, ?, ?)
             """,
             (
@@ -30,7 +30,7 @@ def _seed_video(video_id: str, transcript_status: str) -> None:
                 "UCretryui001",
                 "Retry UI Video",
                 "2026-02-20T00:00:00+00:00",
-                transcript_status,
+                pipeline_status,
             ),
         )
         conn.commit()
@@ -38,7 +38,7 @@ def _seed_video(video_id: str, transcript_status: str) -> None:
 
 def test_video_detail_shows_transcript_retry_button_for_failed_video(client: TestClient) -> None:
     video_id = "vid-retry-ui-001"
-    _seed_video(video_id, "failed")
+    _seed_video(video_id, "transcript_failed")
 
     detail = client.get(f"/videos/{video_id}")
     assert detail.status_code == 200
@@ -56,10 +56,10 @@ def test_video_detail_shows_transcript_retry_button_for_failed_video(client: Tes
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT transcript_status, transcript_retry_count FROM videos WHERE video_id = ?",
+            "SELECT pipeline_status, transcript_retry_count FROM videos WHERE video_id = ?",
             (video_id,),
         ).fetchone()
 
     assert row is not None
-    assert row[0] == "pending"
+    assert row[0] == "transcript_pending"
     assert row[1] == 0

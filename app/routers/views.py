@@ -379,7 +379,7 @@ async def search_results(request: Request, q: str = Query(default="")):
 @router.get("/status-badge/{video_id}")
 async def status_badge(video_id: str, request: Request):
     video = await repository.get_video(request.app.state.runtime.db, video_id)
-    status = video["restructure_status"] if video else "unknown"
+    status = video["pipeline_status"] if video else "unknown"
     context = await build_template_context(request, status=status)
     return request.app.state.templates.TemplateResponse(
         request=request,
