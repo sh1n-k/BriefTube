@@ -31,13 +31,12 @@ CREATE TABLE IF NOT EXISTS videos (
     title               TEXT NOT NULL,
     upload_time         TEXT NOT NULL,
     thumbnail_path      TEXT,
-    transcript_status   TEXT NOT NULL DEFAULT 'pending',
+    pipeline_status     TEXT NOT NULL DEFAULT 'transcript_pending',
     transcript_retry_count INTEGER NOT NULL DEFAULT 0,
     transcript_next_attempt_at TEXT,
     transcript_target_language TEXT,
     transcript_last_error TEXT,
     transcript_last_error_at TEXT,
-    restructure_status  TEXT NOT NULL DEFAULT 'pending',
     retry_count         INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -104,6 +103,7 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
-CREATE INDEX IF NOT EXISTS idx_videos_restructure ON videos(restructure_status)
-WHERE restructure_status IN ('pending', 'processing', 'failed');
+CREATE INDEX IF NOT EXISTS idx_videos_pipeline ON videos(pipeline_status);
+CREATE INDEX IF NOT EXISTS idx_videos_transcript_queue
+ON videos(pipeline_status, transcript_next_attempt_at, upload_time DESC);
 CREATE INDEX IF NOT EXISTS idx_system_alerts_unacked ON system_alerts(acknowledged_at, created_at DESC);

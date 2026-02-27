@@ -23,8 +23,7 @@ class VideoOut(BaseModel):
     title: str
     upload_time: str
     thumbnail_path: str | None = None
-    transcript_status: str
-    restructure_status: str
+    pipeline_status: str
     retry_count: int
     created_at: str
 

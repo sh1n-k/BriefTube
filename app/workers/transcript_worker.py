@@ -399,6 +399,9 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         guard.last_channel_id = channel_id or guard.last_channel_id
                         guard.last_channel_attempt_at = datetime.now(timezone.utc)
                         await _save_guard_state(state, guard)
+                        marked = await repository.mark_transcript_processing(state.db, video_id)
+                        if marked == 0:
+                            continue
 
                         await _wait_until(next_request_monotonic_at)
                         raw_text, language, source_type = await asyncio.wait_for(

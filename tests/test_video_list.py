@@ -28,16 +28,15 @@ def _seed_channels_and_videos() -> None:
                 """
                 INSERT INTO videos(
                     video_id, channel_id, title, upload_time,
-                    transcript_status, restructure_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    pipeline_status, retry_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"vid-a-{i:03d}",
                     "UC_AAA",
                     f"Video A-{i}",
                     f"2026-02-{10 + i:02d}T00:00:00+00:00",
-                    "pending",
-                    "pending",
+                    "transcript_pending",
                     0,
                 ),
             )
@@ -46,16 +45,15 @@ def _seed_channels_and_videos() -> None:
                 """
                 INSERT INTO videos(
                     video_id, channel_id, title, upload_time,
-                    transcript_status, restructure_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    pipeline_status, retry_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     f"vid-b-{i:03d}",
                     "UC_BBB",
                     f"Video B-{i}",
                     f"2026-02-{20 + i:02d}T00:00:00+00:00",
-                    "pending",
-                    "pending",
+                    "transcript_pending",
                     0,
                 ),
             )

@@ -28,16 +28,15 @@ def _seed_videos(total: int) -> None:
                 """
                 INSERT INTO videos(
                     video_id, channel_id, title, upload_time,
-                    transcript_status, restructure_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    pipeline_status, retry_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     video_id,
                     "UCpage001",
                     f"Pagination Video {index:03d}",
                     upload_time,
-                    "pending",
-                    "pending",
+                    "transcript_pending",
                     0,
                 ),
             )

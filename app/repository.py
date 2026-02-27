@@ -22,6 +22,8 @@ WORKER_SETTING_DEFAULTS: dict[str, bool] = {
 }
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
+ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
+LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
 
 RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY = "rss_bootstrap_lookback_days"
 RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT = 60
@@ -46,6 +48,17 @@ TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
 TRANSCRIPT_WORKER_LEASE_OWNER_KEY = "transcript_worker_lease_owner"
 TRANSCRIPT_WORKER_LEASE_UNTIL_KEY = "transcript_worker_lease_until"
 TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY = "transcript_request_headers_overrides_json"
+PIPELINE_STATUS_KEYS: tuple[str, ...] = (
+    "transcript_pending",
+    "transcript_processing",
+    "transcript_failed",
+    "no_subtitle",
+    "llm_pending",
+    "llm_processing",
+    "llm_failed",
+    "manual_review",
+    "done",
+)
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -230,8 +243,7 @@ async def list_videos(
                 v.title,
                 v.upload_time,
                 v.thumbnail_path,
-                v.transcript_status,
-                v.restructure_status,
+                v.pipeline_status,
                 v.retry_count,
                 v.created_at
             FROM videos v
@@ -252,8 +264,7 @@ async def list_videos(
                 v.title,
                 v.upload_time,
                 v.thumbnail_path,
-                v.transcript_status,
-                v.restructure_status,
+                v.pipeline_status,
                 v.retry_count,
                 v.created_at
             FROM videos v
@@ -295,8 +306,7 @@ async def get_video(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] |
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.transcript_status,
-            v.restructure_status,
+            v.pipeline_status,
             v.retry_count,
             v.created_at
         FROM videos v
@@ -320,8 +330,7 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.transcript_status,
-            v.restructure_status,
+            v.pipeline_status,
             v.retry_count,
             v.created_at,
             t.raw_text,
@@ -409,36 +418,49 @@ async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
     cursor = await db.execute(
         """
         SELECT
-            SUM(CASE WHEN restructure_status='pending' THEN 1 ELSE 0 END) AS pending,
-            SUM(CASE WHEN restructure_status='processing' THEN 1 ELSE 0 END) AS processing,
-            SUM(CASE WHEN restructure_status='failed' THEN 1 ELSE 0 END) AS failed,
-            SUM(CASE WHEN restructure_status='manual_review' THEN 1 ELSE 0 END) AS manual_review
+            pipeline_status,
+            COUNT(1) AS cnt
         FROM videos
+        GROUP BY pipeline_status
         """
     )
-    row = await cursor.fetchone()
-    if row is None:
-        return {
-            "pending": 0,
-            "processing": 0,
-            "failed": 0,
-            "manual_review": 0,
-        }
+    rows = await cursor.fetchall()
+    payload = {status: 0 for status in PIPELINE_STATUS_KEYS}
+    payload["unknown_count"] = 0
+    for row in rows:
+        status = str(row["pipeline_status"] or "").strip()
+        count = int(row["cnt"] or 0)
+        if status in payload:
+            payload[status] = count
+        else:
+            payload["unknown_count"] += count
+    return payload
 
-    return {
-        "pending": int(row["pending"] or 0),
-        "processing": int(row["processing"] or 0),
-        "failed": int(row["failed"] or 0),
-        "manual_review": int(row["manual_review"] or 0),
-    }
+
+async def repair_orphan_llm_candidates(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'manual_review'
+        WHERE pipeline_status IN ('llm_pending', 'llm_failed', 'llm_processing')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transcripts t
+              WHERE t.video_id = videos.video_id
+          )
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def mark_video_retry(db: aiosqlite.Connection, video_id: str) -> int:
     cursor = await db.execute(
         """
         UPDATE videos
-        SET restructure_status = 'pending'
-        WHERE video_id = ? AND restructure_status IN ('failed', 'manual_review')
+        SET pipeline_status = 'llm_pending',
+            retry_count = 0
+        WHERE video_id = ? AND pipeline_status IN ('llm_failed', 'manual_review')
         """,
         (video_id,),
     )
@@ -467,7 +489,7 @@ async def pop_pending_transcript_videos(
             transcript_next_attempt_at,
             transcript_target_language
         FROM videos
-        WHERE transcript_status = 'pending'
+        WHERE pipeline_status = 'transcript_pending'
           AND (
               transcript_next_attempt_at IS NULL
               OR transcript_next_attempt_at <= datetime('now')
@@ -487,6 +509,20 @@ async def pop_pending_transcript_videos(
         return preferred[:safe_limit]
 
     return (preferred + candidates)[:safe_limit]
+
+
+async def mark_transcript_processing(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_processing'
+        WHERE video_id = ?
+          AND pipeline_status = 'transcript_pending'
+        """,
+        (video_id,),
+    )
+    await db.commit()
+    return cursor.rowcount
 
 
 async def save_transcript(
@@ -511,7 +547,7 @@ async def save_transcript(
     await db.execute(
         """
         UPDATE videos
-        SET transcript_status = 'done',
+        SET pipeline_status = 'llm_pending',
             transcript_retry_count = 0,
             transcript_next_attempt_at = NULL,
             transcript_target_language = COALESCE(?, transcript_target_language),
@@ -547,7 +583,7 @@ async def mark_no_subtitle(db: aiosqlite.Connection, video_id: str) -> None:
     await db.execute(
         """
         UPDATE videos
-        SET transcript_status = 'no_subtitle',
+        SET pipeline_status = 'no_subtitle',
             transcript_retry_count = 0,
             transcript_next_attempt_at = NULL,
             transcript_last_error = NULL,
@@ -570,12 +606,13 @@ async def schedule_transcript_retry(
     cursor = await db.execute(
         """
         UPDATE videos
-        SET transcript_retry_count = transcript_retry_count + 1,
+        SET pipeline_status = 'transcript_pending',
+            transcript_retry_count = transcript_retry_count + 1,
             transcript_next_attempt_at = datetime('now', ?),
             transcript_last_error = ?,
             transcript_last_error_at = datetime('now')
         WHERE video_id = ?
-          AND transcript_status = 'pending'
+          AND pipeline_status IN ('transcript_pending', 'transcript_processing')
         """,
         (f"+{safe_delay} seconds", safe_error, video_id),
     )
@@ -603,7 +640,7 @@ async def defer_channel_transcript_retries(
             THEN datetime('now', ?)
             ELSE transcript_next_attempt_at
         END
-        WHERE transcript_status = 'pending'
+        WHERE pipeline_status IN ('transcript_pending', 'transcript_processing')
           AND channel_id = ?
           AND (? = '' OR video_id != ?)
         """,
@@ -630,13 +667,13 @@ async def mark_transcript_failed(
     cursor = await db.execute(
         """
         UPDATE videos
-        SET transcript_status = 'failed',
+        SET pipeline_status = 'transcript_failed',
             transcript_retry_count = ?,
             transcript_next_attempt_at = NULL,
             transcript_last_error = ?,
             transcript_last_error_at = datetime('now')
         WHERE video_id = ?
-          AND transcript_status IN ('pending', 'failed', 'no_subtitle')
+          AND pipeline_status IN ('transcript_pending', 'transcript_processing', 'transcript_failed', 'no_subtitle')
         """,
         (safe_retry, safe_error, video_id),
     )
@@ -648,13 +685,13 @@ async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) ->
     cursor = await db.execute(
         """
         UPDATE videos
-        SET transcript_status = 'pending',
+        SET pipeline_status = 'transcript_pending',
             transcript_retry_count = 0,
             transcript_next_attempt_at = NULL,
             transcript_last_error = NULL,
             transcript_last_error_at = NULL
         WHERE video_id = ?
-          AND transcript_status IN ('failed', 'no_subtitle')
+          AND pipeline_status IN ('transcript_failed', 'no_subtitle')
         """,
         (video_id,),
     )
@@ -672,8 +709,7 @@ async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> d
             t.raw_text
         FROM videos v
         JOIN transcripts t ON t.video_id = v.video_id
-        WHERE v.transcript_status = 'done'
-          AND v.restructure_status IN ('pending', 'failed')
+        WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
           AND v.retry_count < ?
         ORDER BY v.created_at ASC
         LIMIT 1
@@ -684,12 +720,18 @@ async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> d
     return _row_to_dict(row)
 
 
-async def mark_restructure_processing(db: aiosqlite.Connection, video_id: str) -> None:
-    await db.execute(
-        "UPDATE videos SET restructure_status = 'processing' WHERE video_id = ?",
+async def mark_restructure_processing(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'llm_processing'
+        WHERE video_id = ?
+          AND pipeline_status IN ('llm_pending', 'llm_failed')
+        """,
         (video_id,),
     )
     await db.commit()
+    return cursor.rowcount
 
 
 async def save_article(
@@ -715,7 +757,7 @@ async def save_article(
         (video_id, title, lead, body, fact_box, timestamps),
     )
     await db.execute(
-        "UPDATE videos SET restructure_status = 'done' WHERE video_id = ?",
+        "UPDATE videos SET pipeline_status = 'done' WHERE video_id = ?",
         (video_id,),
     )
     await db.commit()
@@ -726,19 +768,20 @@ async def mark_restructure_failed(
     video_id: str,
     retry_count: int,
     max_retry_count: int,
-) -> str:
+) -> tuple[str, int]:
     next_retry = retry_count + 1
-    next_status = "failed" if next_retry < max_retry_count else "manual_review"
-    await db.execute(
+    next_status = "llm_failed" if next_retry < max_retry_count else "manual_review"
+    cursor = await db.execute(
         """
         UPDATE videos
-        SET retry_count = ?, restructure_status = ?
+        SET retry_count = ?, pipeline_status = ?
         WHERE video_id = ?
+          AND pipeline_status = 'llm_processing'
         """,
         (next_retry, next_status, video_id),
     )
     await db.commit()
-    return next_status
+    return next_status, int(cursor.rowcount or 0)
 
 
 async def get_setting(db: aiosqlite.Connection, key: str, default: str | None = None) -> str | None:
@@ -764,6 +807,54 @@ async def set_setting(db: aiosqlite.Connection, key: str, value: str) -> None:
         (key, value),
     )
     await db.commit()
+
+
+async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
+    cursor = await db.execute(
+        """
+        SELECT COUNT(1) AS cnt
+        FROM videos
+        WHERE pipeline_status = 'llm_pending'
+        """
+    )
+    row = await cursor.fetchone()
+    pending_count = int((row["cnt"] if row is not None else 0) or 0)
+    if pending_count <= 0:
+        sent_raw = await get_setting(
+            db,
+            key=LLM_CONFIG_MISSING_ALERT_SENT_KEY,
+            default="0",
+        )
+        if str(sent_raw or "0").strip() != "0":
+            await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="0")
+        return False
+
+    sent_raw = await get_setting(
+        db,
+        key=LLM_CONFIG_MISSING_ALERT_SENT_KEY,
+        default="0",
+    )
+    if str(sent_raw or "0").strip() == "1":
+        return False
+
+    await create_system_alert(
+        db,
+        alert_type=ALERT_TYPE_LLM_CONFIG_MISSING,
+        message="OPENCLAW_API_URL is missing. llm_pending items are waiting.",
+    )
+    await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="1")
+    return True
+
+
+async def clear_llm_config_missing_alert_flag(db: aiosqlite.Connection) -> None:
+    sent_raw = await get_setting(
+        db,
+        key=LLM_CONFIG_MISSING_ALERT_SENT_KEY,
+        default="0",
+    )
+    if str(sent_raw or "0").strip() == "0":
+        return
+    await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="0")
 
 
 async def get_transcript_request_header_overrides(db: aiosqlite.Connection) -> dict[str, str]:
@@ -1261,8 +1352,7 @@ async def list_retention_expired_videos(db: aiosqlite.Connection, retention_days
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.transcript_status,
-            v.restructure_status,
+            v.pipeline_status,
             v.created_at
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id

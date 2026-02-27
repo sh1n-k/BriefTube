@@ -18,8 +18,8 @@ def _seed_single_video(db_path: str) -> None:
         conn.execute(
             """
             INSERT INTO videos(
-                video_id, channel_id, title, upload_time, transcript_status, restructure_status
-            ) VALUES (?, ?, ?, ?, 'done', 'done')
+                video_id, channel_id, title, upload_time, pipeline_status
+            ) VALUES (?, ?, ?, ?, 'done')
             """,
             ("vid-tz-001", "UCtz001", "Timezone Video", "2026-02-25T00:00:00+00:00"),
         )

@@ -6,7 +6,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 
-def _seed_video(video_id: str, transcript_status: str) -> None:
+def _seed_video(video_id: str, pipeline_status: str) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -27,7 +27,7 @@ def _seed_video(video_id: str, transcript_status: str) -> None:
                 channel_id,
                 title,
                 upload_time,
-                transcript_status,
+                pipeline_status,
                 transcript_retry_count,
                 transcript_next_attempt_at,
                 transcript_last_error,
@@ -39,7 +39,7 @@ def _seed_video(video_id: str, transcript_status: str) -> None:
                 "UCretryapi001",
                 "Retry API Video",
                 "2026-02-20T00:00:00+00:00",
-                transcript_status,
+                pipeline_status,
                 3,
                 "2099-01-01 00:00:00",
                 "old error",
@@ -50,7 +50,7 @@ def _seed_video(video_id: str, transcript_status: str) -> None:
 
 
 def test_retry_transcript_api_resets_failed_video(client: TestClient) -> None:
-    _seed_video("vid-retry-api-001", "failed")
+    _seed_video("vid-retry-api-001", "transcript_failed")
 
     response = client.post("/api/videos/vid-retry-api-001/transcript/retry")
     assert response.status_code == 200
@@ -60,7 +60,7 @@ def test_retry_transcript_api_resets_failed_video(client: TestClient) -> None:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT transcript_status, transcript_retry_count, transcript_next_attempt_at,
+            SELECT pipeline_status, transcript_retry_count, transcript_next_attempt_at,
                    transcript_last_error, transcript_last_error_at
             FROM videos WHERE video_id = ?
             """,
@@ -68,7 +68,7 @@ def test_retry_transcript_api_resets_failed_video(client: TestClient) -> None:
         ).fetchone()
 
     assert row is not None
-    assert row[0] == "pending"
+    assert row[0] == "transcript_pending"
     assert row[1] == 0
     assert row[2] is None
     assert row[3] is None

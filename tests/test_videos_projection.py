@@ -25,8 +25,8 @@ def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> No
             """
             INSERT INTO videos(
                 video_id, channel_id, title, upload_time, thumbnail_path,
-                transcript_status, restructure_status, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                pipeline_status, retry_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "vid-proj-001",
@@ -34,8 +34,7 @@ def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> No
                 "Projection Test Video",
                 "2026-02-25T00:00:00+00:00",
                 "./thumbnails-dev/vid-proj-001.jpg",
-                "pending",
-                "pending",
+                "transcript_pending",
                 0,
             ),
         )

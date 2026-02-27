@@ -12,8 +12,7 @@ def _seed_video(
     channel_id: str = "UC_AAA",
     channel_name: str = "Channel A",
     title: str = "Test Video",
-    transcript_status: str = "done",
-    restructure_status: str = "done",
+    pipeline_status: str = "done",
     raw_text: str | None = "Hello world transcript",
     language: str | None = "ko",
     source_type: str | None = "auto",
@@ -36,10 +35,10 @@ def _seed_video(
             """
             INSERT INTO videos(
                 video_id, channel_id, title, upload_time,
-                transcript_status, restructure_status, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                pipeline_status, retry_count
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (video_id, channel_id, title, "2026-02-10T00:00:00+00:00", transcript_status, restructure_status, 0),
+            (video_id, channel_id, title, "2026-02-10T00:00:00+00:00", pipeline_status, 0),
         )
         if raw_text is not None:
             conn.execute(

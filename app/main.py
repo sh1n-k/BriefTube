@@ -40,14 +40,25 @@ def _build_templates() -> Jinja2Templates:
 async def lifespan(app: FastAPI):
     config = load_config()
     configure_logging(config)
-    Path(config.thumbnail_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(config.thumbnail_dir).mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.critical(
+            "event=app.thumbnail_dir_unavailable path=%s error_type=%s",
+            config.thumbnail_dir,
+            exc.__class__.__name__,
+            extra={"event": "app.thumbnail_dir_unavailable"},
+        )
+        raise RuntimeError(f"thumbnail_dir is not writable: {config.thumbnail_dir}") from exc
 
     db = await open_database(config.db_path)
     await init_database(db)
     recovered = await recover_stuck_jobs(db)
+    orphan_repaired = await repository.repair_orphan_llm_candidates(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered=%s",
+        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s",
         recovered,
+        orphan_repaired,
         extra={"event": "app.recovered_stuck_jobs"},
     )
 

@@ -22,15 +22,15 @@ def _seed_retention_data(db_path: str) -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, transcript_status, restructure_status)
-            VALUES (?, ?, ?, ?, 'done', 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
             """,
             ("vid-ret-old-001", "UCret001", "old", old_time),
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, transcript_status, restructure_status)
-            VALUES (?, ?, ?, ?, 'done', 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
             """,
             ("vid-ret-new-001", "UCret001", "new", recent_time),
         )
