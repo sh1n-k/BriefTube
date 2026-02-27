@@ -62,6 +62,44 @@ def test_retention_page_shows_expired_only(client: TestClient) -> None:
     assert "setTimeout(dismiss, 7000);" in home.text
 
 
+def test_retention_delete_all_requires_confirmation(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+
+    # confirm_delete_all 없이 POST → 삭제 안 됨, /retention으로 리다이렉트
+    response = client.post(
+        "/retention/delete-all",
+        data={},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/retention"
+
+    with sqlite3.connect(db_path) as conn:
+        old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
+    assert old_row is not None
+
+
+def test_retention_delete_all_with_confirmation(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+
+    # confirm_delete_all=on POST → 만료 영상 삭제됨
+    response = client.post(
+        "/retention/delete-all",
+        data={"confirm_delete_all": "on"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/retention?deleted=")
+
+    with sqlite3.connect(db_path) as conn:
+        old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
+        new_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-new-001'").fetchone()
+    assert old_row is None
+    assert new_row is not None
+
+
 def test_retention_delete_selected(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)

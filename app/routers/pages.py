@@ -200,6 +200,10 @@ async def delete_retention_selected(request: Request):
 
 @router.post("/retention/delete-all")
 async def delete_retention_all(request: Request):
+    form = await request.form()
+    confirmed = str(form.get("confirm_delete_all", "")).strip().lower()
+    if confirmed != "on":
+        return RedirectResponse(url="/retention", status_code=303)
     policy = await repository.get_policy_settings(request.app.state.runtime.db)
     expired_ids = await repository.list_retention_expired_video_ids(
         request.app.state.runtime.db,
