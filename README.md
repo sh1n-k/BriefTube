@@ -71,6 +71,56 @@ python scripts/init_db.py
 | `LOG_NOISE_SUPPRESS_THRESHOLD` | 시간창 내 상세 출력 허용 횟수 | `1` |
 | `LOG_DEPENDENCY_LEVEL` | 외부 라이브러리 로그 레벨 | `WARNING` |
 
+### 쉽게 이해하기: RSS 폴러 / 트랜스크립트 페처
+
+아래 설명은 "숫자를 올리면 어떻게 되고, 내리면 어떻게 되는지"만 아주 간단히 정리한 버전입니다.
+
+- `POLLING_INTERVAL_MINUTES`
+  - 새 영상을 확인하러 가는 "점검 주기"입니다.
+  - 값을 작게 하면: 더 빨리 새 영상을 찾음 (대신 요청 횟수 증가)
+  - 값을 크게 하면: 요청은 줄지만, 새 영상 반영이 늦어짐
+
+- `TRANSCRIPT_FETCH_TIMEOUT_SECONDS`
+  - 자막 요청 1번을 "최대 몇 초까지 기다릴지"입니다.
+  - 너무 짧으면: 느린 네트워크에서 실패가 늘어날 수 있음
+  - 너무 길면: 실패 판단이 늦어져 전체 처리도 느려질 수 있음
+
+- `TRANSCRIPT_RETRY_MAX_ATTEMPTS`
+  - 자막 실패 시 "최대 몇 번 다시 시도할지"입니다.
+  - 크게 하면: 복구 기회가 늘어남
+  - 너무 크게 하면: 실패 영상에 시간을 오래 씀
+
+- `TRANSCRIPT_CHANNEL_MIN_INTERVAL_SECONDS`
+  - 같은 채널 영상을 연속 처리할 때 "최소 쉬는 시간"입니다.
+  - 크게 하면: 한 채널에 요청이 몰리는 것을 줄여 차단 위험 완화
+  - 작게 하면: 같은 채널 처리 속도는 빨라지지만 요청이 몰릴 수 있음
+
+- `TRANSCRIPT_CHANNEL_PICK_LOOKAHEAD`
+  - 자막 대기열에서 "앞에서 몇 개를 미리 보고" 다른 채널 영상을 고를지입니다.
+  - 크게 하면: 채널 분산이 잘 됨 (한 채널 몰림 방지)
+  - 작게 하면: 거의 순서대로 처리
+
+- `TRANSCRIPT_CHANNEL_HARD_COOLDOWN_SECONDS`
+  - 차단 신호(예: 403/429)가 오면 "그 채널 요청을 잠시 멈추는 시간"입니다.
+  - 크게 하면: 차단 회복에 유리
+  - 너무 크면: 해당 채널 재시도까지 오래 걸림
+
+- `TRANSCRIPT_BREAKER_HALF_OPEN_PROBE_COUNT`
+  - 차단 이후 재개할 때 "시험 요청"을 몇 번 보낼지입니다.
+  - 작게(보통 1) 하면: 안전하게 천천히 재개
+  - 크게 하면: 회복 확인은 빠를 수 있지만 다시 막힐 위험 증가
+
+- `TRANSCRIPT_WORKER_LEASE_ENABLED`
+  - 자막 워커를 여러 개 띄웠을 때 "한 번에 한 워커만 일하게 잠금"을 쓰는 옵션입니다.
+  - `true` 권장: 중복 처리/충돌 방지
+
+- `TRANSCRIPT_WORKER_LEASE_TTL_SECONDS`
+  - 잠금 유효 시간입니다. 워커가 죽어도 이 시간이 지나면 다른 워커가 이어서 작업할 수 있습니다.
+  - 너무 짧으면: 정상 동작 중에도 잠금이 자주 바뀔 수 있음
+  - 너무 길면: 워커 장애 시 복구가 늦어질 수 있음
+
+실무에서는 기본값으로 시작하고, 먼저 `POLLING_INTERVAL_MINUTES`, `TRANSCRIPT_CHANNEL_MIN_INTERVAL_SECONDS`, `TRANSCRIPT_RETRY_MAX_ATTEMPTS` 3개만 조금씩 조정해도 체감이 큽니다.
+
 로그 파일 최대 사용량은 대략 `LOG_FILE_MAX_BYTES * (LOG_FILE_BACKUP_COUNT + 1)` 입니다.
 
 전체 설정 키는 `app/config.py`의 `AppConfig` 참조.
