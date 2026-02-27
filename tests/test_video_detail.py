@@ -72,6 +72,31 @@ def test_detail_youtube_link(client: TestClient) -> None:
     assert "https://www.youtube.com/watch?v=vid-001" in html
 
 
+def test_detail_youtube_embed_card_order(client: TestClient) -> None:
+    """메타데이터 카드와 기사 카드 사이에 플레이어 카드가 배치된다."""
+    _seed_video()
+    response = client.get("/videos/vid-001")
+    html = response.text
+    meta_idx = html.index("data-detail-meta-card")
+    player_idx = html.index("data-detail-player-card")
+    article_idx = html.index("data-detail-article-card")
+    assert meta_idx < player_idx < article_idx
+
+
+def test_detail_youtube_embed_contract(client: TestClient) -> None:
+    """임베드 플레이어 마크업/스크립트 계약이 포함된다."""
+    _seed_video()
+    response = client.get("/videos/vid-001")
+    html = response.text
+    assert 'data-youtube-embed' in html
+    assert 'data-youtube-video-id="vid-001"' in html
+    assert "data-youtube-loading" in html
+    assert "data-youtube-player-slot" in html
+    assert "data-youtube-fallback-blocked" in html
+    assert "data-youtube-fallback-error" in html
+    assert "https://www.youtube-nocookie.com" in html
+
+
 def test_detail_empty_fact_box_hidden(client: TestClient) -> None:
     """fact_box='{}'이면 핵심 팩트 미렌더링"""
     _seed_video(fact_box="{}")
