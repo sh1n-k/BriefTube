@@ -137,6 +137,16 @@ def _compute_jittered_interval_seconds(
     return effective * random.uniform(1.0 - ratio, 1.0 + ratio)
 
 
+def _adaptive_decay_rate(adaptive_factor: float, adaptive_max_factor: float) -> float:
+    high = adaptive_max_factor / 2.0
+    mid = adaptive_max_factor / 4.0
+    if adaptive_factor >= high:
+        return 0.5
+    if adaptive_factor >= mid:
+        return 0.65
+    return 0.8
+
+
 async def _wait_until(monotonic_deadline: float) -> None:
     while True:
         now = time.monotonic()
@@ -326,7 +336,6 @@ async def run_transcript_fetcher(state: AppState) -> None:
             ):
                 guard.breaker_state = TranscriptBreakerState.HALF_OPEN
                 guard.cooldown_until = None
-                guard.consecutive_hard_errors = 0
                 guard.half_open_probe_remaining = max(1, half_open_probe_count)
                 await _save_guard_state(state, guard)
                 logger.info(
@@ -355,20 +364,16 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     lookahead=channel_pick_lookahead,
                     avoid_channel_id=avoid_channel_id,
                 )
+                if avoid_channel_id and remaining_channel_wait > 0:
+                    pending = [
+                        v for v in pending
+                        if str(v.get("channel_id") or "").strip() != avoid_channel_id
+                    ]
                 if not pending:
                     sleep_seconds = idle_sleep_seconds
                     if remaining_channel_wait > 0:
                         sleep_seconds = min(sleep_seconds, max(1.0, remaining_channel_wait))
                     await asyncio.sleep(sleep_seconds)
-                    continue
-
-                if (
-                    avoid_channel_id
-                    and pending
-                    and str(pending[0].get("channel_id") or "").strip() == avoid_channel_id
-                    and remaining_channel_wait > 0
-                ):
-                    await asyncio.sleep(min(idle_sleep_seconds, max(1.0, remaining_channel_wait)))
                     continue
 
                 for video in pending:
@@ -428,7 +433,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             _close_breaker(guard, half_open_probe_count=half_open_probe_count)
                         if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
                             guard.consecutive_successes = 0
-                            guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
+                            decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
+                            guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
                         await _save_guard_state(state, guard)
 
                         await _wait_until(next_request_monotonic_at)
@@ -480,7 +486,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 _close_breaker(guard, half_open_probe_count=half_open_probe_count)
                             if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
                                 guard.consecutive_successes = 0
-                                guard.adaptive_factor = max(1.0, guard.adaptive_factor * 0.8)
+                                decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
+                                guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
                             await _save_guard_state(state, guard)
                             logger.info(
                                 "event=transcript.no_subtitle worker=transcript video_id=%s",
