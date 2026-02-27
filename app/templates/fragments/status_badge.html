@@ -1,13 +1,13 @@
-{% set color_map = {
-  'transcript_pending': 'bg-amber-100 text-amber-800 ring-amber-300',
-  'transcript_processing': 'bg-sky-100 text-sky-800 ring-sky-300',
-  'transcript_failed': 'bg-rose-100 text-rose-800 ring-rose-300',
-  'llm_pending': 'bg-indigo-100 text-indigo-800 ring-indigo-300',
-  'llm_processing': 'bg-cyan-100 text-cyan-800 ring-cyan-300',
-  'llm_failed': 'bg-rose-100 text-rose-800 ring-rose-300',
-  'done': 'bg-emerald-100 text-emerald-800 ring-emerald-300',
-  'manual_review': 'bg-orange-100 text-orange-800 ring-orange-300',
-  'no_subtitle': 'bg-slate-100 text-slate-700 ring-slate-300'
+{% set class_map = {
+  'transcript_pending': 'status-badge--transcript-pending',
+  'transcript_processing': 'status-badge--transcript-processing',
+  'transcript_failed': 'status-badge--transcript-failed',
+  'llm_pending': 'status-badge--llm-pending',
+  'llm_processing': 'status-badge--llm-processing',
+  'llm_failed': 'status-badge--llm-failed',
+  'done': 'status-badge--done',
+  'manual_review': 'status-badge--manual-review',
+  'no_subtitle': 'status-badge--no-subtitle'
 } %}
 {% set text_key = 'pipeline_status_' ~ status %}
-<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset {{ color_map.get(status, 'bg-slate-100 text-slate-700 ring-slate-300') }}">{{ txt.get(text_key, status | replace('_', ' ')) }}</span>
+<span class="status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ class_map.get(status, 'status-badge--unknown') }}">{{ txt.get(text_key, status | replace('_', ' ')) }}</span>
