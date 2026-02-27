@@ -102,10 +102,8 @@ def test_detail_empty_fact_box_hidden(client: TestClient) -> None:
     _seed_video(fact_box="{}")
     response = client.get("/videos/vid-001")
     html = response.text
-    # The key facts heading should not appear
-    assert "detail_key_facts" not in html or html.count("detail_key_facts") == 0
-    # More specifically, the amber box should not render
-    assert "text-amber-800" not in html
+    assert "핵심 팩트" not in html
+    assert "Key Facts" not in html
 
 
 def test_detail_empty_timestamps_hidden(client: TestClient) -> None:

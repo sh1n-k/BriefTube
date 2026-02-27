@@ -1,15 +1,414 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="{{ language or 'ko' }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}BriefTube{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script>
     (() => {
+      const safeGet = (key) => {
+        try {
+          return localStorage.getItem(key);
+        } catch (_err) {
+          return null;
+        }
+      };
+      const modeRaw = (safeGet("brieftube.theme.mode") || "").trim().toLowerCase();
+      const mode = modeRaw === "light" || modeRaw === "dark" || modeRaw === "system" ? modeRaw : "system";
+      const toneRaw = (safeGet("brieftube.theme.darkTone") || "").trim().toLowerCase();
+      const tone = toneRaw === "brand" || toneRaw === "high-contrast" || toneRaw === "neutral"
+        ? toneRaw
+        : "neutral";
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const effectiveTheme = mode === "system" ? (prefersDark ? "dark" : "light") : mode;
+      document.documentElement.dataset.theme = effectiveTheme;
+      document.documentElement.dataset.themeMode = mode;
+      document.documentElement.dataset.darkTone = tone;
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    :root {
+      --app-bg: #f1f5f9;
+      --surface-1: #ffffff;
+      --surface-2: #f8fafc;
+      --surface-3: #f1f5f9;
+      --text-main: #0f172a;
+      --text-subtle: #334155;
+      --text-muted: #64748b;
+      --text-soft: #94a3b8;
+      --border-default: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --brand-strong: #4338ca;
+      --brand-soft-text: #3730a3;
+      --brand-soft-bg: #eef2ff;
+      --brand-soft-border: #c7d2fe;
+      --success-bg: #ecfdf5;
+      --success-border: #86efac;
+      --success-text: #166534;
+      --danger-bg: #fff1f2;
+      --danger-border: #fda4af;
+      --danger-text: #9f1239;
+      --warn-bg: #fffbeb;
+      --warn-border: #fde68a;
+      --warn-text: #92400e;
+      --info-bg: #f0f9ff;
+      --info-border: #7dd3fc;
+      --info-text: #075985;
+      --violet-bg: #f5f3ff;
+      --violet-text: #6d28d9;
+    }
+
+    html[data-theme="light"] {
+      color-scheme: light;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+    }
+
+    html[data-theme="dark"][data-dark-tone="brand"] {
+      --app-bg: #0f172a;
+      --surface-1: #111f3b;
+      --surface-2: #13264a;
+      --surface-3: #1c2f55;
+      --text-main: #e2e8f0;
+      --text-subtle: #cbd5e1;
+      --text-muted: #94a3b8;
+      --text-soft: #64748b;
+      --border-default: #334155;
+      --border-strong: #475569;
+      --brand-strong: #a5b4fc;
+      --brand-soft-text: #c7d2fe;
+      --brand-soft-bg: #27355f;
+      --brand-soft-border: #4f46e5;
+      --success-bg: #133228;
+      --success-border: #22c55e;
+      --success-text: #86efac;
+      --danger-bg: #3f1d2e;
+      --danger-border: #fb7185;
+      --danger-text: #fecdd3;
+      --warn-bg: #3a2e1c;
+      --warn-border: #f59e0b;
+      --warn-text: #fde68a;
+      --info-bg: #173346;
+      --info-border: #38bdf8;
+      --info-text: #bae6fd;
+      --violet-bg: #30235e;
+      --violet-text: #ddd6fe;
+    }
+
+    html[data-theme="dark"][data-dark-tone="neutral"] {
+      --app-bg: #0f172a;
+      --surface-1: #111827;
+      --surface-2: #1f2937;
+      --surface-3: #0b1220;
+      --text-main: #e5e7eb;
+      --text-subtle: #d1d5db;
+      --text-muted: #9ca3af;
+      --text-soft: #6b7280;
+      --border-default: #334155;
+      --border-strong: #475569;
+      --brand-strong: #a5b4fc;
+      --brand-soft-text: #c7d2fe;
+      --brand-soft-bg: #312e81;
+      --brand-soft-border: #4f46e5;
+      --success-bg: #163f31;
+      --success-border: #22c55e;
+      --success-text: #86efac;
+      --danger-bg: #402030;
+      --danger-border: #f43f5e;
+      --danger-text: #fecdd3;
+      --warn-bg: #3d311f;
+      --warn-border: #f59e0b;
+      --warn-text: #fde68a;
+      --info-bg: #173a4b;
+      --info-border: #0ea5e9;
+      --info-text: #bae6fd;
+      --violet-bg: #2e2754;
+      --violet-text: #ddd6fe;
+    }
+
+    html[data-theme="dark"][data-dark-tone="high-contrast"] {
+      --app-bg: #020617;
+      --surface-1: #0b1120;
+      --surface-2: #111827;
+      --surface-3: #0f172a;
+      --text-main: #f8fafc;
+      --text-subtle: #e5e7eb;
+      --text-muted: #cbd5e1;
+      --text-soft: #94a3b8;
+      --border-default: #64748b;
+      --border-strong: #94a3b8;
+      --brand-strong: #c7d2fe;
+      --brand-soft-text: #e0e7ff;
+      --brand-soft-bg: #312e81;
+      --brand-soft-border: #818cf8;
+      --success-bg: #14532d;
+      --success-border: #4ade80;
+      --success-text: #dcfce7;
+      --danger-bg: #4c0519;
+      --danger-border: #fb7185;
+      --danger-text: #ffe4e6;
+      --warn-bg: #422006;
+      --warn-border: #fbbf24;
+      --warn-text: #fef3c7;
+      --info-bg: #082f49;
+      --info-border: #38bdf8;
+      --info-text: #e0f2fe;
+      --violet-bg: #2e1065;
+      --violet-text: #ede9fe;
+    }
+
+    body {
+      background-color: var(--app-bg) !important;
+      color: var(--text-main) !important;
+    }
+
+    html[data-theme="dark"] .bg-white { background-color: var(--surface-1) !important; }
+    html[data-theme="dark"] .bg-slate-50 { background-color: var(--surface-2) !important; }
+    html[data-theme="dark"] .bg-slate-100 { background-color: var(--app-bg) !important; }
+    html[data-theme="dark"] .bg-slate-900\/50 { background-color: rgb(2 6 23 / 0.72) !important; }
+
+    html[data-theme="dark"] .border-slate-200,
+    html[data-theme="dark"] .border-slate-300 { border-color: var(--border-default) !important; }
+    html[data-theme="dark"] .ring-slate-200,
+    html[data-theme="dark"] .ring-slate-300 { --tw-ring-color: var(--border-default) !important; }
+
+    html[data-theme="dark"] .text-slate-900 { color: var(--text-main) !important; }
+    html[data-theme="dark"] .text-slate-800,
+    html[data-theme="dark"] .text-slate-700 { color: var(--text-subtle) !important; }
+    html[data-theme="dark"] .text-slate-600,
+    html[data-theme="dark"] .text-slate-500 { color: var(--text-muted) !important; }
+    html[data-theme="dark"] .text-slate-400,
+    html[data-theme="dark"] .text-slate-300 { color: var(--text-soft) !important; }
+
+    html[data-theme="dark"] .bg-indigo-50 { background-color: var(--brand-soft-bg) !important; }
+    html[data-theme="dark"] .border-indigo-200,
+    html[data-theme="dark"] .border-indigo-300 { border-color: var(--brand-soft-border) !important; }
+    html[data-theme="dark"] .text-indigo-900,
+    html[data-theme="dark"] .text-indigo-800,
+    html[data-theme="dark"] .text-indigo-700,
+    html[data-theme="dark"] .text-indigo-600 { color: var(--brand-soft-text) !important; }
+    html[data-theme="dark"] .hover\:bg-indigo-100:hover { background-color: color-mix(in srgb, var(--brand-soft-bg), white 8%) !important; }
+    html[data-theme="dark"] .hover\:text-indigo-800:hover,
+    html[data-theme="dark"] .hover\:text-indigo-900:hover { color: var(--brand-strong) !important; }
+
+    html[data-theme="dark"] .bg-emerald-50 { background-color: var(--success-bg) !important; }
+    html[data-theme="dark"] .border-emerald-200,
+    html[data-theme="dark"] .border-emerald-300 { border-color: var(--success-border) !important; }
+    html[data-theme="dark"] .text-emerald-800 { color: var(--success-text) !important; }
+
+    html[data-theme="dark"] .bg-rose-50 { background-color: var(--danger-bg) !important; }
+    html[data-theme="dark"] .border-rose-300,
+    html[data-theme="dark"] .border-rose-400 { border-color: var(--danger-border) !important; }
+    html[data-theme="dark"] .text-rose-800,
+    html[data-theme="dark"] .text-rose-700 { color: var(--danger-text) !important; }
+    html[data-theme="dark"] .bg-rose-600 { background-color: #e11d48 !important; }
+    html[data-theme="dark"] .hover\:bg-rose-100:hover { background-color: color-mix(in srgb, var(--danger-bg), white 10%) !important; }
+
+    html[data-theme="dark"] .bg-amber-50 { background-color: var(--warn-bg) !important; }
+    html[data-theme="dark"] .border-amber-200,
+    html[data-theme="dark"] .border-amber-300 { border-color: var(--warn-border) !important; }
+    html[data-theme="dark"] .text-amber-900,
+    html[data-theme="dark"] .text-amber-800 { color: var(--warn-text) !important; }
+
+    html[data-theme="dark"] .bg-sky-50 { background-color: var(--info-bg) !important; }
+    html[data-theme="dark"] .border-sky-300 { border-color: var(--info-border) !important; }
+    html[data-theme="dark"] .text-sky-900,
+    html[data-theme="dark"] .text-sky-800,
+    html[data-theme="dark"] .text-sky-700 { color: var(--info-text) !important; }
+    html[data-theme="dark"] .hover\:bg-sky-100:hover { background-color: color-mix(in srgb, var(--info-bg), white 8%) !important; }
+    html[data-theme="dark"] .hover\:bg-sky-200:hover { background-color: color-mix(in srgb, var(--info-bg), white 14%) !important; }
+
+    html[data-theme="dark"] .bg-violet-100 { background-color: var(--violet-bg) !important; }
+    html[data-theme="dark"] .text-violet-700 { color: var(--violet-text) !important; }
+
+    html[data-theme="dark"] .bg-gradient-to-r.from-indigo-700.to-indigo-600 {
+      background-image: linear-gradient(to right, #312e81, #4338ca) !important;
+    }
+
+    html[data-theme="dark"] input[type="text"],
+    html[data-theme="dark"] input[type="number"],
+    html[data-theme="dark"] select,
+    html[data-theme="dark"] textarea {
+      background-color: var(--surface-2) !important;
+      border-color: var(--border-default) !important;
+      color: var(--text-main) !important;
+    }
+
+    html[data-theme="dark"] input::placeholder,
+    html[data-theme="dark"] textarea::placeholder {
+      color: var(--text-soft) !important;
+    }
+
+    html[data-theme="dark"] .hover\:bg-slate-100:hover {
+      background-color: color-mix(in srgb, var(--surface-1), white 6%) !important;
+    }
+  </style>
+  <script>
+    (() => {
+      const THEME_MODE_KEY = "brieftube.theme.mode";
+      const THEME_TONE_KEY = "brieftube.theme.darkTone";
+      const THEME_MODE_DEFAULT = "system";
+      const THEME_TONE_DEFAULT = "neutral";
+      const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
+      const THEME_MODES = new Set(["light", "dark", "system"]);
+      const THEME_TONES = new Set(["brand", "neutral", "high-contrast"]);
       const MATCH_CLASSES = ["bg-amber-50", "ring-1", "ring-inset", "ring-amber-200"];
       const ACTIVE_CLASSES = ["bg-indigo-100", "ring-indigo-300"];
+
+      function getStoredValue(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (_err) {
+          return null;
+        }
+      }
+
+      function setStoredValue(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (_err) {
+          // ignore storage write errors and keep runtime-only state.
+        }
+      }
+
+      function normalizeThemeMode(value) {
+        const normalized = String(value || "").trim().toLowerCase();
+        return THEME_MODES.has(normalized) ? normalized : THEME_MODE_DEFAULT;
+      }
+
+      function normalizeDarkTone(value) {
+        const normalized = String(value || "").trim().toLowerCase();
+        return THEME_TONES.has(normalized) ? normalized : THEME_TONE_DEFAULT;
+      }
+
+      function resolveEffectiveTheme(mode) {
+        if (mode !== "system") return mode;
+        const prefersDark = window.matchMedia && window.matchMedia(SYSTEM_DARK_QUERY).matches;
+        return prefersDark ? "dark" : "light";
+      }
+
+      function getThemeState() {
+        return {
+          mode: normalizeThemeMode(getStoredValue(THEME_MODE_KEY)),
+          tone: normalizeDarkTone(getStoredValue(THEME_TONE_KEY)),
+        };
+      }
+
+      function syncThemeControls(scope) {
+        const root = scope instanceof Element ? scope : document;
+        const html = document.documentElement;
+        const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
+        const tone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+        const effective = resolveEffectiveTheme(mode);
+        root.querySelectorAll("[data-theme-mode-select]").forEach((node) => {
+          if (node instanceof HTMLSelectElement) {
+            node.value = mode;
+          }
+        });
+        root.querySelectorAll("[data-theme-tone-select]").forEach((node) => {
+          if (node instanceof HTMLSelectElement) {
+            node.value = tone;
+          }
+        });
+        root.querySelectorAll("[data-theme-toggle-label]").forEach((node) => {
+          const darkLabel = node.getAttribute("data-theme-label-dark") || "Dark";
+          const lightLabel = node.getAttribute("data-theme-label-light") || "Light";
+          node.textContent = effective === "dark" ? lightLabel : darkLabel;
+        });
+      }
+
+      function applyTheme(modeInput, toneInput, options = {}) {
+        const mode = normalizeThemeMode(modeInput);
+        const tone = normalizeDarkTone(toneInput);
+        const persist = options.persist !== false;
+        if (persist) {
+          setStoredValue(THEME_MODE_KEY, mode);
+          setStoredValue(THEME_TONE_KEY, tone);
+        }
+        const effective = resolveEffectiveTheme(mode);
+        const html = document.documentElement;
+        html.dataset.themeMode = mode;
+        html.dataset.darkTone = tone;
+        html.dataset.theme = effective;
+        syncThemeControls(document);
+      }
+
+      function bindThemeModeSelects(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-theme-mode-select]").forEach((node) => {
+          if (!(node instanceof HTMLSelectElement)) return;
+          if (node.dataset.themeBound === "1") return;
+          node.dataset.themeBound = "1";
+          node.addEventListener("change", () => {
+            const html = document.documentElement;
+            const tone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+            applyTheme(node.value, tone, { persist: true });
+          });
+        });
+      }
+
+      function bindThemeToneSelects(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-theme-tone-select]").forEach((node) => {
+          if (!(node instanceof HTMLSelectElement)) return;
+          if (node.dataset.themeBound === "1") return;
+          node.dataset.themeBound = "1";
+          node.addEventListener("change", () => {
+            const html = document.documentElement;
+            const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
+            applyTheme(mode, node.value, { persist: true });
+          });
+        });
+      }
+
+      function bindThemeToggles(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-theme-toggle]").forEach((node) => {
+          if (!(node instanceof HTMLButtonElement)) return;
+          if (node.dataset.themeBound === "1") return;
+          node.dataset.themeBound = "1";
+          node.addEventListener("click", () => {
+            const html = document.documentElement;
+            const currentMode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
+            const currentTone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+            const effective = resolveEffectiveTheme(currentMode);
+            const nextMode = effective === "dark" ? "light" : "dark";
+            applyTheme(nextMode, currentTone, { persist: true });
+          });
+        });
+      }
+
+      function bindSystemThemeObserver() {
+        if (window.__themeSystemObserverBound === true) return;
+        window.__themeSystemObserverBound = true;
+        if (!window.matchMedia) return;
+        const media = window.matchMedia(SYSTEM_DARK_QUERY);
+        const onChange = () => {
+          const html = document.documentElement;
+          const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
+          if (mode !== "system") return;
+          const tone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+          applyTheme(mode, tone, { persist: false });
+        };
+        if (typeof media.addEventListener === "function") {
+          media.addEventListener("change", onChange);
+          return;
+        }
+        if (typeof media.addListener === "function") {
+          media.addListener(onChange);
+        }
+      }
+
+      function bindThemeControls(scope) {
+        bindThemeModeSelects(scope);
+        bindThemeToneSelects(scope);
+        bindThemeToggles(scope);
+        syncThemeControls(scope);
+      }
 
       function clearMatchStyles(row) {
         row.classList.remove(...MATCH_CLASSES, ...ACTIVE_CLASSES);
@@ -638,6 +1037,10 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
+        const themeState = getThemeState();
+        applyTheme(themeState.mode, themeState.tone, { persist: false });
+        bindSystemThemeObserver();
+        bindThemeControls(document);
         bindChannelCompose(document);
         bindChannelComposeForms(document);
         bindChannelSearch(document);
@@ -665,6 +1068,7 @@
         }
       });
       document.addEventListener("htmx:afterSwap", (event) => {
+        bindThemeControls(event.target);
         bindChannelCompose(event.target);
         bindChannelComposeForms(event.target);
         bindChannelSearch(event.target);
@@ -713,6 +1117,24 @@
                   {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_retention }}
         </a>
+        <button
+          type="button"
+          data-theme-toggle
+          class="ml-2 inline-flex items-center gap-1 rounded-md border border-white/30 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-indigo-100 hover:bg-white/20 hover:text-white"
+          aria-label="{{ txt.theme_toggle_label }}"
+          title="{{ txt.theme_toggle_label }}"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5M12 19.5V21M4.5 12H3m18 0h-1.5M6.343 6.343 5.28 5.28m13.44 13.44-1.06-1.06M17.657 6.343 18.72 5.28M6.343 17.657 5.28 18.72M12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z"/>
+          </svg>
+          <span
+            data-theme-toggle-label
+            data-theme-label-light="{{ txt.theme_toggle_to_light }}"
+            data-theme-label-dark="{{ txt.theme_toggle_to_dark }}"
+          >
+            {{ txt.theme_toggle_to_dark }}
+          </span>
+        </button>
       </nav>
     </div>
   </header>
