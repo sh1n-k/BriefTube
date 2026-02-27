@@ -103,7 +103,4 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
-CREATE INDEX IF NOT EXISTS idx_videos_pipeline ON videos(pipeline_status);
-CREATE INDEX IF NOT EXISTS idx_videos_transcript_queue
-ON videos(pipeline_status, transcript_next_attempt_at, upload_time DESC);
 CREATE INDEX IF NOT EXISTS idx_system_alerts_unacked ON system_alerts(acknowledged_at, created_at DESC);
