@@ -59,7 +59,7 @@ def test_retention_page_shows_expired_only(client: TestClient) -> None:
     assert "data-retention-notice" in home.text
     assert "fixed bottom-4 right-4" in home.text
     assert "data-retention-notice-dismiss" in home.text
-    assert "setTimeout(dismiss, 7000);" in home.text
+    assert '/static/js/main-ui.js' in home.text
 
 
 def test_retention_delete_all_requires_confirmation(client: TestClient) -> None:

@@ -5,6 +5,7 @@ import logging
 import time
 
 from app import repository
+from app.domains.downloads import resolve_worker_timeout_seconds
 from app.services.downloads import download_video
 from app.state import AppState
 
@@ -21,8 +22,10 @@ async def _run_single_download_job(
     quality = str(job.get("quality") or repository.DOWNLOAD_QUALITY_DEFAULT)
     overwrite = bool(int(job.get("overwrite") or 0))
     target_dir = str(job.get("target_dir") or state.config.download_dir).strip() or state.config.download_dir
-    base_timeout_seconds = int(state.config.download_timeout_seconds)
-    timeout_seconds = max(base_timeout_seconds, 3600) if quality == "2160" else base_timeout_seconds
+    timeout_seconds = resolve_worker_timeout_seconds(
+        quality=quality,
+        base_timeout_seconds=int(state.config.download_timeout_seconds),
+    )
     logger.info(
         "event=downloads.job_started job_id=%s video_id=%s quality=%s overwrite=%s target_dir=%s timeout_seconds=%s",
         job_id,

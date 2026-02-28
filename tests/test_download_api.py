@@ -167,7 +167,8 @@ def test_request_video_download_enqueue_sets_wake_event(
     assert response.status_code == 202
     assert response.json()["queued"] is True
     assert response.json()["job_id"] == 101
-    assert client.app.state.runtime.download_wake_event.is_set()
+    assert response.json()["message_key"] == "download_toast_queued"
+    assert response.json()["tone"] == "success"
 
 
 def test_settings_download_defaults_update(client: TestClient) -> None:

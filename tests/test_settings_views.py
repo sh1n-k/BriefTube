@@ -31,9 +31,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'hx-trigger="input changed delay:1s from:input[name=\'videos_per_page\']"' in response.text
     assert 'data-save-toast="' in response.text
     assert 'data-digits-only' in response.text
-    assert 'document.addEventListener("htmx:afterRequest"' in response.text
-    assert 'flattenSavedValues' in response.text
-    assert 'parseJsonSafe' in response.text
+    assert '/static/js/main-ui.js' in response.text
+    assert "window.BRIEFTUBE_UI_BOOTSTRAP" in response.text
     assert 'data-theme-toggle' in response.text
     assert 'data-theme-mode-select' in response.text
     assert 'data-theme-tone-select' in response.text

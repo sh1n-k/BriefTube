@@ -51,7 +51,7 @@ def test_channel_search_enter_shortcuts_support_previous_and_next(client: TestCl
     response = client.get("/")
     assert response.status_code == 200
     html = response.text
-    assert "step(event.shiftKey ? -1 : 1);" in html
+    assert '/static/js/main-ui.js' in html
 
 
 def test_index_does_not_render_channel_panels(client: TestClient) -> None:

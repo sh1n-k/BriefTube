@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app import repository
+from app.download_error_registry import build_download_error_payload
+from app.domains.downloads import enqueue_video_download, retry_download_job as retry_download_job_request
 from app.i18n import SUPPORTED_LANGUAGES, normalize_language
 from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
 from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
@@ -318,98 +320,53 @@ async def request_video_download(video_id: str, request: Request):
         overwrite,
         extra={"event": "downloads.enqueue_requested"},
     )
-
     if not is_ffmpeg_available():
-        logger.warning(
-            "event=downloads.enqueue_rejected_ffmpeg_missing video_id=%s",
-            str(video["video_id"]),
-            extra={"event": "downloads.enqueue_rejected_ffmpeg_missing", "code": "ffmpeg_missing"},
-        )
         return JSONResponse(
             status_code=409,
-            content={
-                "ok": False,
-                "queued": False,
-                "code": "ffmpeg_missing",
-                "message": "ffmpeg is not installed",
-            },
+            content=build_download_error_payload(
+                code="ffmpeg_missing",
+                message="ffmpeg is not installed",
+                queued=False,
+                retried=False,
+            ),
         )
 
-    output_dir_validation = validate_download_output_dir(
-        str(defaults.get("output_dir") or ""),
-        require_absolute=True,
-        require_existing=True,
-    )
-    if not output_dir_validation.ok:
-        logger.warning(
-            "event=downloads.enqueue_rejected_output_dir video_id=%s code=%s path=%s",
-            str(video["video_id"]),
-            output_dir_validation.error_code or "download_path_invalid",
-            str(defaults.get("output_dir") or ""),
-            extra={
-                "event": "downloads.enqueue_rejected_output_dir",
-                "code": output_dir_validation.error_code or "download_path_invalid",
-            },
-        )
-        return JSONResponse(
-            status_code=409,
-            content={
-                "ok": False,
-                "queued": False,
-                "code": output_dir_validation.error_code or "download_path_invalid",
-                "message": output_dir_validation.error_message or "download output directory is unavailable",
-            },
-        )
-
-    result = await repository.create_download_job(
+    operation = await enqueue_video_download(
         request.app.state.runtime.db,
-        video_id=str(video["video_id"]),
-        video_title=str(video.get("title") or video["video_id"]),
+        video=video,
         quality=quality,
         overwrite=overwrite,
-        target_dir=output_dir_validation.normalized_path,
+        default_output_dir=str(defaults.get("output_dir") or request.app.state.runtime.config.download_dir),
+        skip_environment_check=True,
     )
-    job = result.get("job") or {}
-    if bool(result.get("created")):
+
+    if operation.payload.get("queued") is True:
         request.app.state.runtime.download_wake_event.set()
+    if operation.ok and operation.payload.get("duplicate") is True:
+        logger.info(
+            "event=downloads.enqueue_duplicate video_id=%s job_id=%s status=%s",
+            str(video["video_id"]),
+            operation.payload.get("job_id"),
+            operation.payload.get("status"),
+            extra={"event": "downloads.enqueue_duplicate"},
+        )
+    elif operation.ok and operation.payload.get("queued") is True:
         logger.info(
             "event=downloads.enqueue_created video_id=%s job_id=%s quality=%s overwrite=%s",
             str(video["video_id"]),
-            job.get("id"),
-            job.get("quality"),
-            bool(job.get("overwrite")),
+            operation.payload.get("job_id"),
+            operation.payload.get("quality"),
+            bool(operation.payload.get("overwrite")),
             extra={"event": "downloads.enqueue_created"},
         )
-        return JSONResponse(
-            status_code=202,
-            content={
-                "ok": True,
-                "queued": True,
-                "duplicate": False,
-                "job_id": job.get("id"),
-                "status": job.get("status"),
-                "video_id": job.get("video_id"),
-                "quality": job.get("quality"),
-                "overwrite": bool(job.get("overwrite")),
-            },
+    elif not operation.ok:
+        logger.warning(
+            "event=downloads.enqueue_rejected video_id=%s code=%s",
+            str(video["video_id"]),
+            str(operation.payload.get("code") or "unknown"),
+            extra={"event": "downloads.enqueue_rejected", "code": str(operation.payload.get("code") or "unknown")},
         )
-    logger.info(
-        "event=downloads.enqueue_duplicate video_id=%s job_id=%s status=%s",
-        str(video["video_id"]),
-        job.get("id"),
-        job.get("status"),
-        extra={"event": "downloads.enqueue_duplicate"},
-    )
-    return {
-        "ok": True,
-        "queued": False,
-        "duplicate": True,
-        "job_id": job.get("id"),
-        "status": job.get("status"),
-        "video_id": job.get("video_id"),
-        "quality": job.get("quality"),
-        "overwrite": bool(job.get("overwrite")),
-    }
+    return JSONResponse(status_code=operation.status_code, content=operation.payload)
 
 
 @router.get("/downloads")
@@ -485,47 +442,34 @@ async def retry_download(job_id: int, request: Request):
         extra={"event": "downloads.retry_requested"},
     )
     if not is_ffmpeg_available():
-        logger.warning(
-            "event=downloads.retry_rejected_ffmpeg_missing job_id=%s",
-            job_id,
-            extra={"event": "downloads.retry_rejected_ffmpeg_missing", "code": "ffmpeg_missing"},
-        )
         return JSONResponse(
             status_code=409,
-            content={
-                "ok": False,
-                "retried": False,
-                "code": "ffmpeg_missing",
-                "message": "ffmpeg is not installed",
-            },
+            content=build_download_error_payload(
+                code="ffmpeg_missing",
+                message="ffmpeg is not installed",
+                queued=False,
+                retried=False,
+            ),
         )
-
-    result = await repository.retry_download_job(request.app.state.runtime.db, job_id)
-    if int(result.get("updated", 0)) <= 0:
-        reason = str(result.get("reason", "invalid"))
+    operation = await retry_download_job_request(request.app.state.runtime.db, job_id=job_id)
+    if operation.ok:
+        request.app.state.runtime.download_wake_event.set()
+        job = operation.payload.get("job")
+        logger.info(
+            "event=downloads.retry_queued job_id=%s status=%s attempt_count=%s",
+            job_id,
+            job.get("status") if isinstance(job, dict) else "",
+            job.get("attempt_count") if isinstance(job, dict) else "",
+            extra={"event": "downloads.retry_queued"},
+        )
+    else:
         logger.warning(
             "event=downloads.retry_rejected job_id=%s reason=%s",
             job_id,
-            reason,
-            extra={"event": "downloads.retry_rejected", "code": reason},
+            str(operation.payload.get("code") or "unknown"),
+            extra={"event": "downloads.retry_rejected", "code": str(operation.payload.get("code") or "unknown")},
         )
-        if reason == "not_found":
-            raise HTTPException(status_code=404, detail="Download job not found")
-        raise HTTPException(status_code=409, detail=f"Download job retry failed: {reason}")
-    request.app.state.runtime.download_wake_event.set()
-    job = await repository.get_download_job(request.app.state.runtime.db, job_id)
-    logger.info(
-        "event=downloads.retry_queued job_id=%s status=%s attempt_count=%s",
-        job_id,
-        job.get("status") if isinstance(job, dict) else "",
-        job.get("attempt_count") if isinstance(job, dict) else "",
-        extra={"event": "downloads.retry_queued"},
-    )
-    return {
-        "ok": True,
-        "retried": True,
-        "job": job,
-    }
+    return JSONResponse(status_code=operation.status_code, content=operation.payload)
 
 
 @router.get("/settings")

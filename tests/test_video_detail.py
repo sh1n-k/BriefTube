@@ -84,7 +84,7 @@ def test_detail_youtube_embed_card_order(client: TestClient) -> None:
 
 
 def test_detail_youtube_embed_contract(client: TestClient) -> None:
-    """임베드 플레이어 마크업/스크립트 계약이 포함된다."""
+    """임베드 플레이어 마크업/외부 UI 스크립트 계약이 포함된다."""
     _seed_video()
     response = client.get("/videos/vid-001")
     html = response.text
@@ -94,7 +94,7 @@ def test_detail_youtube_embed_contract(client: TestClient) -> None:
     assert "data-youtube-player-slot" in html
     assert "data-youtube-fallback-blocked" in html
     assert "data-youtube-fallback-error" in html
-    assert "https://www.youtube-nocookie.com" in html
+    assert '/static/js/main-ui.js' in html
 
 
 def test_detail_empty_fact_box_hidden(client: TestClient) -> None:

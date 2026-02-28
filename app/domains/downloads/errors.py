@@ -1,0 +1,6 @@
+FFMPEG_MISSING = "ffmpeg_missing"
+DOWNLOAD_PATH_INVALID = "download_path_invalid"
+DOWNLOAD_JOB_NOT_FOUND = "download_job_not_found"
+DOWNLOAD_DIR_NOT_FOUND = "download_dir_not_found"
+DOWNLOAD_FILE_NOT_FOUND = "download_file_not_found"
+UNKNOWN = "unknown"

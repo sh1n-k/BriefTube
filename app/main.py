@@ -8,12 +8,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import httpx
 
 from app import repository
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
+from app.domains.downloads import recover_stuck_running_jobs, resolve_download_file_target
 from app.logging_setup import configure_logging
 from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
@@ -66,7 +68,7 @@ async def lifespan(app: FastAPI):
     await init_database(db)
     recovered = await recover_stuck_jobs(db)
     orphan_repaired = await repository.repair_orphan_llm_candidates(db)
-    recovered_download_jobs = await repository.recover_stuck_download_jobs(db)
+    recovered_download_jobs = await recover_stuck_running_jobs(db)
     logger.info(
         "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s",
         recovered,
@@ -124,6 +126,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="BriefTube", lifespan=lifespan)
+static_dir = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 app.include_router(api.router)
 app.include_router(views.router)
 app.include_router(pages.router)
@@ -164,20 +168,15 @@ async def download_file(
     if runtime is None:
         return JSONResponse(status_code=503, content={"detail": "runtime not ready", "code": "runtime_not_ready"})
 
-    target_base = Path(runtime.config.download_dir)
-    if job_id is not None:
-        job = await repository.get_download_job(runtime.db, job_id)
-        if not job:
-            return JSONResponse(status_code=404, content={"detail": "download job not found", "code": "download_job_not_found"})
-        raw_target_dir = str(job.get("target_dir") or "").strip() or runtime.config.download_dir
-        try:
-            target_base = Path(raw_target_dir).expanduser().resolve(strict=False)
-        except OSError:
-            return JSONResponse(status_code=404, content={"detail": "download directory not found", "code": "download_dir_not_found"})
-
-    target = target_base / safe_name
-    if not target.exists() or not target.is_file():
-        return JSONResponse(status_code=404, content={"detail": "download file not found", "code": "download_file_not_found"})
+    target_result = await resolve_download_file_target(
+        runtime.db,
+        filename=safe_name,
+        default_download_dir=runtime.config.download_dir,
+        job_id=job_id,
+    )
+    if not target_result.ok:
+        status_code = 400 if target_result.code == "invalid_filename" else 404
+        return JSONResponse(status_code=status_code, content={"detail": target_result.message, "code": target_result.code})
     if probe:
         return {"ok": True, "filename": safe_name}
-    return FileResponse(target)
+    return FileResponse(target_result.target)

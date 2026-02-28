@@ -61,6 +61,25 @@ tail -f logs/dev/brieftube-dev.log | rg "channels.reactivate"
 ```
 전체 테스트는 환경 이슈로 간헐적 DB 오픈 오류가 나올 수 있어, 실패 시 단건 재실행으로 재현성 확인 후 보고한다.
 
+## 테스트 프로파일 (LLM 작업용)
+- `profile:quick-ui` (템플릿/프런트 공통 변경)
+```bash
+.venv/bin/python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
+```
+- `profile:downloads` (다운로드 도메인/화면/API/워커 변경)
+```bash
+.venv/bin/python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py
+```
+- `profile:channels` (채널 추가/삭제/재활성화/벌크 변경)
+```bash
+.venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py
+```
+- `profile:full` (릴리즈 전 또는 광범위 리팩터링)
+```bash
+.venv/bin/python -m pytest -q
+```
+- 프로파일 일부만 실행한 경우, 실행하지 않은 프로파일과 이유를 함께 기록한다.
+
 ## 커밋/보안 체크
 - 요청 범위 파일만 커밋하고, 로컬 운영 파일(`config.dev.yaml` 등) 혼입 금지.
 - 커밋 금지: `data*.db`, `logs/`, `thumbnails*/`, 로컬 스크린샷.

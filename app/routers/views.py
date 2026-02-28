@@ -9,6 +9,7 @@ import httpx
 from starlette.datastructures import UploadFile
 
 from app import repository
+from app.domains.downloads import enqueue_bulk_downloads
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.routers.template_context import build_template_context
 from app.services.bulk_channels import (
@@ -16,7 +17,7 @@ from app.services.bulk_channels import (
     parse_takeout_entries,
     resolve_bulk_inputs,
 )
-from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
+from app.services.downloads import is_ffmpeg_available
 
 router = APIRouter(prefix="/views", tags=["views"])
 logger = logging.getLogger(__name__)
@@ -775,30 +776,32 @@ async def download_selected_videos(request: Request):
             limit=DOWNLOAD_BULK_LIMIT,
         )
         toast_tone = "error"
-    elif not is_ffmpeg_available():
-        toast_message = txt["download_toast_ffmpeg_missing"]
-        toast_tone = "error"
     else:
         defaults = await repository.get_download_default_settings(
             request.app.state.runtime.db,
             default_output_dir=request.app.state.runtime.config.download_dir,
         )
-        output_dir_validation = validate_download_output_dir(
-            str(defaults.get("output_dir") or ""),
-            require_absolute=True,
-            require_existing=True,
+        bulk_result = await enqueue_bulk_downloads(
+            request.app.state.runtime.db,
+            video_ids=video_ids,
+            default_output_dir=str(defaults.get("output_dir") or ""),
+            quality=str(defaults["quality"]),
+            overwrite=bool(defaults["overwrite"]),
         )
-        if not output_dir_validation.ok:
+        if bulk_result.had_error:
             logger.warning(
                 "event=downloads.bulk_enqueue_invalid_output_dir code=%s path=%s",
-                output_dir_validation.error_code or "download_path_invalid",
+                bulk_result.error_code or "download_path_invalid",
                 str(defaults.get("output_dir") or ""),
                 extra={
                     "event": "downloads.bulk_enqueue_invalid_output_dir",
-                    "code": output_dir_validation.error_code or "download_path_invalid",
+                    "code": bulk_result.error_code or "download_path_invalid",
                 },
             )
-            toast_message = txt["download_bulk_output_dir_invalid"]
+            if bulk_result.error_code == "ffmpeg_missing":
+                toast_message = txt["download_toast_ffmpeg_missing"]
+            else:
+                toast_message = txt["download_bulk_output_dir_invalid"]
             toast_tone = "error"
             page = _safe_int(form.get("_page"), 1)
             limit_val = _safe_int(form.get("_limit"), 0)
@@ -840,40 +843,10 @@ async def download_selected_videos(request: Request):
                 context=context,
                 headers=_download_bulk_toast_header(toast_message, toast_tone),
             )
-        target_dir = output_dir_validation.normalized_path
-        candidates = await repository.list_videos_by_ids(
-            request.app.state.runtime.db,
-            video_ids,
-        )
-        candidate_map = {str(item.get("video_id")): item for item in candidates}
-        for video_id in video_ids:
-            video = candidate_map.get(video_id)
-            if not video:
-                missing_count += 1
-                continue
-            try:
-                result = await repository.create_download_job(
-                    request.app.state.runtime.db,
-                    video_id=str(video["video_id"]),
-                    video_title=str(video.get("title") or video["video_id"]),
-                    quality=str(defaults["quality"]),
-                    overwrite=bool(defaults["overwrite"]),
-                    target_dir=target_dir,
-                )
-            except Exception:
-                logger.exception(
-                    "event=downloads.bulk_enqueue_failed video_id=%s",
-                    video_id,
-                    extra={"event": "downloads.bulk_enqueue_failed"},
-                )
-                failed_count += 1
-                continue
-            if bool(result.get("created")):
-                created_count += 1
-            elif bool(result.get("duplicate")):
-                duplicate_count += 1
-            else:
-                failed_count += 1
+        created_count = int(bulk_result.created_count)
+        duplicate_count = int(bulk_result.duplicate_count)
+        missing_count = int(bulk_result.missing_count)
+        failed_count = int(bulk_result.failed_count)
 
         if created_count > 0:
             request.app.state.runtime.download_wake_event.set()
