@@ -1307,6 +1307,53 @@ async def list_unacknowledged_alerts(
     return _rows_to_dicts(rows)
 
 
+async def list_unacknowledged_alert_groups(
+    db: aiosqlite.Connection,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    cursor = await db.execute(
+        """
+        SELECT id, alert_type, channel_id, channel_name, message, created_at
+        FROM system_alerts
+        WHERE acknowledged_at IS NULL
+        ORDER BY created_at DESC, id DESC
+        """
+    )
+    rows = await cursor.fetchall()
+    alerts = _rows_to_dicts(rows)
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for alert in alerts:
+        alert_type = str(alert.get("alert_type") or "").strip() or "unknown"
+        group = grouped.get(alert_type)
+        if group is None:
+            group = {
+                "alert_type": alert_type,
+                "count": 0,
+                "latest_created_at": str(alert.get("created_at") or ""),
+                "members": [],
+            }
+            grouped[alert_type] = group
+
+        group["count"] = int(group["count"]) + 1
+        group["members"].append(
+            {
+                "id": alert["id"],
+                "channel_id": alert["channel_id"],
+                "channel_name": alert["channel_name"],
+                "message": alert["message"],
+                "created_at": alert["created_at"],
+            }
+        )
+
+    groups = list(grouped.values())
+    groups.sort(
+        key=lambda item: (str(item.get("latest_created_at") or ""), str(item.get("alert_type") or "")),
+        reverse=True,
+    )
+    return groups[: max(1, limit)]
+
+
 async def acknowledge_alert(db: aiosqlite.Connection, alert_id: int) -> int:
     cursor = await db.execute(
         """
@@ -1316,6 +1363,20 @@ async def acknowledge_alert(db: aiosqlite.Connection, alert_id: int) -> int:
           AND acknowledged_at IS NULL
         """,
         (alert_id,),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def acknowledge_alerts_by_type(db: aiosqlite.Connection, alert_type: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE system_alerts
+        SET acknowledged_at = datetime('now')
+        WHERE alert_type = ?
+          AND acknowledged_at IS NULL
+        """,
+        (alert_type,),
     )
     await db.commit()
     return cursor.rowcount

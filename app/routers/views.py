@@ -484,3 +484,25 @@ async def acknowledge_alert(
     if affected == 0:
         return Response(status_code=404)
     return Response(status_code=200)
+
+
+@router.post("/alerts/ack-group")
+async def acknowledge_alert_group(
+    request: Request,
+    alert_type: str = Form(default=""),
+    confirmed: str = Form(default=""),
+):
+    if confirmed != "on":
+        return Response(status_code=400)
+
+    normalized_alert_type = str(alert_type).strip()
+    if not normalized_alert_type:
+        return Response(status_code=400)
+
+    affected = await repository.acknowledge_alerts_by_type(
+        request.app.state.runtime.db,
+        alert_type=normalized_alert_type,
+    )
+    if affected == 0:
+        return Response(status_code=404)
+    return Response(status_code=200)

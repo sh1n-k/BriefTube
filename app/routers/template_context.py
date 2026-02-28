@@ -21,7 +21,7 @@ async def build_template_context(request: Request, **extra: object) -> dict[str,
         default=DEFAULT_TIMEZONE,
     )
     timezone_name = normalize_timezone(timezone_raw)
-    alerts = await repository.list_unacknowledged_alerts(request.app.state.runtime.db, limit=5)
+    alert_groups = await repository.list_unacknowledged_alert_groups(request.app.state.runtime.db, limit=5)
     policy_settings = await repository.get_policy_settings(request.app.state.runtime.db)
     retention_expired_count = await repository.count_retention_expired_videos(
         request.app.state.runtime.db,
@@ -40,7 +40,7 @@ async def build_template_context(request: Request, **extra: object) -> dict[str,
         "txt": get_texts(language),
         "languages": get_languages(),
         "timezones": get_timezone_options(language),
-        "alerts": alerts,
+        "alert_groups": alert_groups,
         "policy_settings": policy_settings,
         "retention_notice": retention_notice,
         "format_upload_time": format_upload_time,
