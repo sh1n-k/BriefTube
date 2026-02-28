@@ -115,6 +115,22 @@ def _download_bulk_toast_header(message: str, tone: str) -> dict[str, str]:
     return {"HX-Trigger": json.dumps(payload)}
 
 
+def _resolve_download_bulk_toast_tone(
+    *,
+    created_count: int,
+    duplicate_count: int,
+    missing_count: int,
+    failed_count: int,
+) -> str:
+    if failed_count > 0 or missing_count > 0:
+        return "error"
+    if created_count > 0:
+        return "success"
+    if duplicate_count > 0:
+        return "info"
+    return "error"
+
+
 def _format_reactivate_failure_reason(txt: dict[str, str], reason_code: str) -> str:
     if reason_code.startswith("http_"):
         code = reason_code.split("_", 1)[1]
@@ -880,7 +896,12 @@ async def download_selected_videos(request: Request):
             missing=missing_count,
             failed=failed_count,
         )
-        toast_tone = "success" if created_count > 0 and failed_count == 0 and missing_count == 0 else "error"
+        toast_tone = _resolve_download_bulk_toast_tone(
+            created_count=created_count,
+            duplicate_count=duplicate_count,
+            missing_count=missing_count,
+            failed_count=failed_count,
+        )
 
     page = _safe_int(form.get("_page"), 1)
     limit_val = _safe_int(form.get("_limit"), 0)

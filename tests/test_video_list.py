@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
@@ -57,6 +58,29 @@ def _seed_channels_and_videos() -> None:
                     0,
                 ),
             )
+        conn.commit()
+
+
+def _seed_pending_download_job(video_id: str, *, target_dir: str) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO download_jobs(
+                video_id,
+                video_title,
+                status,
+                quality,
+                overwrite,
+                target_dir,
+                attempt_count,
+                requested_at,
+                updated_at
+            )
+            VALUES (?, ?, 'pending', '1080', 0, ?, 1, datetime('now'), datetime('now'))
+            """,
+            (video_id, f"Pending {video_id}", target_dir),
+        )
         conn.commit()
 
 
@@ -146,3 +170,25 @@ def test_video_download_selected_empty_selection_returns_bulk_toast(client: Test
     assert response.status_code == 200
     assert "HX-Trigger" in response.headers
     assert "video-download-bulk-toast" in response.headers["HX-Trigger"]
+
+
+def test_video_download_selected_duplicate_only_returns_info_tone(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    _seed_channels_and_videos()
+    monkeypatch.setattr("app.routers.views.is_ffmpeg_available", lambda: True)
+    _seed_pending_download_job(
+        "vid-a-000",
+        target_dir=str(client.app.state.runtime.config.download_dir),
+    )
+
+    response = client.post(
+        "/views/videos/download-selected",
+        data={"video_id": ["vid-a-000"], "_page": "1", "_limit": "20"},
+    )
+
+    assert response.status_code == 200
+    assert "HX-Trigger" in response.headers
+    payload = json.loads(response.headers["HX-Trigger"])
+    assert payload["video-download-bulk-toast"]["tone"] == "info"

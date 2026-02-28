@@ -954,7 +954,9 @@
         const node = document.createElement("div");
         const toneClass = tone === "error"
           ? "border-rose-300 bg-rose-50 text-rose-800"
-          : "border-emerald-300 bg-emerald-50 text-emerald-800";
+          : tone === "info"
+            ? "border-sky-300 bg-sky-50 text-sky-800"
+            : "border-emerald-300 bg-emerald-50 text-emerald-800";
         node.className = `pointer-events-auto rounded-lg border px-3 py-2 text-sm shadow-lg transition-all duration-200 ${toneClass}`;
         node.textContent = message;
         stack.appendChild(node);
@@ -996,6 +998,15 @@
         detailNone: {{ txt.download_detail_none | tojson }},
         toastCopiedOutput: {{ txt.download_toast_copied_output | tojson }},
         toastCopiedError: {{ txt.download_toast_copied_error | tojson }},
+      };
+      const DOWNLOAD_SETTINGS_UI_TEXT = {
+        pathErrorEmpty: {{ txt.settings_download_output_dir_error_empty | tojson }},
+        pathErrorMustBeAbsolute: {{ txt.settings_download_output_dir_error_must_be_absolute | tojson }},
+        pathErrorInvalid: {{ txt.settings_download_output_dir_error_invalid | tojson }},
+        pathErrorNotFound: {{ txt.settings_download_output_dir_error_not_found | tojson }},
+        pathErrorNotDirectory: {{ txt.settings_download_output_dir_error_not_directory | tojson }},
+        pathErrorNotWritable: {{ txt.settings_download_output_dir_error_not_writable | tojson }},
+        pathErrorGeneric: {{ txt.settings_download_output_dir_error_generic | tojson }},
       };
 
       function formatTemplate(template, values = {}) {
@@ -1237,9 +1248,43 @@
           const message = typeof detail === "string" ? detail : detail?.message;
           const tone = detail && typeof detail === "object" && detail.tone === "error"
             ? "error"
-            : "success";
+            : detail && typeof detail === "object" && detail.tone === "info"
+              ? "info"
+              : "success";
           showUiToast(message, tone);
         });
+      }
+
+      function resolveDownloadPathErrorMessage(detail) {
+        const code = String(detail || "").trim().toLowerCase();
+        if (code === "download_path_empty") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorEmpty;
+        if (code === "download_path_must_be_absolute") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorMustBeAbsolute;
+        if (code === "download_path_invalid") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorInvalid;
+        if (code === "download_path_not_found") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorNotFound;
+        if (code === "download_path_not_directory") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorNotDirectory;
+        if (code === "download_path_not_writable") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorNotWritable;
+        if (code.length > 0 && !code.includes(" ")) return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorGeneric;
+        if (code.length > 0) return code;
+        return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorGeneric;
+      }
+
+      function setDownloadOutputDirError(form, message) {
+        if (!(form instanceof HTMLFormElement)) return;
+        const input = form.querySelector("input[name='download_output_dir']");
+        const errorNode = form.querySelector("[data-download-output-dir-error]");
+        if (input instanceof HTMLInputElement) {
+          if (message) {
+            input.setAttribute("aria-invalid", "true");
+            input.classList.add("border-rose-400", "focus:border-rose-500", "focus:ring-rose-500");
+          } else {
+            input.removeAttribute("aria-invalid");
+            input.classList.remove("border-rose-400", "focus:border-rose-500", "focus:ring-rose-500");
+          }
+        }
+        if (errorNode instanceof HTMLElement) {
+          errorNode.textContent = message || "";
+          errorNode.classList.toggle("hidden", !message);
+        }
       }
 
       function getDownloadEventCursor() {
@@ -2325,6 +2370,12 @@
       document.addEventListener("htmx:afterRequest", (event) => {
         if (!event.detail.successful) return;
         const requestElt = event.detail?.requestConfig?.elt;
+        if (requestElt instanceof Element) {
+          const downloadSettingsForm = requestElt.closest("[data-download-settings-form]");
+          if (downloadSettingsForm instanceof HTMLFormElement) {
+            setDownloadOutputDirError(downloadSettingsForm, "");
+          }
+        }
         if (
           requestElt instanceof Element
           && requestElt.hasAttribute("data-skip-save-toast")
@@ -2340,6 +2391,27 @@
           const details = payload ? flattenSavedValues(payload).join(", ") : "";
           const message = details ? `${baseMessage} (${details})` : baseMessage;
           showUiToast(message, "success");
+        }
+      });
+      document.addEventListener("htmx:responseError", (event) => {
+        const requestElt = event.detail?.requestConfig?.elt;
+        if (!(requestElt instanceof Element)) return;
+        const form = requestElt.closest("[data-download-settings-form]");
+        if (!(form instanceof HTMLFormElement)) return;
+        const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
+        const detail = payload && typeof payload === "object" ? payload.detail : "";
+        const message = resolveDownloadPathErrorMessage(detail);
+        setDownloadOutputDirError(form, message);
+        showUiToast(message, "error");
+      });
+      document.addEventListener("input", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (target.name !== "download_output_dir") return;
+        const form = target.closest("[data-download-settings-form]");
+        if (!(form instanceof HTMLFormElement)) return;
+        if (target.hasAttribute("aria-invalid")) {
+          setDownloadOutputDirError(form, "");
         }
       });
       document.addEventListener("htmx:afterSwap", (event) => {

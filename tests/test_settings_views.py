@@ -21,6 +21,12 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "기본 화질 상한" in response.text
     assert "다운로드 저장 경로" in response.text
     assert 'name="download_output_dir"' in response.text
+    assert 'data-download-output-dir-error' in response.text
+    assert (
+        "change from:select[name='download_quality'], change from:input[name='download_overwrite'], change from:input[name='download_output_dir']"
+        in response.text
+    )
+    assert "input changed delay:800ms from:input[name='download_output_dir']" not in response.text
     assert 'hx-trigger="change from:select[name=\'language\']"' in response.text
     assert 'hx-trigger="input changed delay:1s from:input[name=\'videos_per_page\']"' in response.text
     assert 'data-save-toast="' in response.text
