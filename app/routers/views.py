@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import logging
 
 from fastapi import APIRouter, Form, Query, Request, Response
+import httpx
 from starlette.datastructures import UploadFile
 
 from app import repository
@@ -78,6 +80,69 @@ async def _resolve_channel_management_state(
     )
     channel_counts = await repository.count_channels_by_status(request.app.state.runtime.db)
     return channel_status, channels, channel_counts
+
+
+def _reactivate_toast_header(message: str, tone: str) -> dict[str, str]:
+    payload = {
+        "channel-reactivate-toast": {
+            "message": message,
+            "tone": tone,
+        }
+    }
+    return {"HX-Trigger": json.dumps(payload)}
+
+
+def _format_reactivate_failure_reason(txt: dict[str, str], reason_code: str) -> str:
+    if reason_code.startswith("http_"):
+        code = reason_code.split("_", 1)[1]
+        return txt["channel_reactivate_reason_http"].format(code=code)
+    if reason_code.startswith("error_"):
+        error_name = reason_code.split("_", 1)[1]
+        return txt["channel_reactivate_reason_exception"].format(name=error_name)
+    return txt["channel_reactivate_reason_unknown"]
+
+
+def _format_failed_channel_preview(txt: dict[str, str], labels: list[str]) -> str:
+    preview = labels[:3]
+    remaining = max(0, len(labels) - len(preview))
+    if remaining > 0:
+        preview.append(txt["channel_reactivate_bulk_more"].format(count=remaining))
+    return ", ".join(preview)
+
+
+async def _probe_channel_reactivation(
+    request: Request,
+    channel_id: str,
+    feed_mode: str,
+) -> tuple[bool, str]:
+    cache = request.app.state.runtime.rss_cache.get(channel_id, {})
+    if cache.get("feed_mode", "") != feed_mode:
+        etag, last_modified = None, None
+    else:
+        etag = cache.get("etag")
+        last_modified = cache.get("last_modified")
+
+    try:
+        _, new_etag, new_last_modified = await request.app.state.runtime.rss_service.fetch_channel_feed(
+            channel_id=channel_id,
+            etag=etag,
+            last_modified=last_modified,
+            feed_mode=feed_mode,
+        )
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code is not None:
+            return False, f"http_{status_code}"
+        return False, "http_unknown"
+    except Exception as exc:
+        return False, f"error_{exc.__class__.__name__}"
+
+    request.app.state.runtime.rss_cache[channel_id] = {
+        "etag": new_etag or "",
+        "last_modified": new_last_modified or "",
+        "feed_mode": feed_mode,
+    }
+    return True, ""
 
 
 @router.get("/channel-list")
@@ -331,6 +396,8 @@ async def reactivate_selected_channels(request: Request):
     )
     bulk_action = str(form.get("bulk_action", "")).strip().lower()
     channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
+    toast_message = ""
+    toast_tone = "success"
     if bulk_action == "delete":
         result = await repository.delete_channels_with_related_data(
             request.app.state.runtime.db,
@@ -343,10 +410,51 @@ async def reactivate_selected_channels(request: Request):
         for channel_id in channel_ids:
             request.app.state.runtime.rss_cache.pop(channel_id, None)
     else:
-        updated = await repository.reactivate_channels(request.app.state.runtime.db, channel_ids)
-        if updated > 0:
+        txt = await _texts(request)
+        if not channel_ids:
+            toast_message = txt["channel_reactivate_bulk_none_selected"]
+            toast_tone = "error"
+        else:
+            policy = await repository.get_policy_settings(request.app.state.runtime.db)
+            feed_mode = str(policy.get("rss_feed_mode", repository.RSS_FEED_MODE_DEFAULT))
+            channel_name_map = await repository.get_channel_name_map(
+                request.app.state.runtime.db,
+                channel_ids,
+            )
+            success_ids: list[str] = []
+            failed: list[tuple[str, str]] = []
             for channel_id in channel_ids:
-                request.app.state.runtime.rss_cache.pop(channel_id, None)
+                ok, reason_code = await _probe_channel_reactivation(
+                    request,
+                    channel_id,
+                    feed_mode,
+                )
+                if ok:
+                    success_ids.append(channel_id)
+                else:
+                    failed.append((channel_id, reason_code))
+
+            await repository.reactivate_channels(request.app.state.runtime.db, success_ids)
+
+            success_count = len(success_ids)
+            failed_labels = [channel_name_map.get(channel_id, channel_id) for channel_id, _ in failed]
+            if not failed:
+                toast_message = txt["channel_reactivate_bulk_success"].format(success=success_count)
+                toast_tone = "success"
+            else:
+                failed_count = len(failed)
+                failed_preview = _format_failed_channel_preview(txt, failed_labels)
+                toast_key = (
+                    "channel_reactivate_bulk_failed"
+                    if success_count == 0
+                    else "channel_reactivate_bulk_partial"
+                )
+                toast_message = txt[toast_key].format(
+                    success=success_count,
+                    failed=failed_count,
+                    channels=failed_preview,
+                )
+                toast_tone = "error"
 
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
@@ -362,6 +470,11 @@ async def reactivate_selected_channels(request: Request):
         request=request,
         name="fragments/channel_list.html",
         context=context,
+        headers=(
+            _reactivate_toast_header(toast_message, toast_tone)
+            if bulk_action != "delete" and toast_message
+            else None
+        ),
     )
 
 
@@ -373,9 +486,26 @@ async def reactivate_single_channel(
 ):
     normalized = channel_id.strip()
     requested_status = repository.normalize_channel_management_status(status)
-    updated = await repository.reactivate_channel(request.app.state.runtime.db, normalized)
-    if updated > 0:
-        request.app.state.runtime.rss_cache.pop(normalized, None)
+    txt = await _texts(request)
+    channel_name_map = await repository.get_channel_name_map(
+        request.app.state.runtime.db,
+        [normalized],
+    )
+    channel_label = channel_name_map.get(normalized, normalized)
+    policy = await repository.get_policy_settings(request.app.state.runtime.db)
+    feed_mode = str(policy.get("rss_feed_mode", repository.RSS_FEED_MODE_DEFAULT))
+    ok, reason_code = await _probe_channel_reactivation(request, normalized, feed_mode)
+    if ok:
+        await repository.reactivate_channel(request.app.state.runtime.db, normalized)
+        toast_message = txt["channel_reactivate_single_success"].format(channel=channel_label)
+        toast_tone = "success"
+    else:
+        reason = _format_reactivate_failure_reason(txt, reason_code)
+        toast_message = txt["channel_reactivate_single_failure"].format(
+            channel=channel_label,
+            reason=reason,
+        )
+        toast_tone = "error"
 
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
@@ -391,6 +521,7 @@ async def reactivate_single_channel(
         request=request,
         name="fragments/channel_list.html",
         context=context,
+        headers=_reactivate_toast_header(toast_message, toast_tone),
     )
 
 

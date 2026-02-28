@@ -131,7 +131,6 @@
                     type="button"
                     title="{{ txt.channel_reactivate_one }}"
                     hx-post="/views/channels/{{ channel.channel_id }}/reactivate?status={{ current_status }}"
-                    data-save-toast="{{ txt.channel_reactivate_success }}"
                     hx-target="#channel-list-wrap"
                     hx-swap="innerHTML"
                     class="rounded-md border border-indigo-300 bg-indigo-50 p-1.5 text-indigo-700 hover:bg-indigo-100"

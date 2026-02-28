@@ -862,6 +862,20 @@
         }, 2000);
       }
 
+      function bindChannelReactivateToasts() {
+        const root = document.body;
+        if (!root || root.dataset.channelReactivateToastBound === "1") return;
+        root.dataset.channelReactivateToastBound = "1";
+        root.addEventListener("channel-reactivate-toast", (event) => {
+          const detail = event.detail;
+          const message = typeof detail === "string" ? detail : detail?.message;
+          const tone = detail && typeof detail === "object" && detail.tone === "error"
+            ? "error"
+            : "success";
+          showUiToast(message, tone);
+        });
+      }
+
       function parseJsonSafe(text) {
         if (!text) return null;
         try {
@@ -1337,6 +1351,7 @@
         bindRetentionNotices(document);
         bindCopyButtons(document);
         bindCollapsibles(document);
+        bindChannelReactivateToasts();
         bindYouTubeEmbeds(document);
         bindNavTransitions(document);
         revealPageShell();

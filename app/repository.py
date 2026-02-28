@@ -203,6 +203,26 @@ async def list_channels_for_management(
     return _rows_to_dicts(rows)
 
 
+async def get_channel_name_map(
+    db: aiosqlite.Connection,
+    channel_ids: list[str],
+) -> dict[str, str]:
+    normalized = [channel_id for channel_id in dict.fromkeys(channel_ids) if channel_id]
+    if not normalized:
+        return {}
+    placeholders = ",".join(["?"] * len(normalized))
+    cursor = await db.execute(
+        f"""
+        SELECT channel_id, channel_name
+        FROM channels
+        WHERE channel_id IN ({placeholders})
+        """,
+        tuple(normalized),
+    )
+    rows = await cursor.fetchall()
+    return {str(row["channel_id"]): str(row["channel_name"] or row["channel_id"]) for row in rows}
+
+
 async def count_channels_by_status(db: aiosqlite.Connection) -> dict[str, int]:
     cursor = await db.execute(
         """

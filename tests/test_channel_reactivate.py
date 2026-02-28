@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
 from fastapi.testclient import TestClient
+import httpx
 
 
 def _seed_channel(
@@ -47,6 +49,25 @@ def _seed_rss_not_found_alert(
         conn.commit()
 
 
+def _parse_reactivate_toast(response) -> dict[str, str]:
+    raw = response.headers.get("HX-Trigger", "")
+    assert raw
+    parsed = json.loads(raw)
+    payload = parsed.get("channel-reactivate-toast")
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _http_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://www.youtube.com/feeds/videos.xml")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(
+        f"status={status_code}",
+        request=request,
+        response=response,
+    )
+
+
 def test_inactive_tab_renders_reason_and_time(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UCinactive001", "Inactive One", is_active=0)
@@ -74,13 +95,29 @@ def test_inactive_tab_renders_unknown_when_alert_missing(client: TestClient) -> 
     assert response.text.count("알 수 없음") >= 1
 
 
-def test_reactivate_single_channel(client: TestClient) -> None:
+def test_reactivate_single_channel_success_after_rss_probe(
+    client: TestClient,
+    monkeypatch,
+) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UCinactive101", "Inactive 101", is_active=0)
 
+    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+        assert channel_id == "UCinactive101"
+        return [], "etag-101", "mod-101"
+
+    monkeypatch.setattr(
+        client.app.state.runtime.rss_service,
+        "fetch_channel_feed",
+        fake_fetch_channel_feed,
+    )
+
     response = client.post("/views/channels/UCinactive101/reactivate?status=inactive")
     assert response.status_code == 200
-    assert "UCinactive101" not in response.text
+    toast = _parse_reactivate_toast(response)
+    assert toast["tone"] == "success"
+    assert "Inactive 101" in toast["message"]
+    assert "재활성화 완료" in toast["message"]
 
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
@@ -90,26 +127,93 @@ def test_reactivate_single_channel(client: TestClient) -> None:
     assert int(row[0]) == 1
 
 
-def test_reactivate_selected_channels(client: TestClient) -> None:
+def test_reactivate_single_channel_keeps_inactive_on_rss_failure(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_channel(db_path, "UCinactive102", "Inactive 102", is_active=0)
+
+    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+        raise _http_error(404)
+
+    monkeypatch.setattr(
+        client.app.state.runtime.rss_service,
+        "fetch_channel_feed",
+        fake_fetch_channel_feed,
+    )
+
+    response = client.post("/views/channels/UCinactive102/reactivate?status=inactive")
+    assert response.status_code == 200
+    toast = _parse_reactivate_toast(response)
+    assert toast["tone"] == "error"
+    assert "Inactive 102" in toast["message"]
+    assert "HTTP 404" in toast["message"]
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT is_active FROM channels WHERE channel_id='UCinactive102'"
+        ).fetchone()
+    assert row is not None
+    assert int(row[0]) == 0
+
+
+def test_reactivate_selected_channels_partial_success_single_toast(
+    client: TestClient,
+    monkeypatch,
+) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UCinactive201", "Inactive 201", is_active=0)
     _seed_channel(db_path, "UCinactive202", "Inactive 202", is_active=0)
+    _seed_channel(db_path, "UCinactive203", "Inactive 203", is_active=0)
+
+    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+        if channel_id == "UCinactive202":
+            raise _http_error(404)
+        return [], "etag", "mod"
+
+    monkeypatch.setattr(
+        client.app.state.runtime.rss_service,
+        "fetch_channel_feed",
+        fake_fetch_channel_feed,
+    )
 
     response = client.post(
         "/views/channels/reactivate-selected",
-        data={"status": "inactive", "channel_id": ["UCinactive201", "UCinactive202"]},
+        data={"status": "inactive", "channel_id": ["UCinactive201", "UCinactive202", "UCinactive203"]},
     )
     assert response.status_code == 200
+    toast = _parse_reactivate_toast(response)
+    assert toast["tone"] == "error"
+    assert "성공 2" in toast["message"]
+    assert "실패 1" in toast["message"]
+    assert "Inactive 202" in toast["message"]
 
     with sqlite3.connect(db_path) as conn:
-        active_count = conn.execute(
+        rows = conn.execute(
             """
-            SELECT COUNT(1)
+            SELECT channel_id, is_active
             FROM channels
-            WHERE channel_id IN ('UCinactive201', 'UCinactive202') AND is_active = 1
+            WHERE channel_id IN ('UCinactive201', 'UCinactive202', 'UCinactive203')
+            ORDER BY channel_id
             """
-        ).fetchone()[0]
-    assert int(active_count) == 2
+        ).fetchall()
+    assert [(row[0], int(row[1])) for row in rows] == [
+        ("UCinactive201", 1),
+        ("UCinactive202", 0),
+        ("UCinactive203", 1),
+    ]
+
+
+def test_reactivate_selected_channels_requires_selection(client: TestClient) -> None:
+    response = client.post(
+        "/views/channels/reactivate-selected",
+        data={"status": "inactive"},
+    )
+    assert response.status_code == 200
+    toast = _parse_reactivate_toast(response)
+    assert toast["tone"] == "error"
+    assert "선택된 채널이 없습니다." in toast["message"]
 
 
 def test_reactivate_selected_delete_action_removes_channels(client: TestClient) -> None:
@@ -126,6 +230,7 @@ def test_reactivate_selected_delete_action_removes_channels(client: TestClient) 
         },
     )
     assert response.status_code == 200
+    assert response.headers.get("HX-Trigger") is None
 
     with sqlite3.connect(db_path) as conn:
         remain = conn.execute(
