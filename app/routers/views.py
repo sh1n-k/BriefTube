@@ -841,8 +841,13 @@ async def download_selected_videos(request: Request):
                 headers=_download_bulk_toast_header(toast_message, toast_tone),
             )
         target_dir = output_dir_validation.normalized_path
+        candidates = await repository.list_videos_by_ids(
+            request.app.state.runtime.db,
+            video_ids,
+        )
+        candidate_map = {str(item.get("video_id")): item for item in candidates}
         for video_id in video_ids:
-            video = await repository.get_video(request.app.state.runtime.db, video_id)
+            video = candidate_map.get(video_id)
             if not video:
                 missing_count += 1
                 continue

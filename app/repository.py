@@ -474,6 +474,37 @@ async def get_video(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] |
     return _with_thumbnail_url(raw) if raw else None
 
 
+async def list_videos_by_ids(
+    db: aiosqlite.Connection,
+    video_ids: list[str],
+) -> list[dict[str, Any]]:
+    normalized = [video_id for video_id in dict.fromkeys(video_ids) if str(video_id).strip()]
+    if not normalized:
+        return []
+
+    placeholders = ",".join(["?"] * len(normalized))
+    cursor = await db.execute(
+        f"""
+        SELECT
+            v.video_id,
+            v.channel_id,
+            c.channel_name AS channel_name,
+            v.title,
+            v.upload_time,
+            v.thumbnail_path,
+            v.pipeline_status,
+            v.retry_count,
+            v.created_at
+        FROM videos v
+        LEFT JOIN channels c ON c.channel_id = v.channel_id
+        WHERE v.video_id IN ({placeholders})
+        """,
+        tuple(normalized),
+    )
+    rows = await cursor.fetchall()
+    return [_with_thumbnail_url(item) for item in _rows_to_dicts(rows)]
+
+
 async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:
     cursor = await db.execute(
         """
@@ -2040,6 +2071,43 @@ async def retry_download_job(db: aiosqlite.Connection, job_id: int) -> dict[str,
     )
     await db.commit()
     return {"updated": rowcount, "reason": "ok"}
+
+
+async def recover_stuck_download_jobs(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        SELECT id
+        FROM download_jobs
+        WHERE status = 'running'
+        ORDER BY id ASC
+        """
+    )
+    rows = await cursor.fetchall()
+    job_ids = [int(row["id"]) for row in rows]
+    if not job_ids:
+        return 0
+
+    updated = await db.execute(
+        """
+        UPDATE download_jobs
+        SET
+            status = 'failed',
+            error_code = 'worker_interrupted',
+            error_message = 'download worker interrupted (app restart/shutdown)',
+            finished_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE status = 'running'
+        """
+    )
+    for job_id in job_ids:
+        await _insert_download_event(
+            db,
+            job_id=job_id,
+            event_type="failed",
+            error_code="worker_interrupted",
+        )
+    await db.commit()
+    return int(updated.rowcount or 0)
 
 
 async def count_download_jobs_by_status(db: aiosqlite.Connection) -> dict[str, int]:

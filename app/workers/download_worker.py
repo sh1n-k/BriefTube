@@ -42,6 +42,27 @@ async def _run_single_download_job(
             output_dir=target_dir,
             timeout_seconds=timeout_seconds,
         )
+    except asyncio.CancelledError:
+        logger.info(
+            "event=downloads.job_cancelled job_id=%s video_id=%s",
+            job_id,
+            video_id,
+            extra={"event": "downloads.job_cancelled"},
+        )
+        try:
+            await repository.mark_download_job_failed(
+                state.db,
+                job_id=job_id,
+                error_code="worker_interrupted",
+                error_message="download worker interrupted (app restart/shutdown)",
+            )
+        except Exception:
+            logger.exception(
+                "event=downloads.job_cancelled_mark_failed_error job_id=%s",
+                job_id,
+                extra={"event": "downloads.job_cancelled_mark_failed_error"},
+            )
+        raise
     except Exception:
         logger.exception(
             "event=downloads.job_runner_exception job_id=%s",

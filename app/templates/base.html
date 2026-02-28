@@ -987,6 +987,10 @@
         toastDuplicate: {{ txt.download_toast_duplicate | tojson }},
         toastFfmpegMissing: {{ txt.download_toast_ffmpeg_missing | tojson }},
         toastRequestFailed: {{ txt.download_toast_request_failed | tojson }},
+        toastOutputFileMissing: {{ txt.download_toast_output_file_missing | tojson }},
+        toastOutputJobMissing: {{ txt.download_toast_output_job_missing | tojson }},
+        toastOutputDirMissing: {{ txt.download_toast_output_dir_missing | tojson }},
+        toastOutputOpenFailed: {{ txt.download_toast_output_open_failed | tojson }},
         toastRetryQueued: {{ txt.download_toast_retry_queued | tojson }},
         toastRetryFailed: {{ txt.download_toast_retry_failed | tojson }},
         toastCompleted: {{ txt.download_toast_completed | tojson }},
@@ -1268,6 +1272,28 @@
         return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorGeneric;
       }
 
+      function resolveDownloadRequestErrorMessage(payload) {
+        const code = String(payload?.code || "").trim().toLowerCase();
+        if (code === "ffmpeg_missing") return DOWNLOAD_UI_TEXT.toastFfmpegMissing;
+        if (code.startsWith("download_path_")) {
+          return resolveDownloadPathErrorMessage(code);
+        }
+        const message = String(payload?.message || payload?.detail || "").trim();
+        if (message) return message;
+        return DOWNLOAD_UI_TEXT.toastRequestFailed;
+      }
+
+      function resolveDownloadOutputOpenErrorMessage(payload, statusCode = 0) {
+        const code = String(payload?.code || "").trim().toLowerCase();
+        if (code === "download_job_not_found") return DOWNLOAD_UI_TEXT.toastOutputJobMissing;
+        if (code === "download_dir_not_found") return DOWNLOAD_UI_TEXT.toastOutputDirMissing;
+        if (code === "download_file_not_found") return DOWNLOAD_UI_TEXT.toastOutputFileMissing;
+        if (statusCode === 404) return DOWNLOAD_UI_TEXT.toastOutputFileMissing;
+        const message = String(payload?.message || payload?.detail || "").trim();
+        if (message) return message;
+        return DOWNLOAD_UI_TEXT.toastOutputOpenFailed;
+      }
+
       function setDownloadOutputDirError(form, message) {
         if (!(form instanceof HTMLFormElement)) return;
         const input = form.querySelector("input[name='download_output_dir']");
@@ -1505,12 +1531,7 @@
               void pollDownloadProgress();
               return;
             }
-            if (payload?.code === "ffmpeg_missing") {
-              showUiToast(DOWNLOAD_UI_TEXT.toastFfmpegMissing, "error");
-              close(true);
-              return;
-            }
-            showUiToast(DOWNLOAD_UI_TEXT.toastRequestFailed, "error");
+            showUiToast(resolveDownloadRequestErrorMessage(payload), "error");
           } catch (_error) {
             showUiToast(DOWNLOAD_UI_TEXT.toastRequestFailed, "error");
           } finally {
@@ -1619,6 +1640,7 @@
 
         const copyOutputButton = root.querySelector("[data-download-detail-copy-output]");
         const copyErrorButton = root.querySelector("[data-download-detail-copy-error]");
+        const outputLinkNode = root.querySelector("[data-download-detail-output-link]");
         if (copyOutputButton instanceof HTMLButtonElement) {
           copyOutputButton.addEventListener("click", async () => {
             const value = String(root.dataset.currentOutputPath || "").trim();
@@ -1640,6 +1662,50 @@
               showUiToast(DOWNLOAD_UI_TEXT.toastCopiedError, "success");
             } catch (_error) {
               // ignore clipboard failures
+            }
+          });
+        }
+        if (outputLinkNode instanceof HTMLAnchorElement) {
+          outputLinkNode.addEventListener("click", async (event) => {
+            const href = outputLinkNode.getAttribute("href");
+            if (!href) return;
+            event.preventDefault();
+            if (outputLinkNode.dataset.probeInFlight === "1") return;
+            outputLinkNode.dataset.probeInFlight = "1";
+            outputLinkNode.classList.add("pointer-events-none", "opacity-60");
+            const popup = window.open("about:blank", "_blank", "noopener,noreferrer");
+            let opened = false;
+            try {
+              const probeUrl = new URL(href, window.location.origin);
+              probeUrl.searchParams.set("probe", "1");
+              const response = await fetch(probeUrl.toString(), {
+                method: "GET",
+                headers: {
+                  "Accept": "application/json",
+                },
+              });
+              if (response.ok) {
+                opened = true;
+                if (popup && !popup.closed) {
+                  popup.location.replace(href);
+                } else {
+                  window.location.assign(href);
+                }
+                return;
+              }
+              const payload = await response.json().catch(() => null);
+              showUiToast(
+                resolveDownloadOutputOpenErrorMessage(payload, response.status),
+                "error",
+              );
+            } catch (_error) {
+              showUiToast(DOWNLOAD_UI_TEXT.toastOutputOpenFailed, "error");
+            } finally {
+              if (!opened && popup && !popup.closed) {
+                popup.close();
+              }
+              delete outputLinkNode.dataset.probeInFlight;
+              outputLinkNode.classList.remove("pointer-events-none", "opacity-60");
             }
           });
         }
@@ -2026,12 +2092,22 @@
         const downloadBtn = form.querySelector("[data-video-download-selected]");
         const items = () => form.querySelectorAll("[data-video-select-item]");
         if (!selectAll || !deleteBtn || !downloadBtn) return;
+        const downloadDefaultLabel = downloadBtn.textContent || "";
+        const downloadBusyLabel = downloadBtn.dataset.busyLabel || downloadDefaultLabel;
+
+        function setDownloadBulkBusy(isBusy) {
+          form.dataset.videoDownloadBulkInFlight = isBusy ? "1" : "0";
+          form.setAttribute("aria-busy", isBusy ? "true" : "false");
+          downloadBtn.textContent = isBusy ? downloadBusyLabel : downloadDefaultLabel;
+          sync();
+        }
 
         function sync() {
           const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
           const all = items();
+          const isBusy = form.dataset.videoDownloadBulkInFlight === "1";
           deleteBtn.disabled = checked === 0;
-          downloadBtn.disabled = checked === 0;
+          downloadBtn.disabled = checked === 0 || isBusy;
           selectAll.checked = all.length > 0 && checked === all.length;
           selectAll.indeterminate = checked > 0 && checked < all.length;
         }
@@ -2043,6 +2119,22 @@
         form.addEventListener("change", (e) => {
           if (e.target.matches("[data-video-select-item]")) sync();
         });
+        downloadBtn.addEventListener("click", (event) => {
+          if (form.dataset.videoDownloadBulkInFlight === "1") {
+            event.preventDefault();
+            return;
+          }
+          setDownloadBulkBusy(true);
+        });
+        const settleDownloadBulk = (event) => {
+          const source = event.detail?.requestConfig?.elt;
+          if (source !== downloadBtn) return;
+          setDownloadBulkBusy(false);
+        };
+        form.addEventListener("htmx:afterRequest", settleDownloadBulk);
+        form.addEventListener("htmx:responseError", settleDownloadBulk);
+        form.addEventListener("htmx:sendError", settleDownloadBulk);
+        form.addEventListener("htmx:timeout", settleDownloadBulk);
         sync();
       }
 

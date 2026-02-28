@@ -66,10 +66,12 @@ async def lifespan(app: FastAPI):
     await init_database(db)
     recovered = await recover_stuck_jobs(db)
     orphan_repaired = await repository.repair_orphan_llm_candidates(db)
+    recovered_download_jobs = await repository.recover_stuck_download_jobs(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s",
+        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s",
         recovered,
         orphan_repaired,
+        recovered_download_jobs,
         extra={"event": "app.recovered_stuck_jobs"},
     )
 
@@ -152,27 +154,30 @@ async def thumbnail(filename: str):
 async def download_file(
     filename: str,
     job_id: int | None = Query(default=None, ge=1),
+    probe: bool = Query(default=False),
 ):
     safe_name = Path(filename).name
     if safe_name != filename:
-        return JSONResponse(status_code=400, content={"detail": "invalid filename"})
+        return JSONResponse(status_code=400, content={"detail": "invalid filename", "code": "invalid_filename"})
 
     runtime = getattr(app.state, "runtime", None)
     if runtime is None:
-        return JSONResponse(status_code=503, content={"detail": "runtime not ready"})
+        return JSONResponse(status_code=503, content={"detail": "runtime not ready", "code": "runtime_not_ready"})
 
     target_base = Path(runtime.config.download_dir)
     if job_id is not None:
         job = await repository.get_download_job(runtime.db, job_id)
         if not job:
-            return JSONResponse(status_code=404, content={"detail": "download job not found"})
+            return JSONResponse(status_code=404, content={"detail": "download job not found", "code": "download_job_not_found"})
         raw_target_dir = str(job.get("target_dir") or "").strip() or runtime.config.download_dir
         try:
             target_base = Path(raw_target_dir).expanduser().resolve(strict=False)
         except OSError:
-            return JSONResponse(status_code=404, content={"detail": "download directory not found"})
+            return JSONResponse(status_code=404, content={"detail": "download directory not found", "code": "download_dir_not_found"})
 
     target = target_base / safe_name
     if not target.exists() or not target.is_file():
-        return JSONResponse(status_code=404, content={"detail": "download file not found"})
+        return JSONResponse(status_code=404, content={"detail": "download file not found", "code": "download_file_not_found"})
+    if probe:
+        return {"ok": True, "filename": safe_name}
     return FileResponse(target)
