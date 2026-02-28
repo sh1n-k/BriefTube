@@ -35,6 +35,7 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await _ensure_app_settings_table(db)
     await _ensure_video_columns(db)
     await _ensure_video_indexes(db)
+    await _ensure_download_columns(db)
     await db.commit()
 
 
@@ -272,6 +273,11 @@ async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:
         ON videos(pipeline_status)
         """
     )
+
+
+async def _ensure_download_columns(db: aiosqlite.Connection) -> None:
+    if not await _column_exists(db, "download_jobs", "target_dir"):
+        await db.execute("ALTER TABLE download_jobs ADD COLUMN target_dir TEXT")
 
 
 async def recover_stuck_jobs(db: aiosqlite.Connection) -> int:

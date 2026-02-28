@@ -1228,6 +1228,20 @@
         });
       }
 
+      function bindVideoDownloadBulkToasts() {
+        const root = document.body;
+        if (!root || root.dataset.videoDownloadBulkToastBound === "1") return;
+        root.dataset.videoDownloadBulkToastBound = "1";
+        root.addEventListener("video-download-bulk-toast", (event) => {
+          const detail = event.detail;
+          const message = typeof detail === "string" ? detail : detail?.message;
+          const tone = detail && typeof detail === "object" && detail.tone === "error"
+            ? "error"
+            : "success";
+          showUiToast(message, tone);
+        });
+      }
+
       function getDownloadEventCursor() {
         const raw = getStoredValue(DOWNLOAD_EVENT_CURSOR_KEY);
         const parsed = Number.parseInt(String(raw || ""), 10);
@@ -1313,6 +1327,8 @@
               <label class="block text-sm text-slate-600">
                 <span class="block">{{ txt.download_modal_quality }}</span>
                 <select data-download-modal-quality class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option value="2160">2160p</option>
+                  <option value="1440">1440p</option>
                   <option value="1080">1080p</option>
                   <option value="720">720p</option>
                   <option value="480">480p</option>
@@ -1379,7 +1395,9 @@
         descNode.textContent = formatTemplate(DOWNLOAD_UI_TEXT.modalDesc, { title: videoTitle });
         cancelButton.textContent = DOWNLOAD_UI_TEXT.modalCancel;
         submitButton.textContent = DOWNLOAD_UI_TEXT.modalSubmit;
-        qualitySelect.value = ["1080", "720", "480"].includes(defaultQuality) ? defaultQuality : "1080";
+        qualitySelect.value = ["2160", "1440", "1080", "720", "480"].includes(defaultQuality)
+          ? defaultQuality
+          : "1080";
         overwriteInput.checked = defaultOverwrite;
 
         root.dataset.videoId = videoId;
@@ -1960,13 +1978,15 @@
 
         const selectAll = form.querySelector("[data-video-select-all]");
         const deleteBtn = form.querySelector("[data-video-delete-selected]");
+        const downloadBtn = form.querySelector("[data-video-download-selected]");
         const items = () => form.querySelectorAll("[data-video-select-item]");
-        if (!selectAll || !deleteBtn) return;
+        if (!selectAll || !deleteBtn || !downloadBtn) return;
 
         function sync() {
           const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
           const all = items();
           deleteBtn.disabled = checked === 0;
+          downloadBtn.disabled = checked === 0;
           selectAll.checked = all.length > 0 && checked === all.length;
           selectAll.indeterminate = checked > 0 && checked < all.length;
         }
@@ -2290,6 +2310,7 @@
         bindCopyButtons(document);
         bindCollapsibles(document);
         bindChannelReactivateToasts();
+        bindVideoDownloadBulkToasts();
         bindYouTubeEmbeds(document);
         bindVideoDownloadButtons(document);
         bindDownloadDetailButtons(document);
@@ -2303,7 +2324,15 @@
       });
       document.addEventListener("htmx:afterRequest", (event) => {
         if (!event.detail.successful) return;
+        const requestElt = event.detail?.requestConfig?.elt;
+        if (
+          requestElt instanceof Element
+          && requestElt.hasAttribute("data-skip-save-toast")
+        ) {
+          return;
+        }
         const target = event.target instanceof Element ? event.target : null;
+        if (target?.hasAttribute("data-skip-save-toast")) return;
         const source = target?.closest("[data-save-toast]");
         const baseMessage = source?.getAttribute("data-save-toast");
         if (baseMessage) {

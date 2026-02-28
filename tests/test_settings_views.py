@@ -19,6 +19,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "워커 제어" in response.text
     assert "영상 다운로드" in response.text
     assert "기본 화질 상한" in response.text
+    assert "다운로드 저장 경로" in response.text
+    assert 'name="download_output_dir"' in response.text
     assert 'hx-trigger="change from:select[name=\'language\']"' in response.text
     assert 'hx-trigger="input changed delay:1s from:input[name=\'videos_per_page\']"' in response.text
     assert 'data-save-toast="' in response.text

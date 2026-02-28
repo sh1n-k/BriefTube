@@ -16,11 +16,12 @@ from app.services.bulk_channels import (
     parse_takeout_entries,
     resolve_bulk_inputs,
 )
-from app.services.downloads import is_ffmpeg_available
+from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
 
 router = APIRouter(prefix="/views", tags=["views"])
 logger = logging.getLogger(__name__)
 REACTIVATE_BATCH_LIMIT = 50
+DOWNLOAD_BULK_LIMIT = 100
 
 
 def _safe_int(value: str | None, default: int) -> int:
@@ -97,6 +98,16 @@ def _channel_management_ui_context(request: Request) -> dict[str, int]:
 def _reactivate_toast_header(message: str, tone: str) -> dict[str, str]:
     payload = {
         "channel-reactivate-toast": {
+            "message": message,
+            "tone": tone,
+        }
+    }
+    return {"HX-Trigger": json.dumps(payload)}
+
+
+def _download_bulk_toast_header(message: str, tone: str) -> dict[str, str]:
+    payload = {
+        "video-download-bulk-toast": {
             "message": message,
             "tone": tone,
         }
@@ -725,10 +736,201 @@ async def delete_selected_videos(request: Request):
     )
 
 
+@router.post("/videos/download-selected")
+async def download_selected_videos(request: Request):
+    form = await request.form()
+    selected_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
+    video_ids = list(dict.fromkeys(selected_ids))
+    txt = await _texts(request)
+
+    toast_message = ""
+    toast_tone = "success"
+    created_count = 0
+    duplicate_count = 0
+    missing_count = 0
+    failed_count = 0
+
+    if not video_ids:
+        toast_message = txt["download_bulk_none_selected"]
+        toast_tone = "error"
+    elif len(video_ids) > DOWNLOAD_BULK_LIMIT:
+        toast_message = txt["download_bulk_limit_exceeded"].format(
+            selected=len(video_ids),
+            limit=DOWNLOAD_BULK_LIMIT,
+        )
+        toast_tone = "error"
+    elif not is_ffmpeg_available():
+        toast_message = txt["download_toast_ffmpeg_missing"]
+        toast_tone = "error"
+    else:
+        defaults = await repository.get_download_default_settings(
+            request.app.state.runtime.db,
+            default_output_dir=request.app.state.runtime.config.download_dir,
+        )
+        output_dir_validation = validate_download_output_dir(
+            str(defaults.get("output_dir") or ""),
+            require_absolute=True,
+            require_existing=True,
+        )
+        if not output_dir_validation.ok:
+            logger.warning(
+                "event=downloads.bulk_enqueue_invalid_output_dir code=%s path=%s",
+                output_dir_validation.error_code or "download_path_invalid",
+                str(defaults.get("output_dir") or ""),
+                extra={
+                    "event": "downloads.bulk_enqueue_invalid_output_dir",
+                    "code": output_dir_validation.error_code or "download_path_invalid",
+                },
+            )
+            toast_message = txt["download_bulk_output_dir_invalid"]
+            toast_tone = "error"
+            page = _safe_int(form.get("_page"), 1)
+            limit_val = _safe_int(form.get("_limit"), 0)
+            if limit_val <= 0:
+                limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+            sort = str(form.get("_sort") or "upload_time")
+            order = str(form.get("_order") or "desc")
+            channel_id = str(form.get("_channel_id") or "") or None
+
+            total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+            total_pages = max(1, (total + limit_val - 1) // limit_val)
+            current_page = min(max(1, page), total_pages)
+            videos = await repository.list_videos(
+                request.app.state.runtime.db,
+                channel_id=channel_id,
+                sort=sort,
+                order=order,
+                page=current_page,
+                limit=limit_val,
+            )
+            channels = await repository.list_channels(request.app.state.runtime.db)
+            context = await build_template_context(
+                request,
+                videos=videos,
+                channels=channels,
+                pagination={
+                    "page": current_page,
+                    "limit": limit_val,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "channel_id": channel_id or "",
+                    "sort": sort,
+                    "order": order,
+                },
+            )
+            return request.app.state.templates.TemplateResponse(
+                request=request,
+                name="fragments/video_list.html",
+                context=context,
+                headers=_download_bulk_toast_header(toast_message, toast_tone),
+            )
+        target_dir = output_dir_validation.normalized_path
+        for video_id in video_ids:
+            video = await repository.get_video(request.app.state.runtime.db, video_id)
+            if not video:
+                missing_count += 1
+                continue
+            try:
+                result = await repository.create_download_job(
+                    request.app.state.runtime.db,
+                    video_id=str(video["video_id"]),
+                    video_title=str(video.get("title") or video["video_id"]),
+                    quality=str(defaults["quality"]),
+                    overwrite=bool(defaults["overwrite"]),
+                    target_dir=target_dir,
+                )
+            except Exception:
+                logger.exception(
+                    "event=downloads.bulk_enqueue_failed video_id=%s",
+                    video_id,
+                    extra={"event": "downloads.bulk_enqueue_failed"},
+                )
+                failed_count += 1
+                continue
+            if bool(result.get("created")):
+                created_count += 1
+            elif bool(result.get("duplicate")):
+                duplicate_count += 1
+            else:
+                failed_count += 1
+
+        if created_count > 0:
+            request.app.state.runtime.download_wake_event.set()
+            logger.info(
+                "event=downloads.bulk_enqueue_queued selected=%s created=%s duplicate=%s missing=%s failed=%s",
+                len(video_ids),
+                created_count,
+                duplicate_count,
+                missing_count,
+                failed_count,
+                extra={"event": "downloads.bulk_enqueue_queued"},
+            )
+        else:
+            logger.warning(
+                "event=downloads.bulk_enqueue_none selected=%s duplicate=%s missing=%s failed=%s",
+                len(video_ids),
+                duplicate_count,
+                missing_count,
+                failed_count,
+                extra={"event": "downloads.bulk_enqueue_none"},
+            )
+        toast_message = txt["download_bulk_result"].format(
+            created=created_count,
+            duplicate=duplicate_count,
+            missing=missing_count,
+            failed=failed_count,
+        )
+        toast_tone = "success" if created_count > 0 and failed_count == 0 and missing_count == 0 else "error"
+
+    page = _safe_int(form.get("_page"), 1)
+    limit_val = _safe_int(form.get("_limit"), 0)
+    if limit_val <= 0:
+        limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+    sort = str(form.get("_sort") or "upload_time")
+    order = str(form.get("_order") or "desc")
+    channel_id = str(form.get("_channel_id") or "") or None
+
+    total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+    total_pages = max(1, (total + limit_val - 1) // limit_val)
+    current_page = min(max(1, page), total_pages)
+    videos = await repository.list_videos(
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+        sort=sort,
+        order=order,
+        page=current_page,
+        limit=limit_val,
+    )
+    channels = await repository.list_channels(request.app.state.runtime.db)
+    context = await build_template_context(
+        request,
+        videos=videos,
+        channels=channels,
+        pagination={
+            "page": current_page,
+            "limit": limit_val,
+            "total": total,
+            "total_pages": total_pages,
+            "channel_id": channel_id or "",
+            "sort": sort,
+            "order": order,
+        },
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/video_list.html",
+        context=context,
+        headers=_download_bulk_toast_header(toast_message, toast_tone) if toast_message else None,
+    )
+
+
 @router.get("/video-detail/{video_id}")
 async def video_detail(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
-    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    download_defaults = await repository.get_download_default_settings(
+        request.app.state.runtime.db,
+        default_output_dir=request.app.state.runtime.config.download_dir,
+    )
     context = await build_template_context(
         request,
         video=detail,

@@ -52,10 +52,25 @@
         <input type="checkbox" data-video-select-all class="h-4 w-4 rounded border-slate-300" />
         {{ txt.video_select_all }}
       </label>
-      <button type="submit" data-video-delete-selected disabled
-              class="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50">
-        {{ txt.video_delete_selected }}
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          data-video-download-selected
+          data-skip-save-toast="1"
+          disabled
+          hx-post="/views/videos/download-selected"
+          hx-include="closest form"
+          hx-target="#video-list-wrap"
+          hx-swap="outerHTML"
+          class="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ txt.video_download_selected }}
+        </button>
+        <button type="submit" data-video-delete-selected disabled
+                class="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50">
+          {{ txt.video_delete_selected }}
+        </button>
+      </div>
     </div>
 
     <div class="overflow-x-auto">

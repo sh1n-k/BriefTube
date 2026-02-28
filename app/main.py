@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import httpx
@@ -149,7 +149,10 @@ async def thumbnail(filename: str):
 
 
 @app.get("/downloads/files/{filename:path}")
-async def download_file(filename: str):
+async def download_file(
+    filename: str,
+    job_id: int | None = Query(default=None, ge=1),
+):
     safe_name = Path(filename).name
     if safe_name != filename:
         return JSONResponse(status_code=400, content={"detail": "invalid filename"})
@@ -158,7 +161,18 @@ async def download_file(filename: str):
     if runtime is None:
         return JSONResponse(status_code=503, content={"detail": "runtime not ready"})
 
-    target = Path(runtime.config.download_dir) / safe_name
+    target_base = Path(runtime.config.download_dir)
+    if job_id is not None:
+        job = await repository.get_download_job(runtime.db, job_id)
+        if not job:
+            return JSONResponse(status_code=404, content={"detail": "download job not found"})
+        raw_target_dir = str(job.get("target_dir") or "").strip() or runtime.config.download_dir
+        try:
+            target_base = Path(raw_target_dir).expanduser().resolve(strict=False)
+        except OSError:
+            return JSONResponse(status_code=404, content={"detail": "download directory not found"})
+
+    target = target_base / safe_name
     if not target.exists() or not target.is_file():
         return JSONResponse(status_code=404, content={"detail": "download file not found"})
     return FileResponse(target)

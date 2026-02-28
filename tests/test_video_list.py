@@ -125,3 +125,24 @@ def test_video_list_renders_cdn_thumbnail_for_missing_local_path(client: TestCli
     html = response.text
     assert "https://i.ytimg.com/vi/vid-a-000/hqdefault.jpg" in html
     assert 'loading="lazy"' in html
+
+
+def test_video_list_renders_download_selected_button(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/views/video-list", params={"limit": "20"})
+    assert response.status_code == 200
+    assert "data-video-download-selected" in response.text
+
+
+def test_video_download_selected_empty_selection_returns_bulk_toast(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.post(
+        "/views/videos/download-selected",
+        data={"_page": "1", "_limit": "20"},
+    )
+
+    assert response.status_code == 200
+    assert "HX-Trigger" in response.headers
+    assert "video-download-bulk-toast" in response.headers["HX-Trigger"]

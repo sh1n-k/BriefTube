@@ -85,9 +85,20 @@ def test_request_video_download_enqueue_sets_wake_event(
 
     monkeypatch.setattr("app.routers.api.is_ffmpeg_available", lambda: True)
 
-    async def fake_create_download_job(db, *, video_id: str, video_title: str, quality: str, overwrite: bool):
+    expected_target_dir = str(client.app.state.runtime.config.download_dir)
+
+    async def fake_create_download_job(
+        db,
+        *,
+        video_id: str,
+        video_title: str,
+        quality: str,
+        overwrite: bool,
+        target_dir: str,
+    ):
         assert video_id == "vid-download-001"
         assert video_title == "Download Video"
+        assert target_dir == expected_target_dir
         return {
             "created": True,
             "duplicate": False,
@@ -97,6 +108,7 @@ def test_request_video_download_enqueue_sets_wake_event(
                 "video_id": video_id,
                 "quality": quality,
                 "overwrite": int(overwrite),
+                "target_dir": target_dir,
             },
         }
 
@@ -114,14 +126,16 @@ def test_request_video_download_enqueue_sets_wake_event(
 
 
 def test_settings_download_defaults_update(client: TestClient) -> None:
+    expected_target_dir = str(client.app.state.runtime.config.download_dir)
     response = client.put(
         "/api/settings/downloads",
-        json={"quality": "720", "overwrite": True},
+        json={"quality": "720", "overwrite": True, "output_dir": expected_target_dir},
     )
     assert response.status_code == 200
     assert response.json()["download_defaults"] == {
         "quality": "720",
         "overwrite": True,
+        "output_dir": expected_target_dir,
     }
 
     settings = client.get("/api/settings")
@@ -129,6 +143,7 @@ def test_settings_download_defaults_update(client: TestClient) -> None:
     assert settings.json()["download_defaults"] == {
         "quality": "720",
         "overwrite": True,
+        "output_dir": expected_target_dir,
     }
 
 

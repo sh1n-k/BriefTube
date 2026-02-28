@@ -20,12 +20,17 @@ async def _run_single_download_job(
     video_id = str(job.get("video_id") or "").strip()
     quality = str(job.get("quality") or repository.DOWNLOAD_QUALITY_DEFAULT)
     overwrite = bool(int(job.get("overwrite") or 0))
+    target_dir = str(job.get("target_dir") or state.config.download_dir).strip() or state.config.download_dir
+    base_timeout_seconds = int(state.config.download_timeout_seconds)
+    timeout_seconds = max(base_timeout_seconds, 3600) if quality == "2160" else base_timeout_seconds
     logger.info(
-        "event=downloads.job_started job_id=%s video_id=%s quality=%s overwrite=%s",
+        "event=downloads.job_started job_id=%s video_id=%s quality=%s overwrite=%s target_dir=%s timeout_seconds=%s",
         job_id,
         video_id,
         quality,
         overwrite,
+        target_dir,
+        timeout_seconds,
         extra={"event": "downloads.job_started"},
     )
 
@@ -34,8 +39,8 @@ async def _run_single_download_job(
             video_id=video_id,
             quality=quality,
             overwrite=overwrite,
-            output_dir=state.config.download_dir,
-            timeout_seconds=state.config.download_timeout_seconds,
+            output_dir=target_dir,
+            timeout_seconds=timeout_seconds,
         )
     except Exception:
         logger.exception(

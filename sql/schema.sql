@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS download_jobs (
     status           TEXT NOT NULL DEFAULT 'pending',
     quality          TEXT NOT NULL DEFAULT '1080',
     overwrite        INTEGER NOT NULL DEFAULT 0,
+    target_dir       TEXT,
     attempt_count    INTEGER NOT NULL DEFAULT 1,
     output_path      TEXT,
     file_size_bytes  INTEGER,

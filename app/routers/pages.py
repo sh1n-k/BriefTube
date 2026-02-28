@@ -69,7 +69,10 @@ async def home(
 async def video_page(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
     transcript_retry_done = request.query_params.get("transcript_retry") == "1"
-    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    download_defaults = await repository.get_download_default_settings(
+        request.app.state.runtime.db,
+        default_output_dir=request.app.state.runtime.config.download_dir,
+    )
     context = await build_template_context(
         request,
         video=detail,
@@ -113,7 +116,10 @@ async def settings_page(request: Request):
     transcript_header_overrides = await repository.get_transcript_request_header_overrides(
         request.app.state.runtime.db
     )
-    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    download_defaults = await repository.get_download_default_settings(
+        request.app.state.runtime.db,
+        default_output_dir=request.app.state.runtime.config.download_dir,
+    )
     compact = compact_header_overrides(transcript_header_overrides, strict=False)
     values = merge_with_default_headers(compact)
     defaults = default_transcript_request_headers()

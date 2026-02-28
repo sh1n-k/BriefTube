@@ -7,6 +7,7 @@ import sqlite3
 from typing import Any
 
 import aiosqlite
+from app.services.downloads import validate_download_output_dir
 
 WORKER_SETTING_KEY_MAP: dict[str, str] = {
     "rss": "worker_rss_enabled",
@@ -43,8 +44,10 @@ VIDEOS_PER_PAGE_KEY = "videos_per_page"
 VIDEOS_PER_PAGE_DEFAULT = 8
 DOWNLOAD_DEFAULT_QUALITY_KEY = "download_default_quality"
 DOWNLOAD_DEFAULT_OVERWRITE_KEY = "download_default_overwrite"
+DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY = "download_output_dir"
 DOWNLOAD_QUALITY_DEFAULT = "1080"
-DOWNLOAD_QUALITY_OPTIONS = {"1080", "720", "480"}
+DOWNLOAD_OUTPUT_DIR_DEFAULT = "./downloads"
+DOWNLOAD_QUALITY_OPTIONS = {"2160", "1440", "1080", "720", "480"}
 DOWNLOAD_STATUS_PENDING = "pending"
 DOWNLOAD_STATUS_RUNNING = "running"
 DOWNLOAD_STATUS_SUCCEEDED = "succeeded"
@@ -1662,7 +1665,11 @@ async def delete_channels_with_related_data(
     }
 
 
-async def get_download_default_settings(db: aiosqlite.Connection) -> dict[str, Any]:
+async def get_download_default_settings(
+    db: aiosqlite.Connection,
+    *,
+    default_output_dir: str | None = None,
+) -> dict[str, Any]:
     quality_raw = await get_setting(
         db,
         key=DOWNLOAD_DEFAULT_QUALITY_KEY,
@@ -1673,9 +1680,22 @@ async def get_download_default_settings(db: aiosqlite.Connection) -> dict[str, A
         key=DOWNLOAD_DEFAULT_OVERWRITE_KEY,
         default="false",
     )
+    default_dir_raw = str(default_output_dir or DOWNLOAD_OUTPUT_DIR_DEFAULT).strip() or DOWNLOAD_OUTPUT_DIR_DEFAULT
+    output_dir_raw = await get_setting(
+        db,
+        key=DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY,
+        default=default_dir_raw,
+    )
+    output_dir_candidate = str(output_dir_raw or "").strip() or default_dir_raw
+    output_dir_path = Path(output_dir_candidate).expanduser()
+    try:
+        output_dir_resolved = output_dir_path.resolve(strict=False)
+    except OSError:
+        output_dir_resolved = Path(default_dir_raw).expanduser().resolve(strict=False)
     return {
         "quality": _normalize_download_quality(quality_raw),
         "overwrite": _parse_bool_setting(overwrite_raw, default=False),
+        "output_dir": str(output_dir_resolved),
     }
 
 
@@ -1684,13 +1704,30 @@ async def set_download_default_settings(
     *,
     quality: str | None = None,
     overwrite: bool | None = None,
+    output_dir: str | None = None,
+    default_output_dir: str | None = None,
 ) -> dict[str, Any]:
-    current = await get_download_default_settings(db)
+    current = await get_download_default_settings(
+        db,
+        default_output_dir=default_output_dir,
+    )
     next_quality = _normalize_download_quality(quality) if quality is not None else str(current["quality"])
     next_overwrite = bool(overwrite) if overwrite is not None else bool(current["overwrite"])
+    next_output_dir = str(output_dir or "").strip() if output_dir is not None else str(current["output_dir"])
+    validation = validate_download_output_dir(
+        next_output_dir,
+        require_absolute=True,
+        require_existing=True,
+    )
+    if not validation.ok:
+        raise ValueError(validation.error_code or "download_path_invalid")
     await set_setting(db, key=DOWNLOAD_DEFAULT_QUALITY_KEY, value=next_quality)
     await set_setting(db, key=DOWNLOAD_DEFAULT_OVERWRITE_KEY, value="true" if next_overwrite else "false")
-    return await get_download_default_settings(db)
+    await set_setting(db, key=DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY, value=validation.normalized_path)
+    return await get_download_default_settings(
+        db,
+        default_output_dir=default_output_dir,
+    )
 
 
 async def _insert_download_event(
@@ -1723,6 +1760,7 @@ async def get_download_job(
             status,
             quality,
             overwrite,
+            target_dir,
             attempt_count,
             output_path,
             file_size_bytes,
@@ -1757,6 +1795,7 @@ async def get_active_download_job_for_video(
             status,
             quality,
             overwrite,
+            target_dir,
             attempt_count,
             output_path,
             file_size_bytes,
@@ -1785,11 +1824,13 @@ async def create_download_job(
     video_title: str,
     quality: str,
     overwrite: bool,
+    target_dir: str,
 ) -> dict[str, Any]:
     normalized_video_id = str(video_id).strip()
     normalized_title = str(video_title).strip() or normalized_video_id
     normalized_quality = _normalize_download_quality(quality)
     normalized_overwrite = 1 if bool(overwrite) else 0
+    normalized_target_dir = str(target_dir).strip()
 
     existing = await get_active_download_job_for_video(db, normalized_video_id)
     if existing is not None:
@@ -1804,17 +1845,19 @@ async def create_download_job(
                 status,
                 quality,
                 overwrite,
+                target_dir,
                 attempt_count,
                 requested_at,
                 updated_at
             )
-            VALUES (?, ?, 'pending', ?, ?, 1, datetime('now'), datetime('now'))
+            VALUES (?, ?, 'pending', ?, ?, ?, 1, datetime('now'), datetime('now'))
             """,
             (
                 normalized_video_id,
                 normalized_title,
                 normalized_quality,
                 normalized_overwrite,
+                normalized_target_dir,
             ),
         )
         job_id = int(cursor.lastrowid or 0)
@@ -2040,6 +2083,7 @@ async def list_download_jobs(
                 status,
                 quality,
                 overwrite,
+                target_dir,
                 attempt_count,
                 output_path,
                 file_size_bytes,
@@ -2065,6 +2109,7 @@ async def list_download_jobs(
                 status,
                 quality,
                 overwrite,
+                target_dir,
                 attempt_count,
                 output_path,
                 file_size_bytes,

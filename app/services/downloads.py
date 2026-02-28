@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 
 
 @dataclass(slots=True)
@@ -16,13 +17,99 @@ class DownloadRunResult:
     file_size_bytes: int | None = None
 
 
+@dataclass(slots=True)
+class DownloadOutputDirValidationResult:
+    ok: bool
+    normalized_path: str
+    error_code: str = ""
+    error_message: str = ""
+
+
 def is_ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def validate_download_output_dir(
+    raw_output_dir: str | None,
+    *,
+    require_absolute: bool = True,
+    require_existing: bool = True,
+) -> DownloadOutputDirValidationResult:
+    raw = str(raw_output_dir or "").strip()
+    if not raw:
+        return DownloadOutputDirValidationResult(
+            ok=False,
+            normalized_path="",
+            error_code="download_path_empty",
+            error_message="download output directory is required",
+        )
+
+    path = Path(raw).expanduser()
+    if require_absolute and not path.is_absolute():
+        return DownloadOutputDirValidationResult(
+            ok=False,
+            normalized_path=str(path),
+            error_code="download_path_must_be_absolute",
+            error_message="download output directory must be an absolute path",
+        )
+
+    try:
+        resolved = path.resolve(strict=False)
+    except OSError:
+        return DownloadOutputDirValidationResult(
+            ok=False,
+            normalized_path=str(path),
+            error_code="download_path_invalid",
+            error_message="download output directory path is invalid",
+        )
+
+    if require_existing and not resolved.exists():
+        return DownloadOutputDirValidationResult(
+            ok=False,
+            normalized_path=str(resolved),
+            error_code="download_path_not_found",
+            error_message="download output directory does not exist",
+        )
+
+    if resolved.exists() and not resolved.is_dir():
+        return DownloadOutputDirValidationResult(
+            ok=False,
+            normalized_path=str(resolved),
+            error_code="download_path_not_directory",
+            error_message="download output path must be a directory",
+        )
+
+    if resolved.exists() and resolved.is_dir():
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=str(resolved),
+                prefix=".brieftube-write-check-",
+                delete=False,
+            ) as handle:
+                handle.write("ok")
+                temp_path = handle.name
+            if temp_path:
+                Path(temp_path).unlink(missing_ok=True)
+        except OSError:
+            return DownloadOutputDirValidationResult(
+                ok=False,
+                normalized_path=str(resolved),
+                error_code="download_path_not_writable",
+                error_message="download output directory is not writable",
+            )
+
+    return DownloadOutputDirValidationResult(
+        ok=True,
+        normalized_path=str(resolved),
+    )
+
+
 def _resolve_quality_bound(raw_quality: str | None) -> str:
     normalized = str(raw_quality or "").strip()
-    if normalized in {"1080", "720", "480"}:
+    if normalized in {"2160", "1440", "1080", "720", "480"}:
         return normalized
     return "1080"
 
@@ -63,8 +150,18 @@ async def download_video(
         )
 
     quality_bound = _resolve_quality_bound(quality)
-    target_dir = Path(output_dir).resolve()
-    target_dir.mkdir(parents=True, exist_ok=True)
+    target_dir_validation = validate_download_output_dir(
+        output_dir,
+        require_absolute=True,
+        require_existing=True,
+    )
+    if not target_dir_validation.ok:
+        return DownloadRunResult(
+            ok=False,
+            error_code="output_dir_unavailable",
+            error_message=target_dir_validation.error_message or "download output directory is unavailable",
+        )
+    target_dir = Path(target_dir_validation.normalized_path)
 
     youtube_url = f"https://www.youtube.com/watch?v={normalized_video_id}"
     format_selector = f"bv*[height<={quality_bound}]+ba/b[height<={quality_bound}]/best"

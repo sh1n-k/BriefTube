@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app import repository
 from app.i18n import SUPPORTED_LANGUAGES, normalize_language
-from app.services.downloads import is_ffmpeg_available
+from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
 from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
@@ -291,7 +291,10 @@ async def request_video_download(video_id: str, request: Request):
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    defaults = await repository.get_download_default_settings(
+        request.app.state.runtime.db,
+        default_output_dir=request.app.state.runtime.config.download_dir,
+    )
     content_type = request.headers.get("content-type", "")
     quality = str(defaults["quality"])
     overwrite = bool(defaults["overwrite"])
@@ -332,12 +335,39 @@ async def request_video_download(video_id: str, request: Request):
             },
         )
 
+    output_dir_validation = validate_download_output_dir(
+        str(defaults.get("output_dir") or ""),
+        require_absolute=True,
+        require_existing=True,
+    )
+    if not output_dir_validation.ok:
+        logger.warning(
+            "event=downloads.enqueue_rejected_output_dir video_id=%s code=%s path=%s",
+            str(video["video_id"]),
+            output_dir_validation.error_code or "download_path_invalid",
+            str(defaults.get("output_dir") or ""),
+            extra={
+                "event": "downloads.enqueue_rejected_output_dir",
+                "code": output_dir_validation.error_code or "download_path_invalid",
+            },
+        )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "queued": False,
+                "code": output_dir_validation.error_code or "download_path_invalid",
+                "message": output_dir_validation.error_message or "download output directory is unavailable",
+            },
+        )
+
     result = await repository.create_download_job(
         request.app.state.runtime.db,
         video_id=str(video["video_id"]),
         video_title=str(video.get("title") or video["video_id"]),
         quality=quality,
         overwrite=overwrite,
+        target_dir=output_dir_validation.normalized_path,
     )
     job = result.get("job") or {}
     if bool(result.get("created")):
@@ -518,7 +548,10 @@ async def get_settings(request: Request):
         request.app.state.runtime.db
     )
     transcript_request_headers = _build_transcript_header_payload(transcript_request_header_overrides)
-    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    download_defaults = await repository.get_download_default_settings(
+        request.app.state.runtime.db,
+        default_output_dir=request.app.state.runtime.config.download_dir,
+    )
     return {
         "language": normalize_language(language),
         "timezone": normalize_timezone(timezone_value),
@@ -726,32 +759,53 @@ async def set_download_defaults(request: Request):
     content_type = request.headers.get("content-type", "")
     quality: str | None = None
     overwrite: bool | None = None
+    output_dir: str | None = None
+    allowed_qualities = ", ".join(["2160", "1440", "1080", "720", "480"])
     if "application/json" in content_type:
         payload = await request.json()
         if "quality" in payload:
             parsed_quality = str(payload.get("quality", "")).strip().lower()
             if parsed_quality not in repository.DOWNLOAD_QUALITY_OPTIONS:
-                raise HTTPException(status_code=400, detail="quality must be one of: 1080, 720, 480")
+                raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
             quality = parsed_quality
         if "overwrite" in payload:
             overwrite = _parse_bool_input(payload.get("overwrite"), default=False)
+        if "output_dir" in payload or "download_output_dir" in payload:
+            output_dir = str(payload.get("output_dir", payload.get("download_output_dir", ""))).strip()
     else:
         form = await request.form()
         if "download_quality" in form:
             parsed_quality = str(form.get("download_quality", "")).strip().lower()
             if parsed_quality not in repository.DOWNLOAD_QUALITY_OPTIONS:
-                raise HTTPException(status_code=400, detail="quality must be one of: 1080, 720, 480")
+                raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
             quality = parsed_quality
         overwrite = _parse_bool_input(form.get("download_overwrite"), default=False)
+        if "download_output_dir" in form:
+            output_dir = str(form.get("download_output_dir", "")).strip()
 
-    if quality is None and overwrite is None:
+    if quality is None and overwrite is None and output_dir is None:
         raise HTTPException(status_code=400, detail="empty download settings payload")
 
-    saved = await repository.set_download_default_settings(
-        request.app.state.runtime.db,
-        quality=quality,
-        overwrite=overwrite,
-    )
+    if output_dir is not None:
+        validation = validate_download_output_dir(
+            output_dir,
+            require_absolute=True,
+            require_existing=True,
+        )
+        if not validation.ok:
+            raise HTTPException(status_code=400, detail=validation.error_code or "download_path_invalid")
+        output_dir = validation.normalized_path
+
+    try:
+        saved = await repository.set_download_default_settings(
+            request.app.state.runtime.db,
+            quality=quality,
+            overwrite=overwrite,
+            output_dir=output_dir,
+            default_output_dir=request.app.state.runtime.config.download_dir,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     logger.info(
         "event=downloads.settings_saved quality=%s overwrite=%s",
         saved.get("quality"),
