@@ -716,16 +716,16 @@
 
         const selectAll = form.querySelector("[data-channel-select-all]");
         const items = Array.from(form.querySelectorAll("[data-channel-select-item]"));
-        const bulkDelete = form.querySelector("[data-channel-delete-selected]");
+        const bulkButtons = Array.from(form.querySelectorAll("[data-channel-bulk-submit]"));
         if (!selectAll || !items.length) return;
 
         const sync = () => {
           const checkedCount = items.filter((item) => item.checked).length;
           selectAll.checked = checkedCount > 0 && checkedCount === items.length;
           selectAll.indeterminate = checkedCount > 0 && checkedCount < items.length;
-          if (bulkDelete) {
-            bulkDelete.disabled = checkedCount === 0;
-          }
+          bulkButtons.forEach((button) => {
+            button.disabled = checkedCount === 0;
+          });
         };
 
         selectAll.addEventListener("change", () => {

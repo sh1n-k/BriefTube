@@ -20,6 +20,12 @@ WORKER_SETTING_DEFAULTS: dict[str, bool] = {
     "llm": True,
     "notifier": True,
 }
+CHANNEL_MANAGEMENT_STATUS_ACTIVE = "active"
+CHANNEL_MANAGEMENT_STATUS_INACTIVE = "inactive"
+CHANNEL_MANAGEMENT_STATUS_OPTIONS = {
+    CHANNEL_MANAGEMENT_STATUS_ACTIVE,
+    CHANNEL_MANAGEMENT_STATUS_INACTIVE,
+}
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
 ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
@@ -154,6 +160,67 @@ async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     return _rows_to_dicts(rows)
 
 
+def normalize_channel_management_status(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CHANNEL_MANAGEMENT_STATUS_OPTIONS:
+        return normalized
+    return CHANNEL_MANAGEMENT_STATUS_ACTIVE
+
+
+async def list_channels_for_management(
+    db: aiosqlite.Connection,
+    status: str = CHANNEL_MANAGEMENT_STATUS_ACTIVE,
+) -> list[dict[str, Any]]:
+    normalized_status = normalize_channel_management_status(status)
+    is_active = 1 if normalized_status == CHANNEL_MANAGEMENT_STATUS_ACTIVE else 0
+    cursor = await db.execute(
+        """
+        SELECT
+            c.channel_id,
+            c.channel_name,
+            c.rss_url,
+            c.is_active,
+            c.last_seen_published_at,
+            c.created_at,
+            sa.message AS inactive_reason,
+            sa.created_at AS inactive_at
+        FROM channels c
+        LEFT JOIN system_alerts sa
+          ON sa.id = (
+              SELECT s2.id
+              FROM system_alerts s2
+              WHERE s2.channel_id = c.channel_id
+                AND s2.alert_type = ?
+              ORDER BY s2.created_at DESC, s2.id DESC
+              LIMIT 1
+          )
+        WHERE c.is_active = ?
+        ORDER BY c.created_at DESC
+        """,
+        (ALERT_TYPE_RSS_CHANNEL_NOT_FOUND, is_active),
+    )
+    rows = await cursor.fetchall()
+    return _rows_to_dicts(rows)
+
+
+async def count_channels_by_status(db: aiosqlite.Connection) -> dict[str, int]:
+    cursor = await db.execute(
+        """
+        SELECT
+            SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_count,
+            SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) AS inactive_count
+        FROM channels
+        """
+    )
+    row = await cursor.fetchone()
+    active_count = int((row["active_count"] if row else 0) or 0)
+    inactive_count = int((row["inactive_count"] if row else 0) or 0)
+    return {
+        CHANNEL_MANAGEMENT_STATUS_ACTIVE: active_count,
+        CHANNEL_MANAGEMENT_STATUS_INACTIVE: inactive_count,
+    }
+
+
 async def add_channel(db: aiosqlite.Connection, channel_id: str, channel_name: str) -> dict[str, Any]:
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     await db.execute(
@@ -188,6 +255,28 @@ async def deactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
     )
     await db.commit()
     return cursor.rowcount
+
+
+async def reactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
+    cursor = await db.execute(
+        "UPDATE channels SET is_active = 1 WHERE channel_id = ?",
+        (channel_id,),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def reactivate_channels(db: aiosqlite.Connection, channel_ids: list[str]) -> int:
+    normalized = [channel_id for channel_id in dict.fromkeys(channel_ids) if channel_id]
+    if not normalized:
+        return 0
+    placeholders = ",".join(["?"] * len(normalized))
+    cursor = await db.execute(
+        f"UPDATE channels SET is_active = 1 WHERE channel_id IN ({placeholders})",
+        tuple(normalized),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:

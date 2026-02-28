@@ -104,3 +104,5 @@ END;
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
 CREATE INDEX IF NOT EXISTS idx_system_alerts_unacked ON system_alerts(acknowledged_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_alerts_channel_type_created
+    ON system_alerts(channel_id, alert_type, created_at DESC);

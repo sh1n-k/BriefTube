@@ -75,9 +75,22 @@ async def video_page(video_id: str, request: Request):
 
 
 @router.get("/channels")
-async def channel_page(request: Request):
-    channels = await repository.list_channels(request.app.state.runtime.db)
-    context = await build_template_context(request, channels=channels)
+async def channel_page(
+    request: Request,
+    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+):
+    channel_status = repository.normalize_channel_management_status(status)
+    channels = await repository.list_channels_for_management(
+        request.app.state.runtime.db,
+        status=channel_status,
+    )
+    channel_counts = await repository.count_channels_by_status(request.app.state.runtime.db)
+    context = await build_template_context(
+        request,
+        channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
+    )
     return request.app.state.templates.TemplateResponse(request=request, name="channels.html", context=context)
 
 

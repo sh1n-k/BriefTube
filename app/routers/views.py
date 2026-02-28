@@ -44,17 +44,6 @@ def _cleanup_thumbnail_files(thumbnail_paths: list[str], thumbnail_dir: str) -> 
             continue
 
 
-@router.get("/channel-list")
-async def channel_list(request: Request):
-    channels = await repository.list_channels(request.app.state.runtime.db)
-    context = await build_template_context(request, channels=channels)
-    return request.app.state.templates.TemplateResponse(
-        request=request,
-        name="fragments/channel_list.html",
-        context=context,
-    )
-
-
 def _unpack_candidate(value: str) -> tuple[str, str] | None:
     packed = value.strip()
     if "|||" not in packed:
@@ -78,9 +67,44 @@ async def _texts(request: Request) -> dict[str, str]:
     return get_texts(language)
 
 
+async def _resolve_channel_management_state(
+    request: Request,
+    raw_status: str | None,
+) -> tuple[str, list[dict[str, object]], dict[str, int]]:
+    channel_status = repository.normalize_channel_management_status(raw_status)
+    channels = await repository.list_channels_for_management(
+        request.app.state.runtime.db,
+        status=channel_status,
+    )
+    channel_counts = await repository.count_channels_by_status(request.app.state.runtime.db)
+    return channel_status, channels, channel_counts
+
+
+@router.get("/channel-list")
+async def channel_list(
+    request: Request,
+    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+):
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(request, status)
+    context = await build_template_context(
+        request,
+        channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/channel_list.html",
+        context=context,
+    )
+
+
 @router.post("/channels/add")
 async def add_channel(request: Request):
     form = await request.form()
+    requested_status = repository.normalize_channel_management_status(
+        str(form.get("status") or request.query_params.get("status", ""))
+    )
     selected_candidate = str(form.get("selected_candidate", "")).strip()
     source = str(form.get("source", "")).strip()
     txt = await _texts(request)
@@ -94,6 +118,7 @@ async def add_channel(request: Request):
                 add_message=txt["channel_add_invalid_selection"],
                 add_source=source,
                 add_candidates=[],
+                add_status=requested_status,
             )
             return request.app.state.templates.TemplateResponse(
                 request=request,
@@ -107,7 +132,10 @@ async def add_channel(request: Request):
             channel_id=channel_id,
             channel_name=channel_name,
         )
-        channels = await repository.list_channels(request.app.state.runtime.db)
+        channel_status, channels, channel_counts = await _resolve_channel_management_state(
+            request,
+            requested_status,
+        )
         context = await build_template_context(
             request,
             add_mode="success",
@@ -115,6 +143,9 @@ async def add_channel(request: Request):
             add_source="",
             add_candidates=[],
             channels=channels,
+            channel_status=channel_status,
+            channel_counts=channel_counts,
+            add_status=channel_status,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -129,6 +160,7 @@ async def add_channel(request: Request):
             add_message=txt["channel_add_empty_input"],
             add_source="",
             add_candidates=[],
+            add_status=requested_status,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -150,6 +182,7 @@ async def add_channel(request: Request):
             add_message=txt["channel_add_resolve_error"],
             add_source=source,
             add_candidates=[],
+            add_status=requested_status,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -168,7 +201,10 @@ async def add_channel(request: Request):
                 channel_id=channel_id,
                 channel_name=channel_name,
             )
-            channels = await repository.list_channels(request.app.state.runtime.db)
+            channel_status, channels, channel_counts = await _resolve_channel_management_state(
+                request,
+                requested_status,
+            )
             context = await build_template_context(
                 request,
                 add_mode="success",
@@ -176,6 +212,9 @@ async def add_channel(request: Request):
                 add_source="",
                 add_candidates=[],
                 channels=channels,
+                channel_status=channel_status,
+                channel_counts=channel_counts,
+                add_status=channel_status,
             )
             return request.app.state.templates.TemplateResponse(
                 request=request,
@@ -190,6 +229,7 @@ async def add_channel(request: Request):
             add_message=txt["channel_add_needs_selection"],
             add_source=source,
             add_candidates=resolved.get("candidates", []),
+            add_status=requested_status,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -204,6 +244,7 @@ async def add_channel(request: Request):
         add_source=source,
         add_candidates=[],
         add_reason=str(resolved.get("reason", "")).strip(),
+        add_status=requested_status,
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -215,6 +256,9 @@ async def add_channel(request: Request):
 @router.post("/channels/delete-selected")
 async def delete_selected_channels(request: Request):
     form = await request.form()
+    requested_status = repository.normalize_channel_management_status(
+        str(form.get("status") or request.query_params.get("status", ""))
+    )
     channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
     result = await repository.delete_channels_with_related_data(
         request.app.state.runtime.db,
@@ -227,8 +271,16 @@ async def delete_selected_channels(request: Request):
     for channel_id in channel_ids:
         request.app.state.runtime.rss_cache.pop(channel_id, None)
 
-    channels = await repository.list_channels(request.app.state.runtime.db)
-    context = await build_template_context(request, channels=channels)
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(
+        request,
+        requested_status,
+    )
+    context = await build_template_context(
+        request,
+        channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
+    )
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/channel_list.html",
@@ -237,8 +289,13 @@ async def delete_selected_channels(request: Request):
 
 
 @router.post("/channels/{channel_id}/delete")
-async def delete_single_channel(channel_id: str, request: Request):
+async def delete_single_channel(
+    channel_id: str,
+    request: Request,
+    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+):
     normalized = channel_id.strip()
+    requested_status = repository.normalize_channel_management_status(status)
     result = await repository.delete_channels_with_related_data(
         request.app.state.runtime.db,
         [normalized],
@@ -249,8 +306,87 @@ async def delete_single_channel(channel_id: str, request: Request):
     )
     request.app.state.runtime.rss_cache.pop(normalized, None)
 
-    channels = await repository.list_channels(request.app.state.runtime.db)
-    context = await build_template_context(request, channels=channels)
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(
+        request,
+        requested_status,
+    )
+    context = await build_template_context(
+        request,
+        channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/channel_list.html",
+        context=context,
+    )
+
+
+@router.post("/channels/reactivate-selected")
+async def reactivate_selected_channels(request: Request):
+    form = await request.form()
+    requested_status = repository.normalize_channel_management_status(
+        str(form.get("status") or request.query_params.get("status", ""))
+    )
+    bulk_action = str(form.get("bulk_action", "")).strip().lower()
+    channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
+    if bulk_action == "delete":
+        result = await repository.delete_channels_with_related_data(
+            request.app.state.runtime.db,
+            channel_ids,
+        )
+        _cleanup_thumbnail_files(
+            result["thumbnail_paths"],
+            request.app.state.runtime.config.thumbnail_dir,
+        )
+        for channel_id in channel_ids:
+            request.app.state.runtime.rss_cache.pop(channel_id, None)
+    else:
+        updated = await repository.reactivate_channels(request.app.state.runtime.db, channel_ids)
+        if updated > 0:
+            for channel_id in channel_ids:
+                request.app.state.runtime.rss_cache.pop(channel_id, None)
+
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(
+        request,
+        requested_status,
+    )
+    context = await build_template_context(
+        request,
+        channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/channel_list.html",
+        context=context,
+    )
+
+
+@router.post("/channels/{channel_id}/reactivate")
+async def reactivate_single_channel(
+    channel_id: str,
+    request: Request,
+    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+):
+    normalized = channel_id.strip()
+    requested_status = repository.normalize_channel_management_status(status)
+    updated = await repository.reactivate_channel(request.app.state.runtime.db, normalized)
+    if updated > 0:
+        request.app.state.runtime.rss_cache.pop(normalized, None)
+
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(
+        request,
+        requested_status,
+    )
+    context = await build_template_context(
+        request,
+        channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
+    )
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/channel_list.html",
@@ -391,6 +527,9 @@ async def status_badge(video_id: str, request: Request):
 @router.post("/channels/bulk-resolve")
 async def bulk_resolve(request: Request):
     form = await request.form()
+    channel_status = repository.normalize_channel_management_status(
+        str(form.get("status") or request.query_params.get("status", ""))
+    )
     bulk_text = str(form.get("bulk_text", ""))
     upload = form.get("takeout_file")
     takeout_data = parse_takeout_entries("takeout.txt", b"")
@@ -407,7 +546,11 @@ async def bulk_resolve(request: Request):
         direct_channels=collected["direct_channels"],
         resolver=request.app.state.runtime.channel_resolver,
     )
-    context = await build_template_context(request, result=result)
+    context = await build_template_context(
+        request,
+        result=result,
+        channel_status=channel_status,
+    )
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/bulk_resolve_result.html",
@@ -418,6 +561,9 @@ async def bulk_resolve(request: Request):
 @router.post("/channels/bulk-commit")
 async def bulk_commit(request: Request):
     form = await request.form()
+    requested_status = repository.normalize_channel_management_status(
+        str(form.get("status") or request.query_params.get("status", ""))
+    )
     items: list[dict[str, str]] = []
 
     resolved_ids = list(form.getlist("resolved_channel_id"))
@@ -455,11 +601,16 @@ async def bulk_commit(request: Request):
         )
         saved += 1
 
-    channels = await repository.list_channels(request.app.state.runtime.db)
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(
+        request,
+        requested_status,
+    )
     context = await build_template_context(
         request,
         saved=saved,
         channels=channels,
+        channel_status=channel_status,
+        channel_counts=channel_counts,
     )
     return request.app.state.templates.TemplateResponse(
         request=request,

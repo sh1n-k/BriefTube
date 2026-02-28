@@ -9,6 +9,8 @@ def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient
     assert response.status_code == 200
     html = response.text
 
+    assert 'href="/channels?status=active"' in html
+    assert 'href="/channels?status=inactive"' in html
     assert 'data-channel-search' in html
     assert 'data-channel-search-input' in html
     assert 'data-channel-search-prev' in html
@@ -17,6 +19,20 @@ def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient
     assert 'shrink-0 whitespace-nowrap' in html
     assert 'data-channel-manage-form' in html
     assert 'data-channel-select-all' in html
+    assert 'hx-post="/views/channels/delete-selected"' in html
+    assert 'name="status" value="active"' in html
+
+
+def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: TestClient) -> None:
+    response = client.get('/views/channel-list?status=inactive')
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'hx-post="/views/channels/reactivate-selected"' in html
+    assert '선택 채널 재활성화' in html
+    assert 'name="bulk_action"' in html
+    assert 'value="delete"' in html
+    assert 'name="status" value="inactive"' in html
 
 
 def test_index_poll_button_disables_swap(client: TestClient) -> None:
