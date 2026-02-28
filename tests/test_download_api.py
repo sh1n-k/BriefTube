@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import os
+from pathlib import Path
 import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
+
+from app import repository
+from app.database import init_database, open_database
+from app.services.downloads import download_video
 
 
 def _seed_video(db_path: str, *, video_id: str = "vid-download-001") -> None:
@@ -56,6 +62,45 @@ def _insert_failed_download_job(db_path: str) -> None:
             (job_id,),
         )
         conn.commit()
+
+
+def _insert_download_job(
+    db_path: str,
+    *,
+    video_id: str = "vid-download-001",
+    video_title: str = "Download Video",
+    status: str = "succeeded",
+    target_dir: str | None = None,
+    output_path: str | None = None,
+) -> int:
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO download_jobs(
+                video_id,
+                video_title,
+                status,
+                quality,
+                overwrite,
+                target_dir,
+                attempt_count,
+                requested_at,
+                updated_at,
+                finished_at,
+                output_path
+            )
+            VALUES (?, ?, ?, '720', 0, ?, 1, datetime('now'), datetime('now'), datetime('now'), ?)
+            """,
+            (
+                video_id,
+                video_title,
+                status,
+                target_dir,
+                output_path,
+            ),
+        )
+        conn.commit()
+        return int(cursor.lastrowid or 0)
 
 
 def test_request_video_download_rejects_when_ffmpeg_missing(
@@ -162,3 +207,128 @@ def test_download_progress_returns_counts_and_events(client: TestClient) -> None
     assert payload["active_count"] == 0
     assert len(payload["events"]) == 1
     assert payload["events"][0]["event_type"] == "failed"
+
+
+def test_download_file_probe_success_with_job_target_dir(client: TestClient, tmp_path: Path) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_video(db_path)
+    custom_dir = tmp_path / "custom-downloads"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    filename = "downloaded.mp4"
+    (custom_dir / filename).write_bytes(b"ok")
+    job_id = _insert_download_job(
+        db_path,
+        target_dir=str(custom_dir),
+        output_path=filename,
+    )
+
+    response = client.get(f"/downloads/files/{filename}", params={"job_id": job_id, "probe": True})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["filename"] == filename
+
+
+def test_download_file_probe_missing_job_returns_code(client: TestClient) -> None:
+    response = client.get("/downloads/files/missing.mp4", params={"job_id": 9999, "probe": True})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "download_job_not_found"
+
+
+def test_download_file_probe_missing_file_returns_code(client: TestClient, tmp_path: Path) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_video(db_path)
+    custom_dir = tmp_path / "custom-downloads"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    job_id = _insert_download_job(
+        db_path,
+        target_dir=str(custom_dir),
+        output_path="missing.mp4",
+    )
+
+    response = client.get("/downloads/files/missing.mp4", params={"job_id": job_id, "probe": True})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "download_file_not_found"
+
+
+def test_download_video_returns_specific_output_path_error_code(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing-download-dir"
+    result = asyncio.run(
+        download_video(
+            video_id="vid-download-001",
+            quality="1080",
+            overwrite=False,
+            output_dir=str(missing_dir),
+            timeout_seconds=10,
+        )
+    )
+
+    assert result.ok is False
+    assert result.error_code == "download_path_not_found"
+
+
+def test_recover_stuck_download_jobs_marks_running_failed_and_logs_event(tmp_path: Path) -> None:
+    db_path = tmp_path / "recover-downloads.db"
+
+    async def _run() -> tuple[int, str, str, int]:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            await db.execute(
+                """
+                INSERT INTO download_jobs(
+                    video_id,
+                    video_title,
+                    status,
+                    quality,
+                    overwrite,
+                    attempt_count,
+                    requested_at,
+                    updated_at
+                )
+                VALUES ('vid-running-1', 'Running Video', 'running', '1080', 0, 1, datetime('now'), datetime('now'))
+                """
+            )
+            await db.execute(
+                """
+                INSERT INTO download_jobs(
+                    video_id,
+                    video_title,
+                    status,
+                    quality,
+                    overwrite,
+                    attempt_count,
+                    requested_at,
+                    updated_at
+                )
+                VALUES ('vid-pending-1', 'Pending Video', 'pending', '1080', 0, 1, datetime('now'), datetime('now'))
+                """
+            )
+            await db.commit()
+
+            recovered_count = await repository.recover_stuck_download_jobs(db)
+            running_job = await repository.get_download_job(db, 1)
+            event_count_cursor = await db.execute(
+                """
+                SELECT COUNT(1) AS cnt
+                FROM download_events
+                WHERE job_id = 1 AND event_type = 'failed' AND error_code = 'worker_interrupted'
+                """
+            )
+            event_count_row = await event_count_cursor.fetchone()
+            return (
+                recovered_count,
+                str((running_job or {}).get("status") or ""),
+                str((running_job or {}).get("error_code") or ""),
+                int((event_count_row["cnt"] if event_count_row else 0) or 0),
+            )
+        finally:
+            await db.close()
+
+    recovered_count, recovered_status, recovered_error_code, event_count = asyncio.run(_run())
+    assert recovered_count == 1
+    assert recovered_status == "failed"
+    assert recovered_error_code == "worker_interrupted"
+    assert event_count == 1

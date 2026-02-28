@@ -158,7 +158,7 @@ async def download_video(
     if not target_dir_validation.ok:
         return DownloadRunResult(
             ok=False,
-            error_code="output_dir_unavailable",
+            error_code=target_dir_validation.error_code or "download_path_invalid",
             error_message=target_dir_validation.error_message or "download output directory is unavailable",
         )
     target_dir = Path(target_dir_validation.normalized_path)

@@ -6,6 +6,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from app.routers import views as views_router
+
 
 def _seed_channels_and_videos() -> None:
     db_path = os.environ["DB_PATH"]
@@ -157,6 +159,7 @@ def test_video_list_renders_download_selected_button(client: TestClient) -> None
     response = client.get("/views/video-list", params={"limit": "20"})
     assert response.status_code == 200
     assert "data-video-download-selected" in response.text
+    assert "data-busy-label=" in response.text
 
 
 def test_video_download_selected_empty_selection_returns_bulk_toast(client: TestClient) -> None:
@@ -192,3 +195,29 @@ def test_video_download_selected_duplicate_only_returns_info_tone(
     assert "HX-Trigger" in response.headers
     payload = json.loads(response.headers["HX-Trigger"])
     assert payload["video-download-bulk-toast"]["tone"] == "info"
+
+
+def test_video_download_selected_uses_single_batch_query(client: TestClient, monkeypatch) -> None:
+    _seed_channels_and_videos()
+    monkeypatch.setattr("app.routers.views.is_ffmpeg_available", lambda: True)
+
+    call_counter = {"count": 0}
+    original_list_videos_by_ids = views_router.repository.list_videos_by_ids
+
+    async def wrapped_list_videos_by_ids(db, video_ids):
+        call_counter["count"] += 1
+        return await original_list_videos_by_ids(db, video_ids)
+
+    async def should_not_be_called(*_args, **_kwargs):
+        raise AssertionError("repository.get_video should not be called in bulk download flow")
+
+    monkeypatch.setattr("app.routers.views.repository.list_videos_by_ids", wrapped_list_videos_by_ids)
+    monkeypatch.setattr("app.routers.views.repository.get_video", should_not_be_called)
+
+    response = client.post(
+        "/views/videos/download-selected",
+        data={"video_id": ["vid-a-000", "vid-b-000"], "_page": "1", "_limit": "20"},
+    )
+
+    assert response.status_code == 200
+    assert call_counter["count"] == 1
