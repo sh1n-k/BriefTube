@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 
 from app import repository
 from app.routers.template_context import build_template_context
+from app.services.downloads import is_ffmpeg_available
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
     TRANSCRIPT_REQUEST_HEADER_KEYS,
@@ -18,6 +19,8 @@ from app.services.transcript_headers import (
 )
 
 router = APIRouter(tags=["pages"])
+REACTIVATE_BATCH_LIMIT = 50
+DOWNLOAD_PAGE_LIMIT = 50
 
 
 @router.get("/")
@@ -66,10 +69,13 @@ async def home(
 async def video_page(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
     transcript_retry_done = request.query_params.get("transcript_retry") == "1"
+    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         video=detail,
         transcript_retry_done=transcript_retry_done,
+        download_defaults=download_defaults,
+        ffmpeg_available=is_ffmpeg_available(),
     )
     return request.app.state.templates.TemplateResponse(request=request, name="video_detail.html", context=context)
 
@@ -90,6 +96,11 @@ async def channel_page(
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        reactivate_batch_limit=REACTIVATE_BATCH_LIMIT,
+        reactivate_probe_timeout_seconds=max(
+            1,
+            int(request.app.state.runtime.config.rss_timeout_seconds),
+        ),
     )
     return request.app.state.templates.TemplateResponse(request=request, name="channels.html", context=context)
 
@@ -102,6 +113,7 @@ async def settings_page(request: Request):
     transcript_header_overrides = await repository.get_transcript_request_header_overrides(
         request.app.state.runtime.db
     )
+    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
     compact = compact_header_overrides(transcript_header_overrides, strict=False)
     values = merge_with_default_headers(compact)
     defaults = default_transcript_request_headers()
@@ -119,6 +131,8 @@ async def settings_page(request: Request):
             "values": values,
             "multiline": format_headers_multiline(values),
         },
+        download_defaults=download_defaults,
+        ffmpeg_available=is_ffmpeg_available(),
         guard_reset_done=reset_done,
     )
     return request.app.state.templates.TemplateResponse(
@@ -167,6 +181,41 @@ async def retention_page(request: Request):
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="retention.html",
+        context=context,
+    )
+
+
+@router.get("/downloads")
+async def downloads_page(
+    request: Request,
+    status: str = Query(default="all"),
+    page: int = Query(default=1, ge=1),
+):
+    normalized_status = repository.normalize_download_status_filter(status)
+    jobs = await repository.list_download_jobs(
+        request.app.state.runtime.db,
+        status=normalized_status,
+        page=page,
+        limit=DOWNLOAD_PAGE_LIMIT,
+    )
+    total = await repository.count_download_jobs(
+        request.app.state.runtime.db,
+        status=normalized_status,
+    )
+    counts = await repository.count_download_jobs_by_status(request.app.state.runtime.db)
+    context = await build_template_context(
+        request,
+        jobs=jobs,
+        download_status=normalized_status,
+        download_total=total,
+        download_page=page,
+        download_limit=DOWNLOAD_PAGE_LIMIT,
+        download_counts=counts,
+        ffmpeg_available=is_ffmpeg_available(),
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="downloads.html",
         context=context,
     )
 

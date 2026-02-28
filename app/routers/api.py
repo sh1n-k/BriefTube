@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qs
 from starlette.datastructures import UploadFile
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from app import repository
 from app.i18n import SUPPORTED_LANGUAGES, normalize_language
+from app.services.downloads import is_ffmpeg_available
 from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
@@ -27,6 +30,7 @@ from app.services.transcript_headers import (
 )
 
 router = APIRouter(prefix="/api", tags=["api"])
+logger = logging.getLogger(__name__)
 
 
 def _parse_bool_input(value: object, default: bool) -> bool:
@@ -281,6 +285,219 @@ async def retry_transcript(video_id: str, request: Request):
     return {"ok": True, "video_id": video_id}
 
 
+@router.post("/videos/{video_id}/downloads")
+async def request_video_download(video_id: str, request: Request):
+    video = await repository.get_video(request.app.state.runtime.db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    content_type = request.headers.get("content-type", "")
+    quality = str(defaults["quality"])
+    overwrite = bool(defaults["overwrite"])
+    if "application/json" in content_type:
+        payload = await request.json()
+        if "quality" in payload:
+            quality = repository.normalize_download_quality(str(payload.get("quality")))
+        if "overwrite" in payload:
+            overwrite = _parse_bool_input(payload.get("overwrite"), default=overwrite)
+    else:
+        form = await request.form()
+        if "quality" in form:
+            quality = repository.normalize_download_quality(str(form.get("quality")))
+        if "overwrite" in form:
+            overwrite = _parse_bool_input(form.get("overwrite"), default=overwrite)
+
+    logger.info(
+        "event=downloads.enqueue_requested video_id=%s quality=%s overwrite=%s",
+        str(video["video_id"]),
+        quality,
+        overwrite,
+        extra={"event": "downloads.enqueue_requested"},
+    )
+
+    if not is_ffmpeg_available():
+        logger.warning(
+            "event=downloads.enqueue_rejected_ffmpeg_missing video_id=%s",
+            str(video["video_id"]),
+            extra={"event": "downloads.enqueue_rejected_ffmpeg_missing", "code": "ffmpeg_missing"},
+        )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "queued": False,
+                "code": "ffmpeg_missing",
+                "message": "ffmpeg is not installed",
+            },
+        )
+
+    result = await repository.create_download_job(
+        request.app.state.runtime.db,
+        video_id=str(video["video_id"]),
+        video_title=str(video.get("title") or video["video_id"]),
+        quality=quality,
+        overwrite=overwrite,
+    )
+    job = result.get("job") or {}
+    if bool(result.get("created")):
+        request.app.state.runtime.download_wake_event.set()
+        logger.info(
+            "event=downloads.enqueue_created video_id=%s job_id=%s quality=%s overwrite=%s",
+            str(video["video_id"]),
+            job.get("id"),
+            job.get("quality"),
+            bool(job.get("overwrite")),
+            extra={"event": "downloads.enqueue_created"},
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "ok": True,
+                "queued": True,
+                "duplicate": False,
+                "job_id": job.get("id"),
+                "status": job.get("status"),
+                "video_id": job.get("video_id"),
+                "quality": job.get("quality"),
+                "overwrite": bool(job.get("overwrite")),
+            },
+        )
+    logger.info(
+        "event=downloads.enqueue_duplicate video_id=%s job_id=%s status=%s",
+        str(video["video_id"]),
+        job.get("id"),
+        job.get("status"),
+        extra={"event": "downloads.enqueue_duplicate"},
+    )
+    return {
+        "ok": True,
+        "queued": False,
+        "duplicate": True,
+        "job_id": job.get("id"),
+        "status": job.get("status"),
+        "video_id": job.get("video_id"),
+        "quality": job.get("quality"),
+        "overwrite": bool(job.get("overwrite")),
+    }
+
+
+@router.get("/downloads")
+async def get_downloads(
+    request: Request,
+    status: str = Query(default="all"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    normalized_status = repository.normalize_download_status_filter(status)
+    jobs = await repository.list_download_jobs(
+        request.app.state.runtime.db,
+        status=normalized_status,
+        page=page,
+        limit=limit,
+    )
+    total = await repository.count_download_jobs(
+        request.app.state.runtime.db,
+        status=normalized_status,
+    )
+    counts = await repository.count_download_jobs_by_status(request.app.state.runtime.db)
+    return {
+        "ok": True,
+        "status": normalized_status,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "counts": counts,
+        "jobs": jobs,
+    }
+
+
+@router.get("/downloads/progress")
+async def get_download_progress(
+    request: Request,
+    after_event_id: int = Query(default=0, ge=0),
+    event_limit: int = Query(default=100, ge=1, le=200),
+):
+    payload = await repository.get_download_progress(
+        request.app.state.runtime.db,
+        after_event_id=after_event_id,
+        event_limit=event_limit,
+    )
+    counts = payload["counts"]
+    event_count = len(payload["events"])
+    if event_count > 0:
+        logger.debug(
+            "event=downloads.progress_events after_event_id=%s returned_events=%s latest_event_id=%s active=%s",
+            after_event_id,
+            event_count,
+            int(payload["latest_event_id"]),
+            int(counts[repository.DOWNLOAD_STATUS_PENDING]) + int(counts[repository.DOWNLOAD_STATUS_RUNNING]),
+            extra={"event": "downloads.progress_events"},
+        )
+    return {
+        "ok": True,
+        "pending_count": int(counts[repository.DOWNLOAD_STATUS_PENDING]),
+        "running_count": int(counts[repository.DOWNLOAD_STATUS_RUNNING]),
+        "succeeded_count": int(counts[repository.DOWNLOAD_STATUS_SUCCEEDED]),
+        "failed_count": int(counts[repository.DOWNLOAD_STATUS_FAILED]),
+        "active_count": int(counts[repository.DOWNLOAD_STATUS_PENDING])
+        + int(counts[repository.DOWNLOAD_STATUS_RUNNING]),
+        "latest_event_id": int(payload["latest_event_id"]),
+        "events": payload["events"],
+    }
+
+
+@router.post("/downloads/{job_id}/retry")
+async def retry_download(job_id: int, request: Request):
+    logger.info(
+        "event=downloads.retry_requested job_id=%s",
+        job_id,
+        extra={"event": "downloads.retry_requested"},
+    )
+    if not is_ffmpeg_available():
+        logger.warning(
+            "event=downloads.retry_rejected_ffmpeg_missing job_id=%s",
+            job_id,
+            extra={"event": "downloads.retry_rejected_ffmpeg_missing", "code": "ffmpeg_missing"},
+        )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "retried": False,
+                "code": "ffmpeg_missing",
+                "message": "ffmpeg is not installed",
+            },
+        )
+
+    result = await repository.retry_download_job(request.app.state.runtime.db, job_id)
+    if int(result.get("updated", 0)) <= 0:
+        reason = str(result.get("reason", "invalid"))
+        logger.warning(
+            "event=downloads.retry_rejected job_id=%s reason=%s",
+            job_id,
+            reason,
+            extra={"event": "downloads.retry_rejected", "code": reason},
+        )
+        if reason == "not_found":
+            raise HTTPException(status_code=404, detail="Download job not found")
+        raise HTTPException(status_code=409, detail=f"Download job retry failed: {reason}")
+    request.app.state.runtime.download_wake_event.set()
+    job = await repository.get_download_job(request.app.state.runtime.db, job_id)
+    logger.info(
+        "event=downloads.retry_queued job_id=%s status=%s attempt_count=%s",
+        job_id,
+        job.get("status") if isinstance(job, dict) else "",
+        job.get("attempt_count") if isinstance(job, dict) else "",
+        extra={"event": "downloads.retry_queued"},
+    )
+    return {
+        "ok": True,
+        "retried": True,
+        "job": job,
+    }
+
+
 @router.get("/settings")
 async def get_settings(request: Request):
     language = await repository.get_setting(
@@ -301,6 +518,7 @@ async def get_settings(request: Request):
         request.app.state.runtime.db
     )
     transcript_request_headers = _build_transcript_header_payload(transcript_request_header_overrides)
+    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
     return {
         "language": normalize_language(language),
         "timezone": normalize_timezone(timezone_value),
@@ -309,6 +527,8 @@ async def get_settings(request: Request):
         "videos_per_page": videos_per_page,
         "transcript_guard": transcript_guard,
         "transcript_request_headers": transcript_request_headers,
+        "download_defaults": download_defaults,
+        "ffmpeg_available": is_ffmpeg_available(),
     }
 
 
@@ -499,3 +719,46 @@ async def set_policy(request: Request):
         rss_feed_mode=feed_mode_value,
     )
     return {"ok": True, "policy": saved}
+
+
+@router.put("/settings/downloads")
+async def set_download_defaults(request: Request):
+    content_type = request.headers.get("content-type", "")
+    quality: str | None = None
+    overwrite: bool | None = None
+    if "application/json" in content_type:
+        payload = await request.json()
+        if "quality" in payload:
+            parsed_quality = str(payload.get("quality", "")).strip().lower()
+            if parsed_quality not in repository.DOWNLOAD_QUALITY_OPTIONS:
+                raise HTTPException(status_code=400, detail="quality must be one of: 1080, 720, 480")
+            quality = parsed_quality
+        if "overwrite" in payload:
+            overwrite = _parse_bool_input(payload.get("overwrite"), default=False)
+    else:
+        form = await request.form()
+        if "download_quality" in form:
+            parsed_quality = str(form.get("download_quality", "")).strip().lower()
+            if parsed_quality not in repository.DOWNLOAD_QUALITY_OPTIONS:
+                raise HTTPException(status_code=400, detail="quality must be one of: 1080, 720, 480")
+            quality = parsed_quality
+        overwrite = _parse_bool_input(form.get("download_overwrite"), default=False)
+
+    if quality is None and overwrite is None:
+        raise HTTPException(status_code=400, detail="empty download settings payload")
+
+    saved = await repository.set_download_default_settings(
+        request.app.state.runtime.db,
+        quality=quality,
+        overwrite=overwrite,
+    )
+    logger.info(
+        "event=downloads.settings_saved quality=%s overwrite=%s",
+        saved.get("quality"),
+        saved.get("overwrite"),
+        extra={"event": "downloads.settings_saved"},
+    )
+    return {
+        "ok": True,
+        "download_defaults": saved,
+    }

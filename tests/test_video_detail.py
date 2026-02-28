@@ -144,3 +144,13 @@ def test_detail_copy_button_attrs(client: TestClient) -> None:
     assert 'data-copy-target="article-copy-source"' in html
     assert 'data-copy-target="transcript-copy-source"' in html
     assert "data-copy-toast" in html
+
+
+def test_detail_download_button_contract(client: TestClient) -> None:
+    _seed_video()
+    response = client.get("/videos/vid-001")
+    html = response.text
+    assert "data-video-download-open" in html
+    assert 'data-video-id="vid-001"' in html
+    assert 'data-download-default-quality="' in html
+    assert "다운로드" in html or "Download" in html

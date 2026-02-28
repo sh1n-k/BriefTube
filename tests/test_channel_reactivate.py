@@ -216,6 +216,52 @@ def test_reactivate_selected_channels_requires_selection(client: TestClient) -> 
     assert "선택된 채널이 없습니다." in toast["message"]
 
 
+def test_reactivate_selected_channels_enforces_batch_limit(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    db_path = os.environ["DB_PATH"]
+    channel_ids: list[str] = []
+    for idx in range(51):
+        channel_id = f"UCinactive5{idx:02d}"
+        channel_ids.append(channel_id)
+        _seed_channel(db_path, channel_id, f"Inactive {idx}", is_active=0)
+
+    called = False
+
+    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+        nonlocal called
+        called = True
+        return [], "etag", "mod"
+
+    monkeypatch.setattr(
+        client.app.state.runtime.rss_service,
+        "fetch_channel_feed",
+        fake_fetch_channel_feed,
+    )
+
+    response = client.post(
+        "/views/channels/reactivate-selected",
+        data={"status": "inactive", "channel_id": channel_ids},
+    )
+    assert response.status_code == 200
+    toast = _parse_reactivate_toast(response)
+    assert toast["tone"] == "error"
+    assert "51" in toast["message"]
+    assert "50" in toast["message"]
+    assert called is False
+
+    with sqlite3.connect(db_path) as conn:
+        active_count = conn.execute(
+            """
+            SELECT COUNT(1)
+            FROM channels
+            WHERE channel_id LIKE 'UCinactive5%' AND is_active = 1
+            """
+        ).fetchone()[0]
+    assert int(active_count) == 0
+
+
 def test_reactivate_selected_delete_action_removes_channels(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UCinactive301", "Inactive 301", is_active=0)

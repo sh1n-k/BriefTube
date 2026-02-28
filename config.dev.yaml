@@ -16,7 +16,7 @@ transcript_idle_sleep_seconds: 5
 transcript_retry_base_delay_seconds: 120
 transcript_retry_max_delay_seconds: 3600
 log_level: "AUTO"
-log_to_file: false
+log_to_file: true
 log_dir: "./logs/dev"
 log_file_name: "brieftube-dev.log"
 log_file_max_bytes: 5242880

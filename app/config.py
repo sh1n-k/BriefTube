@@ -19,6 +19,9 @@ class AppConfig:
     db_path: str = "./data.db"
     rss_timeout_seconds: int = 20
     http_timeout_seconds: int = 30
+    download_dir: str = "./downloads"
+    download_max_concurrent: int = 2
+    download_timeout_seconds: int = 1800
     transcript_fetch_batch_size: int = 1
     transcript_request_interval_seconds: int = 15
     transcript_idle_sleep_seconds: int = 5
@@ -108,6 +111,9 @@ def load_config() -> AppConfig:
         db_path=str(file_values.get("db_path", base.db_path)),
         rss_timeout_seconds=int(file_values.get("rss_timeout_seconds", base.rss_timeout_seconds)),
         http_timeout_seconds=int(file_values.get("http_timeout_seconds", base.http_timeout_seconds)),
+        download_dir=str(file_values.get("download_dir", base.download_dir)),
+        download_max_concurrent=int(file_values.get("download_max_concurrent", base.download_max_concurrent)),
+        download_timeout_seconds=int(file_values.get("download_timeout_seconds", base.download_timeout_seconds)),
         transcript_fetch_batch_size=int(
             file_values.get("transcript_fetch_batch_size", base.transcript_fetch_batch_size)
         ),
@@ -241,6 +247,9 @@ def load_config() -> AppConfig:
     cfg.db_path = os.getenv("DB_PATH", cfg.db_path)
     cfg.rss_timeout_seconds = int(os.getenv("RSS_TIMEOUT_SECONDS", cfg.rss_timeout_seconds))
     cfg.http_timeout_seconds = int(os.getenv("HTTP_TIMEOUT_SECONDS", cfg.http_timeout_seconds))
+    cfg.download_dir = os.getenv("DOWNLOAD_DIR", cfg.download_dir)
+    cfg.download_max_concurrent = int(os.getenv("DOWNLOAD_MAX_CONCURRENT", cfg.download_max_concurrent))
+    cfg.download_timeout_seconds = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", cfg.download_timeout_seconds))
     cfg.transcript_fetch_batch_size = int(
         os.getenv("TRANSCRIPT_FETCH_BATCH_SIZE", cfg.transcript_fetch_batch_size)
     )
@@ -385,6 +394,8 @@ def load_config() -> AppConfig:
     cfg.transcript_channel_hard_cooldown_seconds = max(1, cfg.transcript_channel_hard_cooldown_seconds)
     cfg.transcript_breaker_half_open_probe_count = max(1, cfg.transcript_breaker_half_open_probe_count)
     cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
+    cfg.download_max_concurrent = max(1, min(3, cfg.download_max_concurrent))
+    cfg.download_timeout_seconds = max(30, cfg.download_timeout_seconds)
     cfg.log_file_max_bytes = max(1024, cfg.log_file_max_bytes)
     cfg.log_file_backup_count = max(1, cfg.log_file_backup_count)
     cfg.log_noise_window_seconds = max(1, cfg.log_noise_window_seconds)

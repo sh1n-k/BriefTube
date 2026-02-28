@@ -2,6 +2,8 @@
 {% set counts = channel_counts if channel_counts is defined else {} %}
 {% set active_count = counts.get("active", 0) %}
 {% set inactive_count = counts.get("inactive", 0) %}
+{% set batch_limit = reactivate_batch_limit if reactivate_batch_limit is defined else 50 %}
+{% set probe_timeout_seconds = reactivate_probe_timeout_seconds if reactivate_probe_timeout_seconds is defined else 20 %}
 
 <div class="space-y-2">
   <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1">
@@ -53,6 +55,11 @@
       hx-post="{{ '/views/channels/reactivate-selected' if current_status == 'inactive' else '/views/channels/delete-selected' }}"
       hx-target="#channel-list-wrap"
       hx-swap="innerHTML"
+      {% if current_status == "inactive" %}
+      data-channel-reactivate-bulk-form
+      data-reactivate-batch-limit="{{ batch_limit }}"
+      data-reactivate-timeout-seconds="{{ probe_timeout_seconds }}"
+      {% endif %}
       {% if current_status == 'active' %}data-save-toast="{{ txt.channel_delete_success }}"{% endif %}
     >
       <input type="hidden" name="status" value="{{ current_status }}" />

@@ -106,3 +106,41 @@ CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC);
 CREATE INDEX IF NOT EXISTS idx_system_alerts_unacked ON system_alerts(acknowledged_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_system_alerts_channel_type_created
     ON system_alerts(channel_id, alert_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS download_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id         TEXT NOT NULL,
+    video_title      TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    quality          TEXT NOT NULL DEFAULT '1080',
+    overwrite        INTEGER NOT NULL DEFAULT 0,
+    attempt_count    INTEGER NOT NULL DEFAULT 1,
+    output_path      TEXT,
+    file_size_bytes  INTEGER,
+    error_code       TEXT,
+    error_message    TEXT,
+    requested_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at       TEXT,
+    finished_at      TEXT,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS download_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id       INTEGER NOT NULL REFERENCES download_jobs(id) ON DELETE CASCADE,
+    event_type   TEXT NOT NULL,
+    error_code   TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_download_jobs_status_requested
+    ON download_jobs(status, requested_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_download_jobs_finished
+    ON download_jobs(finished_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_download_events_job
+    ON download_events(job_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_download_events_created
+    ON download_events(created_at DESC, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_download_jobs_active_video
+    ON download_jobs(video_id)
+    WHERE status IN ('pending', 'running');

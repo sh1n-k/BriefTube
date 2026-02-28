@@ -29,6 +29,9 @@ def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: Test
     html = response.text
 
     assert 'hx-post="/views/channels/reactivate-selected"' in html
+    assert 'data-channel-reactivate-bulk-form' in html
+    assert 'data-reactivate-batch-limit="' in html
+    assert 'data-reactivate-timeout-seconds="' in html
     assert '선택 채널 재활성화' in html
     assert 'name="bulk_action"' in html
     assert 'value="delete"' in html

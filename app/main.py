@@ -26,6 +26,7 @@ from app.state import AppState
 from app.workers.llm_worker import run_llm_queue_worker
 from app.workers.notifier_worker import run_telegram_notifier
 from app.workers.poller import run_rss_poller
+from app.workers.download_worker import run_download_worker
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,16 @@ async def lifespan(app: FastAPI):
             extra={"event": "app.thumbnail_dir_unavailable"},
         )
         raise RuntimeError(f"thumbnail_dir is not writable: {config.thumbnail_dir}") from exc
+    try:
+        Path(config.download_dir).mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.critical(
+            "event=app.download_dir_unavailable path=%s error_type=%s",
+            config.download_dir,
+            exc.__class__.__name__,
+            extra={"event": "app.download_dir_unavailable"},
+        )
+        raise RuntimeError(f"download_dir is not writable: {config.download_dir}") from exc
 
     db = await open_database(config.db_path)
     await init_database(db)
@@ -94,6 +105,7 @@ async def lifespan(app: FastAPI):
 
     tasks = [
         asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
+        asyncio.create_task(run_download_worker(runtime), name="download_worker"),
         asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"),
         asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"),
         asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),
@@ -133,4 +145,20 @@ async def thumbnail(filename: str):
     target = Path(runtime.config.thumbnail_dir) / safe_name
     if not target.exists() or not target.is_file():
         return JSONResponse(status_code=404, content={"detail": "thumbnail not found"})
+    return FileResponse(target)
+
+
+@app.get("/downloads/files/{filename:path}")
+async def download_file(filename: str):
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        return JSONResponse(status_code=400, content={"detail": "invalid filename"})
+
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        return JSONResponse(status_code=503, content={"detail": "runtime not ready"})
+
+    target = Path(runtime.config.download_dir) / safe_name
+    if not target.exists() or not target.is_file():
+        return JSONResponse(status_code=404, content={"detail": "download file not found"})
     return FileResponse(target)

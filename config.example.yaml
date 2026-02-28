@@ -7,9 +7,12 @@ openclaw_timeout_seconds: 120
 telegram_bot_token: ""
 telegram_chat_id: ""
 thumbnail_dir: "./thumbnails"
+download_dir: "./downloads"
 db_path: "./data.db"
 rss_timeout_seconds: 20
 http_timeout_seconds: 30
+download_max_concurrent: 2
+download_timeout_seconds: 1800
 transcript_fetch_batch_size: 1
 transcript_request_interval_seconds: 15
 transcript_idle_sleep_seconds: 5

@@ -16,9 +16,11 @@ from app.services.bulk_channels import (
     parse_takeout_entries,
     resolve_bulk_inputs,
 )
+from app.services.downloads import is_ffmpeg_available
 
 router = APIRouter(prefix="/views", tags=["views"])
 logger = logging.getLogger(__name__)
+REACTIVATE_BATCH_LIMIT = 50
 
 
 def _safe_int(value: str | None, default: int) -> int:
@@ -82,6 +84,16 @@ async def _resolve_channel_management_state(
     return channel_status, channels, channel_counts
 
 
+def _channel_management_ui_context(request: Request) -> dict[str, int]:
+    return {
+        "reactivate_batch_limit": REACTIVATE_BATCH_LIMIT,
+        "reactivate_probe_timeout_seconds": max(
+            1,
+            int(request.app.state.runtime.config.rss_timeout_seconds),
+        ),
+    }
+
+
 def _reactivate_toast_header(message: str, tone: str) -> dict[str, str]:
     payload = {
         "channel-reactivate-toast": {
@@ -122,6 +134,14 @@ async def _probe_channel_reactivation(
         etag = cache.get("etag")
         last_modified = cache.get("last_modified")
 
+    logger.debug(
+        "event=channels.reactivate_probe_start channel_id=%s feed_mode=%s has_etag=%s has_last_modified=%s",
+        channel_id,
+        feed_mode,
+        bool(etag),
+        bool(last_modified),
+        extra={"event": "channels.reactivate_probe_start"},
+    )
     try:
         _, new_etag, new_last_modified = await request.app.state.runtime.rss_service.fetch_channel_feed(
             channel_id=channel_id,
@@ -131,10 +151,22 @@ async def _probe_channel_reactivation(
         )
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
+        logger.debug(
+            "event=channels.reactivate_probe_failed channel_id=%s reason=http status=%s",
+            channel_id,
+            status_code,
+            extra={"event": "channels.reactivate_probe_failed", "code": str(status_code or "-")},
+        )
         if status_code is not None:
             return False, f"http_{status_code}"
         return False, "http_unknown"
     except Exception as exc:
+        logger.debug(
+            "event=channels.reactivate_probe_failed channel_id=%s reason=exception error_type=%s",
+            channel_id,
+            exc.__class__.__name__,
+            extra={"event": "channels.reactivate_probe_failed", "code": exc.__class__.__name__},
+        )
         return False, f"error_{exc.__class__.__name__}"
 
     request.app.state.runtime.rss_cache[channel_id] = {
@@ -142,6 +174,14 @@ async def _probe_channel_reactivation(
         "last_modified": new_last_modified or "",
         "feed_mode": feed_mode,
     }
+    logger.debug(
+        "event=channels.reactivate_probe_ok channel_id=%s feed_mode=%s new_etag=%s new_last_modified=%s",
+        channel_id,
+        feed_mode,
+        bool(new_etag),
+        bool(new_last_modified),
+        extra={"event": "channels.reactivate_probe_ok"},
+    )
     return True, ""
 
 
@@ -156,6 +196,7 @@ async def channel_list(
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -211,6 +252,7 @@ async def add_channel(request: Request):
             channel_status=channel_status,
             channel_counts=channel_counts,
             add_status=channel_status,
+            **_channel_management_ui_context(request),
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -280,6 +322,7 @@ async def add_channel(request: Request):
                 channel_status=channel_status,
                 channel_counts=channel_counts,
                 add_status=channel_status,
+                **_channel_management_ui_context(request),
             )
             return request.app.state.templates.TemplateResponse(
                 request=request,
@@ -345,6 +388,7 @@ async def delete_selected_channels(request: Request):
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -380,6 +424,7 @@ async def delete_single_channel(
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -396,6 +441,13 @@ async def reactivate_selected_channels(request: Request):
     )
     bulk_action = str(form.get("bulk_action", "")).strip().lower()
     channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
+    logger.debug(
+        "event=channels.reactivate_bulk_requested status=%s bulk_action=%s selected_count=%s",
+        requested_status,
+        bulk_action or "reactivate",
+        len(channel_ids),
+        extra={"event": "channels.reactivate_bulk_requested"},
+    )
     toast_message = ""
     toast_tone = "success"
     if bulk_action == "delete":
@@ -409,11 +461,29 @@ async def reactivate_selected_channels(request: Request):
         )
         for channel_id in channel_ids:
             request.app.state.runtime.rss_cache.pop(channel_id, None)
+        logger.debug(
+            "event=channels.reactivate_bulk_delete_done requested=%s deleted=%s",
+            len(channel_ids),
+            result["deleted_channels"],
+            extra={"event": "channels.reactivate_bulk_delete_done"},
+        )
     else:
         txt = await _texts(request)
         if not channel_ids:
             toast_message = txt["channel_reactivate_bulk_none_selected"]
             toast_tone = "error"
+        elif len(channel_ids) > REACTIVATE_BATCH_LIMIT:
+            toast_message = txt["channel_reactivate_limit_exceeded"].format(
+                selected=len(channel_ids),
+                limit=REACTIVATE_BATCH_LIMIT,
+            )
+            toast_tone = "error"
+            logger.warning(
+                "event=channels.reactivate_bulk_limited selected=%s limit=%s",
+                len(channel_ids),
+                REACTIVATE_BATCH_LIMIT,
+                extra={"event": "channels.reactivate_bulk_limited", "code": str(REACTIVATE_BATCH_LIMIT)},
+            )
         else:
             policy = await repository.get_policy_settings(request.app.state.runtime.db)
             feed_mode = str(policy.get("rss_feed_mode", repository.RSS_FEED_MODE_DEFAULT))
@@ -455,6 +525,19 @@ async def reactivate_selected_channels(request: Request):
                     channels=failed_preview,
                 )
                 toast_tone = "error"
+            logger.debug(
+                "event=channels.reactivate_bulk_result selected=%s success=%s failed=%s",
+                len(channel_ids),
+                success_count,
+                len(failed),
+                extra={"event": "channels.reactivate_bulk_result"},
+            )
+            if failed:
+                logger.debug(
+                    "event=channels.reactivate_bulk_failed_ids ids=%s",
+                    ",".join(channel_id for channel_id, _ in failed),
+                    extra={"event": "channels.reactivate_bulk_failed_ids"},
+                )
 
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
@@ -465,6 +548,7 @@ async def reactivate_selected_channels(request: Request):
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -486,6 +570,12 @@ async def reactivate_single_channel(
 ):
     normalized = channel_id.strip()
     requested_status = repository.normalize_channel_management_status(status)
+    logger.debug(
+        "event=channels.reactivate_single_requested channel_id=%s status=%s",
+        normalized,
+        requested_status,
+        extra={"event": "channels.reactivate_single_requested"},
+    )
     txt = await _texts(request)
     channel_name_map = await repository.get_channel_name_map(
         request.app.state.runtime.db,
@@ -497,10 +587,23 @@ async def reactivate_single_channel(
     ok, reason_code = await _probe_channel_reactivation(request, normalized, feed_mode)
     if ok:
         await repository.reactivate_channel(request.app.state.runtime.db, normalized)
+        logger.info(
+            "event=channels.reactivate_single_success channel_id=%s channel_name=%s",
+            normalized,
+            channel_label,
+            extra={"event": "channels.reactivate_single_success"},
+        )
         toast_message = txt["channel_reactivate_single_success"].format(channel=channel_label)
         toast_tone = "success"
     else:
         reason = _format_reactivate_failure_reason(txt, reason_code)
+        logger.warning(
+            "event=channels.reactivate_single_failed channel_id=%s channel_name=%s reason_code=%s",
+            normalized,
+            channel_label,
+            reason_code,
+            extra={"event": "channels.reactivate_single_failed", "code": reason_code},
+        )
         toast_message = txt["channel_reactivate_single_failure"].format(
             channel=channel_label,
             reason=reason,
@@ -516,6 +619,7 @@ async def reactivate_single_channel(
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -624,7 +728,13 @@ async def delete_selected_videos(request: Request):
 @router.get("/video-detail/{video_id}")
 async def video_detail(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
-    context = await build_template_context(request, video=detail)
+    download_defaults = await repository.get_download_default_settings(request.app.state.runtime.db)
+    context = await build_template_context(
+        request,
+        video=detail,
+        download_defaults=download_defaults,
+        ffmpeg_available=is_ffmpeg_available(),
+    )
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/video_detail.html",
@@ -742,6 +852,7 @@ async def bulk_commit(request: Request):
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,

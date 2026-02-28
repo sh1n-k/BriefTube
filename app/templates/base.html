@@ -6,6 +6,7 @@
   <title>{% block title %}BriefTube{% endblock %}</title>
   <script>
     (() => {
+      const ENABLE_PAGE_FADE_KEY = "brieftube.enableNextPageFade";
       const safeGet = (key) => {
         try {
           return localStorage.getItem(key);
@@ -13,6 +14,24 @@
           return null;
         }
       };
+      const readEnablePageFade = () => {
+        try {
+          return sessionStorage.getItem(ENABLE_PAGE_FADE_KEY) === "1";
+        } catch (_err) {
+          return false;
+        }
+      };
+      const clearEnablePageFade = () => {
+        try {
+          sessionStorage.removeItem(ENABLE_PAGE_FADE_KEY);
+        } catch (_err) {
+          // ignore
+        }
+      };
+      const enableNextPageFade = readEnablePageFade();
+      if (enableNextPageFade) {
+        clearEnablePageFade();
+      }
       const modeRaw = (safeGet("brieftube.theme.mode") || "").trim().toLowerCase();
       const mode = modeRaw === "light" || modeRaw === "dark" || modeRaw === "system" ? modeRaw : "system";
       const toneRaw = (safeGet("brieftube.theme.darkTone") || "").trim().toLowerCase();
@@ -24,7 +43,7 @@
       document.documentElement.dataset.theme = effectiveTheme;
       document.documentElement.dataset.themeMode = mode;
       document.documentElement.dataset.darkTone = tone;
-      document.documentElement.dataset.pageTransition = "1";
+      document.documentElement.dataset.pageTransition = enableNextPageFade ? "1" : "0";
     })();
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -289,6 +308,8 @@
       background-color: var(--status-badge-bg);
       color: var(--status-badge-text);
       box-shadow: inset 0 0 0 1px var(--status-badge-ring);
+      white-space: nowrap;
+      line-height: 1.1;
     }
 
     .status-badge--transcript-pending {
@@ -384,6 +405,8 @@
     html[data-theme="dark"] .bg-white { background-color: var(--surface-1) !important; }
     html[data-theme="dark"] .bg-slate-50 { background-color: var(--surface-2) !important; }
     html[data-theme="dark"] .bg-slate-100 { background-color: var(--app-bg) !important; }
+    html[data-theme="dark"] .bg-slate-900\/35 { background-color: rgb(2 6 23 / 0.56) !important; }
+    html[data-theme="dark"] .bg-slate-900\/45 { background-color: rgb(2 6 23 / 0.64) !important; }
     html[data-theme="dark"] .bg-slate-900\/50 { background-color: rgb(2 6 23 / 0.72) !important; }
 
     html[data-theme="dark"] .border-slate-200,
@@ -400,36 +423,94 @@
     html[data-theme="dark"] .text-slate-300 { color: var(--text-soft) !important; }
 
     html[data-theme="dark"] .bg-indigo-50 { background-color: var(--brand-soft-bg) !important; }
+    html[data-theme="dark"] .bg-indigo-50\/30 {
+      background-color: color-mix(in srgb, var(--brand-soft-bg), transparent 70%) !important;
+    }
+    html[data-theme="dark"] .bg-indigo-50\/50 {
+      background-color: color-mix(in srgb, var(--brand-soft-bg), transparent 50%) !important;
+    }
+    html[data-theme="dark"] .bg-indigo-100 { background-color: color-mix(in srgb, var(--brand-soft-bg), white 8%) !important; }
+    html[data-theme="dark"] .bg-indigo-600 { background-color: #4338ca !important; }
+    html[data-theme="dark"] .bg-indigo-700 { background-color: #3730a3 !important; }
     html[data-theme="dark"] .border-indigo-200,
-    html[data-theme="dark"] .border-indigo-300 { border-color: var(--brand-soft-border) !important; }
+    html[data-theme="dark"] .border-indigo-300,
+    html[data-theme="dark"] .border-indigo-400 { border-color: var(--brand-soft-border) !important; }
+    html[data-theme="dark"] .ring-indigo-200,
+    html[data-theme="dark"] .ring-indigo-300 { --tw-ring-color: var(--brand-soft-border) !important; }
     html[data-theme="dark"] .text-indigo-900,
     html[data-theme="dark"] .text-indigo-800,
     html[data-theme="dark"] .text-indigo-700,
     html[data-theme="dark"] .text-indigo-600 { color: var(--brand-soft-text) !important; }
+    html[data-theme="dark"] .text-indigo-100 { color: color-mix(in srgb, var(--brand-soft-text), white 12%) !important; }
     html[data-theme="dark"] .hover\:bg-indigo-100:hover { background-color: color-mix(in srgb, var(--brand-soft-bg), white 8%) !important; }
+    html[data-theme="dark"] .hover\:bg-indigo-50:hover { background-color: color-mix(in srgb, var(--brand-soft-bg), white 3%) !important; }
+    html[data-theme="dark"] .hover\:bg-indigo-50\/50:hover {
+      background-color: color-mix(in srgb, var(--brand-soft-bg), transparent 50%) !important;
+    }
+    html[data-theme="dark"] .hover\:bg-indigo-700:hover { background-color: #312e81 !important; }
     html[data-theme="dark"] .hover\:text-indigo-800:hover,
+    html[data-theme="dark"] .hover\:text-indigo-600:hover,
     html[data-theme="dark"] .hover\:text-indigo-900:hover { color: var(--brand-strong) !important; }
 
     html[data-theme="dark"] .bg-emerald-50 { background-color: var(--success-bg) !important; }
+    html[data-theme="dark"] .bg-emerald-100 {
+      background-color: color-mix(in srgb, var(--success-bg), white 10%) !important;
+    }
     html[data-theme="dark"] .border-emerald-200,
     html[data-theme="dark"] .border-emerald-300 { border-color: var(--success-border) !important; }
-    html[data-theme="dark"] .text-emerald-800 { color: var(--success-text) !important; }
+    html[data-theme="dark"] .ring-emerald-300 { --tw-ring-color: var(--success-border) !important; }
+    html[data-theme="dark"] .text-emerald-900,
+    html[data-theme="dark"] .text-emerald-800,
+    html[data-theme="dark"] .text-emerald-700 { color: var(--success-text) !important; }
 
     html[data-theme="dark"] .bg-rose-50 { background-color: var(--danger-bg) !important; }
+    html[data-theme="dark"] .bg-rose-100 {
+      background-color: color-mix(in srgb, var(--danger-bg), white 10%) !important;
+    }
+    html[data-theme="dark"] .bg-rose-700 { background-color: #9f1239 !important; }
+    html[data-theme="dark"] .border-rose-200,
     html[data-theme="dark"] .border-rose-300,
     html[data-theme="dark"] .border-rose-400 { border-color: var(--danger-border) !important; }
+    html[data-theme="dark"] .text-rose-900,
     html[data-theme="dark"] .text-rose-800,
-    html[data-theme="dark"] .text-rose-700 { color: var(--danger-text) !important; }
+    html[data-theme="dark"] .text-rose-700,
+    html[data-theme="dark"] .text-rose-600 { color: var(--danger-text) !important; }
     html[data-theme="dark"] .bg-rose-600 { background-color: #e11d48 !important; }
     html[data-theme="dark"] .hover\:bg-rose-100:hover { background-color: color-mix(in srgb, var(--danger-bg), white 10%) !important; }
+    html[data-theme="dark"] .hover\:bg-rose-50:hover { background-color: color-mix(in srgb, var(--danger-bg), white 4%) !important; }
+    html[data-theme="dark"] .hover\:bg-rose-700:hover { background-color: #881337 !important; }
 
     html[data-theme="dark"] .bg-amber-50 { background-color: var(--warn-bg) !important; }
+    html[data-theme="dark"] .bg-amber-100\/50 {
+      background-color: color-mix(in srgb, var(--warn-bg), transparent 50%) !important;
+    }
+    html[data-theme="dark"] .bg-amber-200 {
+      background-color: color-mix(in srgb, var(--warn-bg), white 12%) !important;
+    }
+    html[data-theme="dark"] .bg-amber-600 {
+      background-color: color-mix(in srgb, var(--warn-bg), black 20%) !important;
+    }
+    html[data-theme="dark"] .bg-amber-700 {
+      background-color: color-mix(in srgb, var(--warn-bg), black 36%) !important;
+    }
     html[data-theme="dark"] .border-amber-200,
-    html[data-theme="dark"] .border-amber-300 { border-color: var(--warn-border) !important; }
+    html[data-theme="dark"] .border-amber-300,
+    html[data-theme="dark"] .border-amber-400 { border-color: var(--warn-border) !important; }
+    html[data-theme="dark"] .ring-amber-200,
+    html[data-theme="dark"] .ring-amber-400 { --tw-ring-color: var(--warn-border) !important; }
     html[data-theme="dark"] .text-amber-900,
-    html[data-theme="dark"] .text-amber-800 { color: var(--warn-text) !important; }
+    html[data-theme="dark"] .text-amber-800,
+    html[data-theme="dark"] .text-amber-700 { color: var(--warn-text) !important; }
+    html[data-theme="dark"] .hover\:bg-amber-200:hover {
+      background-color: color-mix(in srgb, var(--warn-bg), white 16%) !important;
+    }
+    html[data-theme="dark"] .hover\:bg-amber-700:hover {
+      background-color: color-mix(in srgb, var(--warn-bg), black 46%) !important;
+    }
 
     html[data-theme="dark"] .bg-sky-50 { background-color: var(--info-bg) !important; }
+    html[data-theme="dark"] .bg-sky-100 { background-color: color-mix(in srgb, var(--info-bg), white 8%) !important; }
+    html[data-theme="dark"] .bg-sky-200 { background-color: color-mix(in srgb, var(--info-bg), white 14%) !important; }
     html[data-theme="dark"] .border-sky-300 { border-color: var(--info-border) !important; }
     html[data-theme="dark"] .text-sky-900,
     html[data-theme="dark"] .text-sky-800,
@@ -439,6 +520,16 @@
 
     html[data-theme="dark"] .bg-violet-100 { background-color: var(--violet-bg) !important; }
     html[data-theme="dark"] .text-violet-700 { color: var(--violet-text) !important; }
+    html[data-theme="dark"] .bg-teal-100 { background-color: var(--info-bg) !important; }
+    html[data-theme="dark"] .bg-teal-600 { background-color: #0f766e !important; }
+    html[data-theme="dark"] .text-teal-700 { color: var(--info-text) !important; }
+    html[data-theme="dark"] .hover\:bg-teal-700:hover { background-color: #115e59 !important; }
+    html[data-theme="dark"] .focus\:ring-teal-500:focus { --tw-ring-color: var(--info-border) !important; }
+
+    html[data-theme="dark"] .focus\:ring-indigo-200:focus,
+    html[data-theme="dark"] .focus\:ring-indigo-300:focus { --tw-ring-color: var(--brand-soft-border) !important; }
+    html[data-theme="dark"] .focus\:border-indigo-400:focus { border-color: var(--brand-soft-border) !important; }
+    html[data-theme="dark"] .focus\:ring-amber-400:focus { --tw-ring-color: var(--warn-border) !important; }
 
     html[data-theme="dark"] .bg-gradient-to-r.from-indigo-700.to-indigo-600 {
       background-image: linear-gradient(to right, #312e81, #4338ca) !important;
@@ -466,12 +557,15 @@
     (() => {
       const THEME_MODE_KEY = "brieftube.theme.mode";
       const THEME_TONE_KEY = "brieftube.theme.darkTone";
+      const PAGE_FADE_ENABLE_KEY = "brieftube.enableNextPageFade";
       const THEME_MODE_DEFAULT = "system";
       const THEME_TONE_DEFAULT = "neutral";
       const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
       const THEME_MODES = new Set(["light", "dark", "system"]);
       const THEME_TONES = new Set(["brand", "neutral", "high-contrast"]);
       const NAV_FADE_DURATION_MS = 120;
+      const DOWNLOAD_EVENT_CURSOR_KEY = "brieftube.download.lastEventId";
+      const DOWNLOAD_PROGRESS_POLL_INTERVAL_MS = 5000;
       const MATCH_CLASSES = ["bg-amber-50", "ring-1", "ring-inset", "ring-amber-200"];
       const ACTIVE_CLASSES = ["bg-indigo-100", "ring-indigo-300"];
 
@@ -488,6 +582,14 @@
           localStorage.setItem(key, value);
         } catch (_err) {
           // ignore storage write errors and keep runtime-only state.
+        }
+      }
+
+      function enableNextPageFade() {
+        try {
+          sessionStorage.setItem(PAGE_FADE_ENABLE_KEY, "1");
+        } catch (_err) {
+          // ignore storage write errors.
         }
       }
 
@@ -862,6 +964,256 @@
         }, 2000);
       }
 
+      const CHANNEL_REACTIVATE_UI_TEXT = {
+        confirmTitle: {{ txt.channel_reactivate_confirm_title | tojson }},
+        confirmDesc: {{ txt.channel_reactivate_confirm_desc | tojson }},
+        confirmWaitHint: {{ txt.channel_reactivate_confirm_wait_hint | tojson }},
+        confirmSubmit: {{ txt.channel_reactivate_confirm_submit | tojson }},
+        confirmCancel: {{ txt.channel_reactivate_confirm_cancel | tojson }},
+        overlayTitle: {{ txt.channel_reactivate_overlay_title | tojson }},
+        overlayDesc: {{ txt.channel_reactivate_overlay_desc | tojson }},
+        limitExceeded: {{ txt.channel_reactivate_limit_exceeded | tojson }},
+      };
+      const DOWNLOAD_UI_TEXT = {
+        modalTitle: {{ txt.download_modal_title | tojson }},
+        modalDesc: {{ txt.download_modal_desc | tojson }},
+        modalQuality: {{ txt.download_modal_quality | tojson }},
+        modalOverwrite: {{ txt.download_modal_overwrite | tojson }},
+        modalCancel: {{ txt.download_modal_cancel | tojson }},
+        modalSubmit: {{ txt.download_modal_submit | tojson }},
+        toastQueued: {{ txt.download_toast_queued | tojson }},
+        toastDuplicate: {{ txt.download_toast_duplicate | tojson }},
+        toastFfmpegMissing: {{ txt.download_toast_ffmpeg_missing | tojson }},
+        toastRequestFailed: {{ txt.download_toast_request_failed | tojson }},
+        toastRetryQueued: {{ txt.download_toast_retry_queued | tojson }},
+        toastRetryFailed: {{ txt.download_toast_retry_failed | tojson }},
+        toastCompleted: {{ txt.download_toast_completed | tojson }},
+        toastFailed: {{ txt.download_toast_failed | tojson }},
+        toastMixed: {{ txt.download_toast_mixed | tojson }},
+        toastMore: {{ txt.download_toast_more | tojson }},
+        badgeInProgress: {{ txt.download_badge_in_progress | tojson }},
+        detailTitle: {{ txt.download_detail_title | tojson }},
+        detailNone: {{ txt.download_detail_none | tojson }},
+        toastCopiedOutput: {{ txt.download_toast_copied_output | tojson }},
+        toastCopiedError: {{ txt.download_toast_copied_error | tojson }},
+      };
+
+      function formatTemplate(template, values = {}) {
+        const base = String(template || "");
+        return Object.entries(values).reduce((acc, [key, value]) => {
+          return acc.replaceAll(`{${key}}`, String(value));
+        }, base);
+      }
+
+      function ensureChannelReactivateConfirmModal() {
+        let root = document.getElementById("channel-reactivate-confirm-modal");
+        if (root) return root;
+
+        root = document.createElement("div");
+        root.id = "channel-reactivate-confirm-modal";
+        root.className = "fixed inset-0 z-[75] hidden items-center justify-center px-4";
+        root.innerHTML = `
+          <div class="absolute inset-0 bg-slate-900/45" data-reactivate-confirm-backdrop></div>
+          <div class="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <h3 class="text-base font-semibold text-slate-900" data-reactivate-confirm-title></h3>
+            <p class="mt-2 text-sm text-slate-600" data-reactivate-confirm-desc></p>
+            <p class="mt-1 text-xs text-slate-500" data-reactivate-confirm-hint></p>
+            <div class="mt-4 flex justify-end gap-2">
+              <button type="button" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" data-reactivate-confirm-cancel></button>
+              <button type="button" class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700" data-reactivate-confirm-submit></button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(root);
+        return root;
+      }
+
+      function openChannelReactivateConfirmModal(options) {
+        const root = ensureChannelReactivateConfirmModal();
+        const titleNode = root.querySelector("[data-reactivate-confirm-title]");
+        const descNode = root.querySelector("[data-reactivate-confirm-desc]");
+        const hintNode = root.querySelector("[data-reactivate-confirm-hint]");
+        const cancelButton = root.querySelector("[data-reactivate-confirm-cancel]");
+        const submitButton = root.querySelector("[data-reactivate-confirm-submit]");
+        if (!titleNode || !descNode || !hintNode || !cancelButton || !submitButton) {
+          return Promise.resolve(window.confirm(options?.description || ""));
+        }
+
+        titleNode.textContent = options?.title || CHANNEL_REACTIVATE_UI_TEXT.confirmTitle;
+        descNode.textContent = options?.description || "";
+        hintNode.textContent = options?.hint || "";
+        cancelButton.textContent = options?.cancelLabel || CHANNEL_REACTIVATE_UI_TEXT.confirmCancel;
+        submitButton.textContent = options?.confirmLabel || CHANNEL_REACTIVATE_UI_TEXT.confirmSubmit;
+
+        root.classList.remove("hidden");
+        root.classList.add("flex");
+
+        return new Promise((resolve) => {
+          let done = false;
+          const finalize = (confirmed) => {
+            if (done) return;
+            done = true;
+            root.classList.add("hidden");
+            root.classList.remove("flex");
+            document.removeEventListener("keydown", onKeydown);
+            cancelButton.removeEventListener("click", onCancel);
+            submitButton.removeEventListener("click", onConfirm);
+            root.removeEventListener("click", onBackdropClick);
+            resolve(confirmed);
+          };
+          const onCancel = () => finalize(false);
+          const onConfirm = () => finalize(true);
+          const onBackdropClick = (event) => {
+            if (event.target === root || event.target?.hasAttribute("data-reactivate-confirm-backdrop")) {
+              finalize(false);
+            }
+          };
+          const onKeydown = (event) => {
+            if (event.key === "Escape") {
+              finalize(false);
+            }
+          };
+
+          cancelButton.addEventListener("click", onCancel);
+          submitButton.addEventListener("click", onConfirm);
+          root.addEventListener("click", onBackdropClick);
+          document.addEventListener("keydown", onKeydown);
+        });
+      }
+
+      function ensureChannelReactivateBlockingOverlay() {
+        let root = document.getElementById("channel-reactivate-blocking-overlay");
+        if (root) return root;
+
+        root = document.createElement("div");
+        root.id = "channel-reactivate-blocking-overlay";
+        root.className = "fixed inset-0 z-[74] hidden items-center justify-center px-4";
+        root.innerHTML = `
+          <div class="absolute inset-0 bg-slate-900/35"></div>
+          <div class="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-center shadow-xl">
+            <div class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600"></div>
+            <p class="mt-3 text-sm font-semibold text-slate-900" data-reactivate-overlay-title></p>
+            <p class="mt-1 text-xs text-slate-500" data-reactivate-overlay-desc></p>
+          </div>
+        `;
+        document.body.appendChild(root);
+        return root;
+      }
+
+      function showChannelReactivateBlockingOverlay(title, description) {
+        const root = ensureChannelReactivateBlockingOverlay();
+        const titleNode = root.querySelector("[data-reactivate-overlay-title]");
+        const descNode = root.querySelector("[data-reactivate-overlay-desc]");
+        if (titleNode) titleNode.textContent = title || CHANNEL_REACTIVATE_UI_TEXT.overlayTitle;
+        if (descNode) descNode.textContent = description || "";
+        root.classList.remove("hidden");
+        root.classList.add("flex");
+      }
+
+      function hideChannelReactivateBlockingOverlay() {
+        const root = document.getElementById("channel-reactivate-blocking-overlay");
+        if (!root) return;
+        root.classList.add("hidden");
+        root.classList.remove("flex");
+      }
+
+      function initChannelReactivateBulkForm(form) {
+        if (form.dataset.channelReactivateBulkBound === "1") return;
+        form.dataset.channelReactivateBulkBound = "1";
+
+        const resolveSelectedCount = () => {
+          return form.querySelectorAll("[data-channel-select-item]:checked").length;
+        };
+        const parsePositiveInt = (value, fallback) => {
+          const parsed = Number.parseInt(String(value || ""), 10);
+          if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+          return parsed;
+        };
+        const limit = parsePositiveInt(form.dataset.reactivateBatchLimit, 50);
+        const timeoutSeconds = parsePositiveInt(form.dataset.reactivateTimeoutSeconds, 20);
+
+        const clearPendingState = () => {
+          delete form.dataset.reactivateInFlight;
+          delete form.dataset.reactivateSelectedCount;
+          hideChannelReactivateBlockingOverlay();
+        };
+
+        form.addEventListener("submit", (event) => {
+          const submitter = event.submitter;
+          if (
+            submitter instanceof HTMLButtonElement
+            && submitter.name === "bulk_action"
+            && submitter.value === "delete"
+          ) {
+            clearPendingState();
+            return;
+          }
+
+          const selectedCount = resolveSelectedCount();
+          if (selectedCount <= 0) return;
+
+          if (selectedCount > limit) {
+            event.preventDefault();
+            showUiToast(
+              formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.limitExceeded, {
+                selected: selectedCount,
+                limit,
+              }),
+              "error",
+            );
+            return;
+          }
+
+          if (form.dataset.reactivateConfirmed === "1") {
+            delete form.dataset.reactivateConfirmed;
+            form.dataset.reactivateInFlight = "1";
+            form.dataset.reactivateSelectedCount = String(selectedCount);
+            showChannelReactivateBlockingOverlay(
+              CHANNEL_REACTIVATE_UI_TEXT.overlayTitle,
+              formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.overlayDesc, { count: selectedCount }),
+            );
+            return;
+          }
+
+          event.preventDefault();
+          if (form.dataset.reactivateDialogOpen === "1") return;
+          form.dataset.reactivateDialogOpen = "1";
+
+          const maxWaitSeconds = selectedCount * timeoutSeconds;
+          openChannelReactivateConfirmModal({
+            title: CHANNEL_REACTIVATE_UI_TEXT.confirmTitle,
+            description: formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmDesc, { count: selectedCount }),
+            hint: formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmWaitHint, { seconds: maxWaitSeconds }),
+            confirmLabel: CHANNEL_REACTIVATE_UI_TEXT.confirmSubmit,
+            cancelLabel: CHANNEL_REACTIVATE_UI_TEXT.confirmCancel,
+          }).then((confirmed) => {
+            delete form.dataset.reactivateDialogOpen;
+            if (!confirmed) return;
+            form.dataset.reactivateConfirmed = "1";
+            if (submitter instanceof HTMLButtonElement) {
+              form.requestSubmit(submitter);
+            } else {
+              form.requestSubmit();
+            }
+          });
+        });
+
+        const settle = (event) => {
+          if (event.target === form) {
+            clearPendingState();
+          }
+        };
+        form.addEventListener("htmx:afterRequest", settle);
+        form.addEventListener("htmx:responseError", settle);
+        form.addEventListener("htmx:sendError", settle);
+        form.addEventListener("htmx:timeout", settle);
+      }
+
+      function bindChannelReactivateBulkForms(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-channel-reactivate-bulk-form]").forEach(initChannelReactivateBulkForm);
+      }
+
       function bindChannelReactivateToasts() {
         const root = document.body;
         if (!root || root.dataset.channelReactivateToastBound === "1") return;
@@ -874,6 +1226,590 @@
             : "success";
           showUiToast(message, tone);
         });
+      }
+
+      function getDownloadEventCursor() {
+        const raw = getStoredValue(DOWNLOAD_EVENT_CURSOR_KEY);
+        const parsed = Number.parseInt(String(raw || ""), 10);
+        if (Number.isNaN(parsed) || parsed < 0) return 0;
+        return parsed;
+      }
+
+      function setDownloadEventCursor(value) {
+        const safe = Math.max(0, Number.parseInt(String(value || "0"), 10) || 0);
+        setStoredValue(DOWNLOAD_EVENT_CURSOR_KEY, String(safe));
+      }
+
+      function formatDownloadPreview(items) {
+        const names = items
+          .map((item) => String(item?.video_title || item?.video_id || "").trim())
+          .filter((name) => name.length > 0);
+        const preview = names.slice(0, 2);
+        const remain = Math.max(0, names.length - preview.length);
+        if (remain > 0) {
+          preview.push(formatTemplate(DOWNLOAD_UI_TEXT.toastMore, { count: remain }));
+        }
+        return preview.join(", ");
+      }
+
+      function buildDownloadEventToast(events) {
+        const succeeded = events.filter((event) => event?.event_type === "succeeded");
+        const failed = events.filter((event) => event?.event_type === "failed");
+        if (!succeeded.length && !failed.length) return null;
+        if (succeeded.length && failed.length) {
+          return {
+            tone: "error",
+            message: formatTemplate(DOWNLOAD_UI_TEXT.toastMixed, {
+              success: succeeded.length,
+              failed: failed.length,
+            }),
+          };
+        }
+        if (failed.length) {
+          return {
+            tone: "error",
+            message: formatTemplate(DOWNLOAD_UI_TEXT.toastFailed, {
+              count: failed.length,
+              videos: formatDownloadPreview(failed),
+            }),
+          };
+        }
+        return {
+          tone: "success",
+          message: formatTemplate(DOWNLOAD_UI_TEXT.toastCompleted, {
+            count: succeeded.length,
+          }),
+        };
+      }
+
+      function updateDownloadNavBadge(activeCount) {
+        const nodes = document.querySelectorAll("[data-download-nav-badge]");
+        const count = Math.max(0, Number.parseInt(String(activeCount || "0"), 10) || 0);
+        nodes.forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (count <= 0) {
+            node.classList.add("hidden");
+            node.textContent = "0";
+            return;
+          }
+          node.classList.remove("hidden");
+          node.textContent = formatTemplate(DOWNLOAD_UI_TEXT.badgeInProgress, { count });
+        });
+      }
+
+      function ensureVideoDownloadModal() {
+        let root = document.getElementById("video-download-modal");
+        if (root) return root;
+
+        root = document.createElement("div");
+        root.id = "video-download-modal";
+        root.className = "fixed inset-0 z-[76] hidden items-center justify-center px-4";
+        root.innerHTML = `
+          <div class="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" data-download-modal-backdrop></div>
+          <div class="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <h3 class="text-base font-semibold text-slate-900" data-download-modal-title></h3>
+            <p class="mt-2 text-sm text-slate-600" data-download-modal-desc></p>
+            <div class="mt-4 space-y-3">
+              <label class="block text-sm text-slate-600">
+                <span class="block">{{ txt.download_modal_quality }}</span>
+                <select data-download-modal-quality class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option value="1080">1080p</option>
+                  <option value="720">720p</option>
+                  <option value="480">480p</option>
+                </select>
+              </label>
+              <label class="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" data-download-modal-overwrite />
+                <span>{{ txt.download_modal_overwrite }}</span>
+              </label>
+            </div>
+            <div class="mt-4 flex justify-end gap-2">
+              <button type="button" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" data-download-modal-cancel></button>
+              <button type="button" class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700" data-download-modal-submit></button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(root);
+        return root;
+      }
+
+      async function requestVideoDownload(videoId, quality, overwrite) {
+        const response = await fetch(`/api/videos/${encodeURIComponent(videoId)}/downloads`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          body: JSON.stringify({
+            quality,
+            overwrite,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        return { response, payload };
+      }
+
+      function openVideoDownloadModal(options) {
+        const root = ensureVideoDownloadModal();
+        const titleNode = root.querySelector("[data-download-modal-title]");
+        const descNode = root.querySelector("[data-download-modal-desc]");
+        const qualitySelect = root.querySelector("[data-download-modal-quality]");
+        const overwriteInput = root.querySelector("[data-download-modal-overwrite]");
+        const cancelButton = root.querySelector("[data-download-modal-cancel]");
+        const submitButton = root.querySelector("[data-download-modal-submit]");
+        if (
+          !(titleNode instanceof HTMLElement)
+          || !(descNode instanceof HTMLElement)
+          || !(qualitySelect instanceof HTMLSelectElement)
+          || !(overwriteInput instanceof HTMLInputElement)
+          || !(cancelButton instanceof HTMLButtonElement)
+          || !(submitButton instanceof HTMLButtonElement)
+        ) {
+          return;
+        }
+
+        const videoId = String(options?.videoId || "").trim();
+        const videoTitle = String(options?.videoTitle || "").trim() || videoId;
+        const defaultQuality = String(options?.defaultQuality || "1080").trim();
+        const defaultOverwrite = options?.defaultOverwrite === true;
+        if (!videoId) return;
+        if (root.dataset.modalOpen === "1") return;
+
+        titleNode.textContent = DOWNLOAD_UI_TEXT.modalTitle;
+        descNode.textContent = formatTemplate(DOWNLOAD_UI_TEXT.modalDesc, { title: videoTitle });
+        cancelButton.textContent = DOWNLOAD_UI_TEXT.modalCancel;
+        submitButton.textContent = DOWNLOAD_UI_TEXT.modalSubmit;
+        qualitySelect.value = ["1080", "720", "480"].includes(defaultQuality) ? defaultQuality : "1080";
+        overwriteInput.checked = defaultOverwrite;
+
+        root.dataset.videoId = videoId;
+        root.dataset.modalOpen = "1";
+        root.classList.remove("hidden");
+        root.classList.add("flex");
+
+        const cleanup = () => {
+          cancelButton.removeEventListener("click", onCancel);
+          submitButton.removeEventListener("click", onSubmit);
+          root.removeEventListener("click", onBackdrop);
+          document.removeEventListener("keydown", onKeyDown);
+        };
+        const close = (force = false) => {
+          if (!force && root.dataset.submitting === "1") return;
+          root.classList.add("hidden");
+          root.classList.remove("flex");
+          delete root.dataset.videoId;
+          delete root.dataset.modalOpen;
+          cleanup();
+        };
+
+        const onBackdrop = (event) => {
+          const target = event.target;
+          if (
+            target === root
+            || (target instanceof Element && target.hasAttribute("data-download-modal-backdrop"))
+          ) {
+            close();
+          }
+        };
+        const onKeyDown = (event) => {
+          if (event.key === "Escape") {
+            close();
+          }
+        };
+        const onCancel = () => {
+          close();
+        };
+        const onSubmit = async () => {
+          if (root.dataset.submitting === "1") return;
+          root.dataset.submitting = "1";
+          submitButton.disabled = true;
+          cancelButton.disabled = true;
+          try {
+            const { response, payload } = await requestVideoDownload(
+              videoId,
+              qualitySelect.value,
+              overwriteInput.checked,
+            );
+            if (response.status === 202 && payload?.queued === true) {
+              showUiToast(DOWNLOAD_UI_TEXT.toastQueued, "success");
+              close(true);
+              void pollDownloadProgress();
+              return;
+            }
+            if (payload?.duplicate === true) {
+              showUiToast(DOWNLOAD_UI_TEXT.toastDuplicate, "success");
+              close(true);
+              void pollDownloadProgress();
+              return;
+            }
+            if (payload?.code === "ffmpeg_missing") {
+              showUiToast(DOWNLOAD_UI_TEXT.toastFfmpegMissing, "error");
+              close(true);
+              return;
+            }
+            showUiToast(DOWNLOAD_UI_TEXT.toastRequestFailed, "error");
+          } catch (_error) {
+            showUiToast(DOWNLOAD_UI_TEXT.toastRequestFailed, "error");
+          } finally {
+            delete root.dataset.submitting;
+            submitButton.disabled = false;
+            cancelButton.disabled = false;
+          }
+        };
+
+        cancelButton.addEventListener("click", onCancel);
+        submitButton.addEventListener("click", onSubmit);
+        root.addEventListener("click", onBackdrop);
+        document.addEventListener("keydown", onKeyDown);
+      }
+
+      function initVideoDownloadButton(button) {
+        if (button.dataset.downloadButtonBound === "1") return;
+        button.dataset.downloadButtonBound = "1";
+        button.addEventListener("click", () => {
+          if (button.dataset.downloadFfmpeg === "0") {
+            showUiToast(DOWNLOAD_UI_TEXT.toastFfmpegMissing, "error");
+            return;
+          }
+          openVideoDownloadModal({
+            videoId: button.dataset.videoId,
+            videoTitle: button.dataset.videoTitle,
+            defaultQuality: button.dataset.downloadDefaultQuality,
+            defaultOverwrite: button.dataset.downloadDefaultOverwrite === "1",
+          });
+        });
+      }
+
+      function bindVideoDownloadButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-video-download-open]").forEach((node) => {
+          if (node instanceof HTMLButtonElement) {
+            initVideoDownloadButton(node);
+          }
+        });
+      }
+
+      function ensureDownloadDetailModal() {
+        let root = document.getElementById("download-detail-modal");
+        if (root) return root;
+
+        root = document.createElement("div");
+        root.id = "download-detail-modal";
+        root.className = "fixed inset-0 z-[77] hidden items-center justify-center px-4";
+        root.innerHTML = `
+          <div class="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" data-download-detail-backdrop></div>
+          <div class="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div class="flex items-start justify-between gap-3">
+              <h3 class="text-base font-semibold text-slate-900" data-download-detail-title></h3>
+              <button type="button" class="shrink-0 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50" data-download-detail-close>{{ txt.download_detail_close }}</button>
+            </div>
+            <div class="mt-4 grid gap-3 text-xs text-slate-700 sm:grid-cols-2">
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_video_id }}:</span> <span data-download-detail-video-id></span></div>
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_status }}:</span> <span data-download-detail-status></span></div>
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_requested_at }}:</span> <span data-download-detail-requested-at></span></div>
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_updated_at }}:</span> <span data-download-detail-updated-at></span></div>
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_finished_at }}:</span> <span data-download-detail-finished-at></span></div>
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_size }}:</span> <span data-download-detail-file-size></span></div>
+              <div><span class="font-semibold text-slate-900">{{ txt.download_detail_error_code }}:</span> <span data-download-detail-error-code></span></div>
+            </div>
+            <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <span class="text-xs font-semibold text-slate-900">{{ txt.download_detail_output_path }}</span>
+                <button type="button" class="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100" data-download-detail-copy-output>{{ txt.download_detail_copy_output }}</button>
+              </div>
+              <a data-download-detail-output-link class="hidden break-all text-xs text-indigo-700 hover:text-indigo-900" target="_blank" rel="noopener noreferrer"></a>
+              <div data-download-detail-output-empty class="text-xs text-slate-600"></div>
+            </div>
+            <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div class="mb-1 flex items-center justify-between gap-2">
+                <span class="text-xs font-semibold text-slate-900">{{ txt.download_detail_error_message }}</span>
+                <button type="button" class="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100" data-download-detail-copy-error>{{ txt.download_detail_copy_error }}</button>
+              </div>
+              <pre data-download-detail-error-message class="max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs text-rose-700"></pre>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(root);
+
+        const close = () => {
+          root.classList.add("hidden");
+          root.classList.remove("flex");
+          root.dataset.modalOpen = "0";
+        };
+
+        root.addEventListener("click", (event) => {
+          const target = event.target;
+          if (
+            target === root
+            || (target instanceof Element && target.hasAttribute("data-download-detail-backdrop"))
+            || (target instanceof Element && target.hasAttribute("data-download-detail-close"))
+          ) {
+            close();
+          }
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && root.dataset.modalOpen === "1") {
+            close();
+          }
+        });
+
+        const copyOutputButton = root.querySelector("[data-download-detail-copy-output]");
+        const copyErrorButton = root.querySelector("[data-download-detail-copy-error]");
+        if (copyOutputButton instanceof HTMLButtonElement) {
+          copyOutputButton.addEventListener("click", async () => {
+            const value = String(root.dataset.currentOutputPath || "").trim();
+            if (!value) return;
+            try {
+              await navigator.clipboard.writeText(value);
+              showUiToast(DOWNLOAD_UI_TEXT.toastCopiedOutput, "success");
+            } catch (_error) {
+              // ignore clipboard failures
+            }
+          });
+        }
+        if (copyErrorButton instanceof HTMLButtonElement) {
+          copyErrorButton.addEventListener("click", async () => {
+            const value = String(root.dataset.currentErrorMessage || "").trim();
+            if (!value) return;
+            try {
+              await navigator.clipboard.writeText(value);
+              showUiToast(DOWNLOAD_UI_TEXT.toastCopiedError, "success");
+            } catch (_error) {
+              // ignore clipboard failures
+            }
+          });
+        }
+
+        return root;
+      }
+
+      function openDownloadDetailModal(options = {}) {
+        const root = ensureDownloadDetailModal();
+        const textOrNone = (value) => {
+          const normalized = String(value || "").trim();
+          return normalized.length > 0 ? normalized : DOWNLOAD_UI_TEXT.detailNone;
+        };
+
+        const videoTitle = String(options.videoTitle || "").trim();
+        const videoId = textOrNone(options.videoId);
+        const statusLabel = textOrNone(options.statusLabel);
+        const requestedAt = textOrNone(options.requestedAt);
+        const updatedAt = textOrNone(options.updatedAt);
+        const finishedAt = textOrNone(options.finishedAt);
+        const fileSize = textOrNone(options.fileSize);
+        const outputPath = String(options.outputPath || "").trim();
+        const outputUrl = String(options.outputUrl || "").trim();
+        const errorCode = textOrNone(options.errorCode);
+        const errorMessage = String(options.errorMessage || "").trim();
+
+        const titleNode = root.querySelector("[data-download-detail-title]");
+        const videoIdNode = root.querySelector("[data-download-detail-video-id]");
+        const statusNode = root.querySelector("[data-download-detail-status]");
+        const requestedNode = root.querySelector("[data-download-detail-requested-at]");
+        const updatedNode = root.querySelector("[data-download-detail-updated-at]");
+        const finishedNode = root.querySelector("[data-download-detail-finished-at]");
+        const sizeNode = root.querySelector("[data-download-detail-file-size]");
+        const errorCodeNode = root.querySelector("[data-download-detail-error-code]");
+        const outputLinkNode = root.querySelector("[data-download-detail-output-link]");
+        const outputEmptyNode = root.querySelector("[data-download-detail-output-empty]");
+        const errorMessageNode = root.querySelector("[data-download-detail-error-message]");
+        const copyOutputButton = root.querySelector("[data-download-detail-copy-output]");
+        const copyErrorButton = root.querySelector("[data-download-detail-copy-error]");
+        if (
+          !(titleNode instanceof HTMLElement)
+          || !(videoIdNode instanceof HTMLElement)
+          || !(statusNode instanceof HTMLElement)
+          || !(requestedNode instanceof HTMLElement)
+          || !(updatedNode instanceof HTMLElement)
+          || !(finishedNode instanceof HTMLElement)
+          || !(sizeNode instanceof HTMLElement)
+          || !(errorCodeNode instanceof HTMLElement)
+          || !(outputLinkNode instanceof HTMLAnchorElement)
+          || !(outputEmptyNode instanceof HTMLElement)
+          || !(errorMessageNode instanceof HTMLElement)
+          || !(copyOutputButton instanceof HTMLButtonElement)
+          || !(copyErrorButton instanceof HTMLButtonElement)
+        ) {
+          return;
+        }
+
+        titleNode.textContent = formatTemplate(DOWNLOAD_UI_TEXT.detailTitle, { title: videoTitle || videoId });
+        videoIdNode.textContent = videoId;
+        statusNode.textContent = statusLabel;
+        requestedNode.textContent = requestedAt;
+        updatedNode.textContent = updatedAt;
+        finishedNode.textContent = finishedAt;
+        sizeNode.textContent = fileSize;
+        errorCodeNode.textContent = errorCode;
+
+        if (outputPath && outputUrl) {
+          outputLinkNode.textContent = outputPath;
+          outputLinkNode.href = outputUrl;
+          outputLinkNode.classList.remove("hidden");
+          outputEmptyNode.classList.add("hidden");
+          outputEmptyNode.textContent = "";
+          copyOutputButton.disabled = false;
+        } else {
+          outputLinkNode.textContent = "";
+          outputLinkNode.removeAttribute("href");
+          outputLinkNode.classList.add("hidden");
+          outputEmptyNode.textContent = DOWNLOAD_UI_TEXT.detailNone;
+          outputEmptyNode.classList.remove("hidden");
+          copyOutputButton.disabled = true;
+        }
+
+        if (errorMessage) {
+          errorMessageNode.textContent = errorMessage;
+          copyErrorButton.disabled = false;
+        } else {
+          errorMessageNode.textContent = DOWNLOAD_UI_TEXT.detailNone;
+          copyErrorButton.disabled = true;
+        }
+
+        root.dataset.currentOutputPath = outputPath;
+        root.dataset.currentErrorMessage = errorMessage;
+        root.dataset.modalOpen = "1";
+        root.classList.remove("hidden");
+        root.classList.add("flex");
+      }
+
+      function initDownloadDetailButton(button) {
+        if (button.dataset.downloadDetailBound === "1") return;
+        button.dataset.downloadDetailBound = "1";
+        button.addEventListener("click", () => {
+          openDownloadDetailModal({
+            videoTitle: button.dataset.videoTitle,
+            videoId: button.dataset.videoId,
+            statusLabel: button.dataset.statusLabel,
+            requestedAt: button.dataset.requestedAt,
+            updatedAt: button.dataset.updatedAt,
+            finishedAt: button.dataset.finishedAt,
+            fileSize: button.dataset.fileSize,
+            outputPath: button.dataset.outputPath,
+            outputUrl: button.dataset.outputUrl,
+            errorCode: button.dataset.errorCode,
+            errorMessage: button.dataset.errorMessage,
+          });
+        });
+      }
+
+      function bindDownloadDetailButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-download-detail-open]").forEach((node) => {
+          if (node instanceof HTMLButtonElement) {
+            initDownloadDetailButton(node);
+          }
+        });
+      }
+
+      async function requestDownloadRetry(jobId) {
+        const response = await fetch(`/api/downloads/${encodeURIComponent(jobId)}/retry`, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+          },
+        });
+        const payload = await response.json().catch(() => ({}));
+        return { response, payload };
+      }
+
+      function initDownloadRetryButton(button) {
+        if (button.dataset.downloadRetryBound === "1") return;
+        button.dataset.downloadRetryBound = "1";
+        button.addEventListener("click", async () => {
+          if (button.dataset.retryInFlight === "1") return;
+          button.dataset.retryInFlight = "1";
+          button.disabled = true;
+          try {
+            const { response, payload } = await requestDownloadRetry(button.dataset.jobId || "");
+            if (response.ok && payload?.retried === true) {
+              showUiToast(DOWNLOAD_UI_TEXT.toastRetryQueued, "success");
+              void pollDownloadProgress();
+              if (window.location.pathname === "/downloads") {
+                window.setTimeout(() => window.location.reload(), 250);
+              }
+              return;
+            }
+            if (payload?.code === "ffmpeg_missing") {
+              showUiToast(DOWNLOAD_UI_TEXT.toastFfmpegMissing, "error");
+              return;
+            }
+            showUiToast(DOWNLOAD_UI_TEXT.toastRetryFailed, "error");
+          } catch (_error) {
+            showUiToast(DOWNLOAD_UI_TEXT.toastRetryFailed, "error");
+          } finally {
+            delete button.dataset.retryInFlight;
+            button.disabled = false;
+          }
+        });
+      }
+
+      function bindDownloadRetryButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-download-retry-button]").forEach((node) => {
+          if (node instanceof HTMLButtonElement) {
+            initDownloadRetryButton(node);
+          }
+        });
+      }
+
+      let downloadProgressInFlight = false;
+      let downloadProgressPollingStarted = false;
+
+      async function pollDownloadProgress() {
+        if (downloadProgressInFlight) return;
+        downloadProgressInFlight = true;
+        const storedCursorRaw = getStoredValue(DOWNLOAD_EVENT_CURSOR_KEY);
+        const hasStoredCursor = storedCursorRaw !== null;
+        const afterEventId = getDownloadEventCursor();
+        try {
+          const response = await fetch(
+            `/api/downloads/progress?after_event_id=${encodeURIComponent(String(afterEventId))}`,
+            {
+              method: "GET",
+              headers: { "Accept": "application/json" },
+            },
+          );
+          if (!response.ok) return;
+          const payload = await response.json().catch(() => null);
+          if (!payload || typeof payload !== "object") return;
+
+          updateDownloadNavBadge(payload.active_count);
+
+          const events = Array.isArray(payload.events) ? payload.events : [];
+          const latestFromPayload = Number.parseInt(String(payload.latest_event_id || "0"), 10) || 0;
+          const maxEventId = events.reduce((acc, item) => {
+            const current = Number.parseInt(String(item?.id || "0"), 10) || 0;
+            return Math.max(acc, current);
+          }, 0);
+          const nextCursor = Math.max(afterEventId, latestFromPayload, maxEventId);
+
+          if (!hasStoredCursor) {
+            setDownloadEventCursor(nextCursor);
+            return;
+          }
+          if (events.length > 0) {
+            const toast = buildDownloadEventToast(events);
+            if (toast && toast.message) {
+              showUiToast(toast.message, toast.tone);
+            }
+          }
+          setDownloadEventCursor(nextCursor);
+        } catch (_error) {
+          // ignore polling failures and retry on next interval.
+        } finally {
+          downloadProgressInFlight = false;
+        }
+      }
+
+      function startDownloadProgressPolling() {
+        if (downloadProgressPollingStarted) return;
+        downloadProgressPollingStarted = true;
+        void pollDownloadProgress();
+        window.setInterval(() => {
+          void pollDownloadProgress();
+        }, DOWNLOAD_PROGRESS_POLL_INTERVAL_MS);
       }
 
       function parseJsonSafe(text) {
@@ -1317,6 +2253,7 @@
 
           event.preventDefault();
           window.__navTransitionLock = true;
+          enableNextPageFade();
           shell.classList.remove("is-visible");
           shell.classList.add("is-leaving");
           window.setTimeout(() => {
@@ -1343,6 +2280,7 @@
         bindChannelComposeForms(document);
         bindChannelSearch(document);
         bindChannelManageForms(document);
+        bindChannelReactivateBulkForms(document);
         bindVideoManageForms(document);
         bindThumbPreviews(document);
         bindDigitsOnlyInputs(document);
@@ -1353,6 +2291,10 @@
         bindCollapsibles(document);
         bindChannelReactivateToasts();
         bindYouTubeEmbeds(document);
+        bindVideoDownloadButtons(document);
+        bindDownloadDetailButtons(document);
+        bindDownloadRetryButtons(document);
+        startDownloadProgressPolling();
         bindNavTransitions(document);
         revealPageShell();
       });
@@ -1377,6 +2319,7 @@
         bindChannelComposeForms(event.target);
         bindChannelSearch(event.target);
         bindChannelManageForms(event.target);
+        bindChannelReactivateBulkForms(event.target);
         bindVideoManageForms(event.target);
         bindThumbPreviews(event.target);
         bindDigitsOnlyInputs(event.target);
@@ -1386,6 +2329,9 @@
         bindCopyButtons(event.target);
         bindCollapsibles(event.target);
         bindYouTubeEmbeds(event.target);
+        bindVideoDownloadButtons(event.target);
+        bindDownloadDetailButtons(event.target);
+        bindDownloadRetryButtons(event.target);
       });
     })();
   </script>
@@ -1424,6 +2370,13 @@
            class="rounded-md px-3 py-1.5 font-medium transition-colors
                   {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_retention }}
+        </a>
+        <a href="/downloads"
+           data-nav-transition
+           class="rounded-md px-3 py-1.5 font-medium transition-colors
+                  {% if path == '/downloads' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+          <span>{{ txt.nav_downloads }}</span>
+          <span data-download-nav-badge class="ml-1 hidden rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">0</span>
         </a>
         <button
           type="button"
