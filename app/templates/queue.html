@@ -16,7 +16,12 @@
      data-label-llm-failed="{{ txt.pipeline_status_llm_failed }}"
      data-label-manual-review="{{ txt.pipeline_status_manual_review }}"
      data-label-worker-active="{{ txt.queue_worker_active }}"
-     data-label-worker-inactive="{{ txt.queue_worker_inactive }}">
+     data-label-worker-inactive="{{ txt.queue_worker_inactive }}"
+     data-chip-pending="{{ txt.queue_chip_pending }}"
+     data-chip-processing="{{ txt.queue_chip_processing }}"
+     data-chip-failed="{{ txt.queue_chip_failed }}"
+     data-chip-no-subtitle="{{ txt.queue_chip_no_subtitle }}"
+     data-chip-manual-review="{{ txt.queue_chip_manual_review }}">
 
   <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
     <h1 class="text-xl font-semibold text-slate-900">{{ txt.queue_page_title }}</h1>

@@ -412,6 +412,11 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "queue_guard_half_open": "시험 중",
         "queue_guard_cooldown_until": "쿨다운: {until}",
         "queue_item_count": "{count}건",
+        "queue_chip_pending": "대기",
+        "queue_chip_processing": "처리중",
+        "queue_chip_failed": "실패",
+        "queue_chip_no_subtitle": "자막 없음",
+        "queue_chip_manual_review": "수동 확인",
     },
     "en": {
         "brand": "BriefTube",
@@ -819,6 +824,11 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "queue_guard_half_open": "Half-open",
         "queue_guard_cooldown_until": "Cooldown: {until}",
         "queue_item_count": "{count} items",
+        "queue_chip_pending": "Pending",
+        "queue_chip_processing": "Processing",
+        "queue_chip_failed": "Failed",
+        "queue_chip_no_subtitle": "No subtitle",
+        "queue_chip_manual_review": "Manual review",
     },
 }
 

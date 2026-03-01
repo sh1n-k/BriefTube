@@ -1564,6 +1564,52 @@
         bindQueueRetryButtons(listEl);
       }
 
+      function updateQueueChips(counts) {
+        const page = document.querySelector("[data-queue-page]");
+        if (!page) return;
+        const chipLabels = {
+          pending: page.dataset.chipPending || "Pending",
+          processing: page.dataset.chipProcessing || "Processing",
+          failed: page.dataset.chipFailed || "Failed",
+          no_subtitle: page.dataset.chipNoSubtitle || "No subtitle",
+          manual_review: page.dataset.chipManualReview || "Manual review",
+        };
+        const chipStyles = {
+          pending: "rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800",
+          processing: "rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800",
+          failed: "rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800",
+          no_subtitle: "rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700",
+          manual_review: "rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-800",
+        };
+
+        function rebuildChips(containerAttr, statusKeys) {
+          const container = document.querySelector(`[${containerAttr}]`);
+          if (!container) return;
+          container.textContent = "";
+          statusKeys.forEach(({ key, chipKey }) => {
+            const val = counts[key] || 0;
+            if (val <= 0) return;
+            const span = document.createElement("span");
+            span.className = chipStyles[chipKey] || chipStyles.pending;
+            span.textContent = `${chipLabels[chipKey] || chipKey} ${val}`;
+            container.appendChild(span);
+          });
+        }
+
+        rebuildChips("data-queue-transcript-chips", [
+          { key: "transcript_pending", chipKey: "pending" },
+          { key: "transcript_processing", chipKey: "processing" },
+          { key: "transcript_failed", chipKey: "failed" },
+          { key: "no_subtitle", chipKey: "no_subtitle" },
+        ]);
+        rebuildChips("data-queue-llm-chips", [
+          { key: "llm_pending", chipKey: "pending" },
+          { key: "llm_processing", chipKey: "processing" },
+          { key: "llm_failed", chipKey: "failed" },
+          { key: "manual_review", chipKey: "manual_review" },
+        ]);
+      }
+
       function updateWorkerStatusDots(payload) {
         const tInd = document.querySelector("[data-queue-transcript-worker-indicator]");
         const lInd = document.querySelector("[data-queue-llm-worker-indicator]");
@@ -1661,6 +1707,7 @@
             lTotal,
           );
           updateWorkerStatusDots(payload);
+          updateQueueChips(counts);
         } catch (err) {
           if (typeof console !== "undefined") console.warn("[BriefTube] Queue poll error:", err);
         } finally {
