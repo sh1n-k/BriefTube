@@ -111,9 +111,11 @@ def test_status_badge_color_tokens_keep_readable_contrast() -> None:
 
     selectors = {
         "light": ":root",
-        "dark_brand": 'html[data-theme="dark"][data-dark-tone="brand"]',
-        "dark_neutral": 'html[data-theme="dark"][data-dark-tone="neutral"]',
-        "dark_high_contrast": 'html[data-theme="dark"][data-dark-tone="high-contrast"]',
+        "light_brand": 'html[data-theme="light"][data-tone="brand"]',
+        "light_high_contrast": 'html[data-theme="light"][data-tone="high-contrast"]',
+        "dark_brand": 'html[data-theme="dark"][data-tone="brand"]',
+        "dark_neutral": 'html[data-theme="dark"][data-tone="neutral"]',
+        "dark_high_contrast": 'html[data-theme="dark"][data-tone="high-contrast"]',
     }
     vars_by_theme = {
         theme: _parse_css_vars(_extract_css_block(css_text, selector))

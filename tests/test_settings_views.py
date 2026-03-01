@@ -51,7 +51,7 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'data-theme-mode-select' in response.text
     assert 'data-theme-tone-select' in response.text
     assert "brieftube.theme.mode" in response.text
-    assert "brieftube.theme.darkTone" in response.text
+    assert "brieftube.theme.tone" in response.text
     assert "뉴트럴 (기본)" in response.text
     assert "고대비" in response.text
     assert 'document.body.addEventListener("htmx:afterRequest"' not in response.text
