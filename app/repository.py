@@ -44,6 +44,9 @@ LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
 LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
 LLM_PROVIDER_FALLBACK_KEY = "llm_provider_fallback"
 LLM_PROMPT_TEMPLATE_KEY = "llm_prompt_template"
+LLM_RUNTIME_LAST_CODE_KEY = "llm_runtime_last_code"
+LLM_RUNTIME_LAST_MESSAGE_KEY = "llm_runtime_last_message"
+LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
 LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
 LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_CLAUDE
 
@@ -1086,6 +1089,52 @@ async def clear_llm_config_missing_alert_flag(db: aiosqlite.Connection) -> None:
     if str(sent_raw or "0").strip() == "0":
         return
     await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="0")
+
+
+async def set_llm_runtime_issue(
+    db: aiosqlite.Connection,
+    *,
+    code: str,
+    message: str,
+    seen_at: str | None = None,
+) -> None:
+    normalized_code = str(code or "").strip()
+    normalized_message = str(message or "").strip()
+    normalized_seen_at = str(seen_at or "").strip()
+    if not normalized_seen_at:
+        normalized_seen_at = datetime.now(timezone.utc).isoformat()
+    await set_setting(db, key=LLM_RUNTIME_LAST_CODE_KEY, value=normalized_code)
+    await set_setting(db, key=LLM_RUNTIME_LAST_MESSAGE_KEY, value=normalized_message)
+    await set_setting(db, key=LLM_RUNTIME_LAST_SEEN_AT_KEY, value=normalized_seen_at)
+
+
+async def clear_llm_runtime_issue(db: aiosqlite.Connection) -> None:
+    await set_setting(db, key=LLM_RUNTIME_LAST_CODE_KEY, value="")
+    await set_setting(db, key=LLM_RUNTIME_LAST_MESSAGE_KEY, value="")
+    await set_setting(db, key=LLM_RUNTIME_LAST_SEEN_AT_KEY, value="")
+
+
+async def get_llm_runtime_issue(db: aiosqlite.Connection) -> dict[str, str]:
+    code = str(await get_setting(db, key=LLM_RUNTIME_LAST_CODE_KEY, default="") or "").strip()
+    message = str(await get_setting(db, key=LLM_RUNTIME_LAST_MESSAGE_KEY, default="") or "").strip()
+    seen_at = str(await get_setting(db, key=LLM_RUNTIME_LAST_SEEN_AT_KEY, default="") or "").strip()
+    return {
+        "code": code,
+        "message": message,
+        "seen_at": seen_at,
+    }
+
+
+async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        SELECT COUNT(1) AS cnt
+        FROM videos
+        WHERE pipeline_status = 'llm_pending'
+        """
+    )
+    row = await cursor.fetchone()
+    return int((row["cnt"] if row is not None else 0) or 0)
 
 
 async def get_transcript_request_header_overrides(db: aiosqlite.Connection) -> dict[str, str]:

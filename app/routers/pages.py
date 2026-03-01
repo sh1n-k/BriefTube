@@ -127,6 +127,7 @@ async def settings_page(request: Request):
     reset_done = request.query_params.get("guard_reset") == "1"
     context = await build_template_context(
         request,
+        include_llm_runtime_status=True,
         worker_settings=worker_settings,
         videos_per_page=videos_per_page,
         transcript_guard=guard,

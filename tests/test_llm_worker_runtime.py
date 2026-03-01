@@ -30,7 +30,7 @@ class AuthRequiredClient:
 def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
     db_path = tmp_path / "worker-runtime.db"
 
-    async def _run() -> tuple[str, int, int, str | None]:
+    async def _run() -> tuple[str, int, int, str | None, dict[str, str]]:
         db = await open_database(str(db_path))
         await init_database(db)
         await db.execute(
@@ -87,14 +87,16 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
                 key=repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY,
                 default=None,
             )
-            return str(video["pipeline_status"]), int(video["retry_count"]), alert_count, sent_key
+            runtime_issue = await repository.get_llm_runtime_issue(db)
+            return str(video["pipeline_status"]), int(video["retry_count"]), alert_count, sent_key, runtime_issue
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await db.close()
 
-    status, retry_count, alert_count, sent_key = asyncio.run(_run())
+    status, retry_count, alert_count, sent_key, runtime_issue = asyncio.run(_run())
     assert status == "llm_pending"
     assert retry_count == 2
     assert alert_count >= 1
     assert sent_key == "1"
+    assert runtime_issue["code"] == "llm_provider_auth_required"

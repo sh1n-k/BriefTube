@@ -151,6 +151,7 @@
         class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
       >{{ llm_settings.prompt_template }}</textarea>
       <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_prompt_help }}</p>
+      {% include "fragments/llm_runtime_status.html" %}
     </form>
   </div>
 
