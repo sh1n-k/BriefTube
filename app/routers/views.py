@@ -935,7 +935,8 @@ async def video_list(
         limit=limit,
         category_id=category_id,
     )
-    channels = await repository.list_channels(request.app.state.runtime.db)
+    all_channels = await repository.list_channels(request.app.state.runtime.db)
+    channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
     categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
@@ -994,7 +995,8 @@ async def delete_selected_videos(request: Request):
         limit=limit_val,
         category_id=category_id,
     )
-    channels = await repository.list_channels(request.app.state.runtime.db)
+    all_channels = await repository.list_channels(request.app.state.runtime.db)
+    channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
     categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
@@ -1093,7 +1095,8 @@ async def download_selected_videos(request: Request):
                 limit=limit_val,
                 category_id=category_id_early,
             )
-            channels = await repository.list_channels(request.app.state.runtime.db)
+            all_channels = await repository.list_channels(request.app.state.runtime.db)
+            channels = [ch for ch in all_channels if ch.get("category_id") == category_id_early] if category_id_early is not None else all_channels
             categories_early = await repository.list_categories(request.app.state.runtime.db)
             context = await build_template_context(
                 request,
@@ -1179,7 +1182,8 @@ async def download_selected_videos(request: Request):
         limit=limit_val,
         category_id=category_id_final,
     )
-    channels = await repository.list_channels(request.app.state.runtime.db)
+    all_channels = await repository.list_channels(request.app.state.runtime.db)
+    channels = [ch for ch in all_channels if ch.get("category_id") == category_id_final] if category_id_final is not None else all_channels
     categories_final = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,

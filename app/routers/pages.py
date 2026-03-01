@@ -36,7 +36,8 @@ async def home(
     if limit is None:
         limit = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
 
-    channels = await repository.list_channels(request.app.state.runtime.db)
+    all_channels = await repository.list_channels(request.app.state.runtime.db)
+    channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
     categories = await repository.list_categories(request.app.state.runtime.db)
     total = await repository.count_videos(
         request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
