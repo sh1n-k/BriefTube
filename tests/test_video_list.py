@@ -129,6 +129,21 @@ def test_video_list_channel_filter(client: TestClient) -> None:
     assert "vid-a-000" not in html
 
 
+def test_video_list_sets_home_push_url_header(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get(
+        "/views/video-list",
+        params={"channel_id": "UC_BBB", "page": "2", "limit": "20", "sort": "upload_time", "order": "desc"},
+    )
+    assert response.status_code == 200
+    push_url = response.headers.get("HX-Push-Url")
+    assert push_url is not None
+    assert push_url.startswith("/?")
+    assert "/views/video-list" not in push_url
+    assert "channel_id=UC_BBB" in push_url
+
+
 def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
     _seed_channels_and_videos()
 

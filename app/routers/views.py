@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import logging
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
 import httpx
@@ -125,6 +126,28 @@ def _reactivate_toast_header(message: str, tone: str) -> dict[str, str]:
         }
     }
     return {"HX-Trigger": json.dumps(payload)}
+
+
+def _video_list_push_url(
+    *,
+    page: int,
+    limit: int,
+    sort: str,
+    order: str,
+    channel_id: str | None,
+    category_id: int | None,
+) -> str:
+    params: dict[str, str] = {
+        "page": str(max(1, int(page))),
+        "limit": str(max(1, int(limit))),
+        "sort": sort,
+        "order": order,
+    }
+    if channel_id:
+        params["channel_id"] = channel_id
+    if category_id is not None:
+        params["category_id"] = str(category_id)
+    return "/?" + urlencode(params)
 
 
 def _channel_metadata_toast_header(message: str, tone: str) -> dict[str, str]:
@@ -951,7 +974,21 @@ async def video_list(
             "order": order,
         },
     )
-    return request.app.state.templates.TemplateResponse(request=request, name="fragments/video_list.html", context=context)
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/video_list.html",
+        context=context,
+        headers={
+            "HX-Push-Url": _video_list_push_url(
+                page=current_page,
+                limit=limit,
+                sort=sort,
+                order=order,
+                channel_id=channel_id,
+                category_id=normalized_category_id,
+            )
+        },
+    )
 
 
 @router.post("/videos/delete-selected")
