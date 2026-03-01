@@ -540,6 +540,10 @@
 
     html[data-theme="dark"] .border-slate-200,
     html[data-theme="dark"] .border-slate-300 { border-color: var(--border-default) !important; }
+    html[data-theme="dark"] .border-slate-100,
+    html[data-theme="dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+      border-color: color-mix(in srgb, var(--border-default), transparent 40%) !important;
+    }
     html[data-theme="dark"] .ring-slate-200,
     html[data-theme="dark"] .ring-slate-300 { --tw-ring-color: var(--border-default) !important; }
 
@@ -550,6 +554,8 @@
     html[data-theme="dark"] .text-slate-500 { color: var(--text-muted) !important; }
     html[data-theme="dark"] .text-slate-400,
     html[data-theme="dark"] .text-slate-300 { color: var(--text-soft) !important; }
+    html[data-theme="dark"] .hover\:text-slate-600:hover,
+    html[data-theme="dark"] .hover\:text-slate-500:hover { color: var(--text-muted) !important; }
 
     html[data-theme="dark"] .bg-indigo-50 { background-color: var(--brand-soft-bg) !important; }
     html[data-theme="dark"] .bg-indigo-50\/30 {
@@ -580,6 +586,7 @@
     html[data-theme="dark"] .hover\:text-indigo-800:hover,
     html[data-theme="dark"] .hover\:text-indigo-600:hover,
     html[data-theme="dark"] .hover\:text-indigo-900:hover { color: var(--brand-strong) !important; }
+    html[data-theme="dark"] .hover\:border-indigo-300:hover { border-color: var(--brand-soft-border) !important; }
 
     html[data-theme="dark"] .bg-emerald-50 { background-color: var(--success-bg) !important; }
     html[data-theme="dark"] .bg-emerald-100 {
@@ -604,10 +611,13 @@
     html[data-theme="dark"] .text-rose-800,
     html[data-theme="dark"] .text-rose-700,
     html[data-theme="dark"] .text-rose-600 { color: var(--danger-text) !important; }
+    html[data-theme="dark"] .text-rose-500 { color: color-mix(in srgb, var(--danger-text) 50%, var(--danger-border)) !important; }
+    html[data-theme="dark"] .text-rose-400 { color: var(--danger-border) !important; }
     html[data-theme="dark"] .bg-rose-600 { background-color: #e11d48 !important; }
     html[data-theme="dark"] .hover\:bg-rose-100:hover { background-color: color-mix(in srgb, var(--danger-bg), white 10%) !important; }
     html[data-theme="dark"] .hover\:bg-rose-50:hover { background-color: color-mix(in srgb, var(--danger-bg), white 4%) !important; }
     html[data-theme="dark"] .hover\:bg-rose-700:hover { background-color: #881337 !important; }
+    html[data-theme="dark"] .hover\:text-rose-600:hover { color: var(--danger-text) !important; }
 
     html[data-theme="dark"] .bg-amber-50 { background-color: var(--warn-bg) !important; }
     html[data-theme="dark"] .bg-amber-100\/50 {
@@ -685,6 +695,9 @@
 
     html[data-theme="dark"] .hover\:bg-slate-100:hover {
       background-color: color-mix(in srgb, var(--surface-1), white 6%) !important;
+    }
+    html[data-theme="dark"] .hover\:bg-slate-50:hover {
+      background-color: color-mix(in srgb, var(--surface-2), white 4%) !important;
     }
   </style>
   <script>
