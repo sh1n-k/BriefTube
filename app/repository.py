@@ -519,6 +519,7 @@ async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
             metadata_retry_count,
             metadata_next_fetch_at,
             metadata_last_http_status,
+            category_id,
             created_at
         FROM channels
         ORDER BY created_at DESC
