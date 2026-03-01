@@ -77,11 +77,13 @@ async def _texts(request: Request) -> dict[str, str]:
 async def _resolve_channel_management_state(
     request: Request,
     raw_status: str | None,
+    category_id: int | None = None,
 ) -> tuple[str, list[dict[str, object]], dict[str, int]]:
     channel_status = repository.normalize_channel_management_status(raw_status)
     channels = await repository.list_channels_for_management(
         request.app.state.runtime.db,
         status=channel_status,
+        category_id=category_id,
     )
     channel_counts = await repository.count_channels_by_status(request.app.state.runtime.db)
     return channel_status, channels, channel_counts
@@ -228,13 +230,19 @@ async def _probe_channel_reactivation(
 async def channel_list(
     request: Request,
     status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    category_id: int | None = Query(default=None),
 ):
-    channel_status, channels, channel_counts = await _resolve_channel_management_state(request, status)
+    channel_status, channels, channel_counts = await _resolve_channel_management_state(
+        request, status, category_id=category_id,
+    )
+    categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        categories=categories,
+        selected_category_id=category_id,
         **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(
@@ -672,6 +680,7 @@ async def reactivate_single_channel(
 async def video_list(
     request: Request,
     channel_id: str | None = Query(default=None),
+    category_id: int | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
@@ -680,7 +689,9 @@ async def video_list(
     if limit is None:
         limit = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
 
-    total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+    total = await repository.count_videos(
+        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
+    )
     total_pages = max(1, (total + limit - 1) // limit)
     current_page = min(max(1, page), total_pages)
     videos = await repository.list_videos(
@@ -690,18 +701,22 @@ async def video_list(
         order=order,
         page=current_page,
         limit=limit,
+        category_id=category_id,
     )
     channels = await repository.list_channels(request.app.state.runtime.db)
+    categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         videos=videos,
         channels=channels,
+        categories_for_filter=categories,
         pagination={
             "page": current_page,
             "limit": limit,
             "total": total,
             "total_pages": total_pages,
             "channel_id": channel_id or "",
+            "category_id": category_id if category_id is not None else "",
             "sort": sort,
             "order": order,
         },
@@ -730,8 +745,12 @@ async def delete_selected_videos(request: Request):
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
+    raw_cat = form.get("_category_id")
+    category_id = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
 
-    total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+    total = await repository.count_videos(
+        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
+    )
     total_pages = max(1, (total + limit_val - 1) // limit_val)
     current_page = min(max(1, page), total_pages)
     videos = await repository.list_videos(
@@ -741,18 +760,22 @@ async def delete_selected_videos(request: Request):
         order=order,
         page=current_page,
         limit=limit_val,
+        category_id=category_id,
     )
     channels = await repository.list_channels(request.app.state.runtime.db)
+    categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         videos=videos,
         channels=channels,
+        categories_for_filter=categories,
         pagination={
             "page": current_page,
             "limit": limit_val,
             "total": total,
             "total_pages": total_pages,
             "channel_id": channel_id or "",
+            "category_id": category_id if category_id is not None else "",
             "sort": sort,
             "order": order,
         },
@@ -821,8 +844,12 @@ async def download_selected_videos(request: Request):
             sort = str(form.get("_sort") or "upload_time")
             order = str(form.get("_order") or "desc")
             channel_id = str(form.get("_channel_id") or "") or None
+            raw_cat_early = form.get("_category_id")
+            category_id_early = int(raw_cat_early) if raw_cat_early and str(raw_cat_early).strip().isdigit() else None
 
-            total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+            total = await repository.count_videos(
+                request.app.state.runtime.db, channel_id=channel_id, category_id=category_id_early,
+            )
             total_pages = max(1, (total + limit_val - 1) // limit_val)
             current_page = min(max(1, page), total_pages)
             videos = await repository.list_videos(
@@ -832,18 +859,22 @@ async def download_selected_videos(request: Request):
                 order=order,
                 page=current_page,
                 limit=limit_val,
+                category_id=category_id_early,
             )
             channels = await repository.list_channels(request.app.state.runtime.db)
+            categories_early = await repository.list_categories(request.app.state.runtime.db)
             context = await build_template_context(
                 request,
                 videos=videos,
                 channels=channels,
+                categories_for_filter=categories_early,
                 pagination={
                     "page": current_page,
                     "limit": limit_val,
                     "total": total,
                     "total_pages": total_pages,
                     "channel_id": channel_id or "",
+                    "category_id": category_id_early if category_id_early is not None else "",
                     "sort": sort,
                     "order": order,
                 },
@@ -899,8 +930,12 @@ async def download_selected_videos(request: Request):
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
+    raw_cat_final = form.get("_category_id")
+    category_id_final = int(raw_cat_final) if raw_cat_final and str(raw_cat_final).strip().isdigit() else None
 
-    total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+    total = await repository.count_videos(
+        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id_final,
+    )
     total_pages = max(1, (total + limit_val - 1) // limit_val)
     current_page = min(max(1, page), total_pages)
     videos = await repository.list_videos(
@@ -910,18 +945,22 @@ async def download_selected_videos(request: Request):
         order=order,
         page=current_page,
         limit=limit_val,
+        category_id=category_id_final,
     )
     channels = await repository.list_channels(request.app.state.runtime.db)
+    categories_final = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         videos=videos,
         channels=channels,
+        categories_for_filter=categories_final,
         pagination={
             "page": current_page,
             "limit": limit_val,
             "total": total,
             "total_pages": total_pages,
             "channel_id": channel_id or "",
+            "category_id": category_id_final if category_id_final is not None else "",
             "sort": sort,
             "order": order,
         },

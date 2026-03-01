@@ -101,6 +101,8 @@ PIPELINE_STATUS_KEYS: tuple[str, ...] = (
     "done",
 )
 
+DEFAULT_CATEGORY_NAME = "미분류"
+
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
     if row is None:
@@ -219,6 +221,131 @@ def _normalize_error_message(value: str | None) -> str:
     return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
 
 
+async def get_default_category_id(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1 LIMIT 1")
+    row = await cursor.fetchone()
+    if row is None:
+        raise RuntimeError("default category not found")
+    return int(row["id"])
+
+
+async def list_categories(db: aiosqlite.Connection) -> list[dict[str, Any]]:
+    cursor = await db.execute(
+        """
+        SELECT c.id, c.name, c.sort_order, c.llm_enabled, c.is_default, c.created_at,
+               COUNT(ch.channel_id) AS channel_count
+        FROM categories c
+        LEFT JOIN channels ch ON ch.category_id = c.id
+        GROUP BY c.id
+        ORDER BY c.sort_order ASC, c.id ASC
+        """
+    )
+    rows = await cursor.fetchall()
+    return _rows_to_dicts(rows)
+
+
+async def create_category(db: aiosqlite.Connection, name: str) -> dict[str, Any]:
+    name = str(name).strip()
+    if not name:
+        raise ValueError("category name must not be empty")
+    cursor = await db.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM categories"
+    )
+    row = await cursor.fetchone()
+    next_order = int(row["next_order"]) if row else 0
+    try:
+        await db.execute(
+            "INSERT INTO categories (name, sort_order) VALUES (?, ?)",
+            (name, next_order),
+        )
+    except (aiosqlite.IntegrityError, sqlite3.IntegrityError):
+        raise ValueError(f"category name already exists: {name}")
+    await db.commit()
+    cat_cursor = await db.execute(
+        "SELECT id, name, sort_order, llm_enabled, is_default, created_at FROM categories WHERE name = ?",
+        (name,),
+    )
+    cat_row = await cat_cursor.fetchone()
+    return _row_to_dict(cat_row) or {}
+
+
+async def rename_category(db: aiosqlite.Connection, category_id: int, name: str) -> int:
+    name = str(name).strip()
+    if not name:
+        raise ValueError("category name must not be empty")
+    try:
+        cursor = await db.execute(
+            "UPDATE categories SET name = ? WHERE id = ?",
+            (name, category_id),
+        )
+    except (aiosqlite.IntegrityError, sqlite3.IntegrityError):
+        raise ValueError(f"category name already exists: {name}")
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def delete_category(db: aiosqlite.Connection, category_id: int) -> dict[str, int]:
+    cursor = await db.execute(
+        "SELECT is_default FROM categories WHERE id = ?",
+        (category_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("category not found")
+    if int(row["is_default"]):
+        raise ValueError("cannot delete default category")
+    default_id = await get_default_category_id(db)
+    move_cursor = await db.execute(
+        "UPDATE channels SET category_id = ? WHERE category_id = ?",
+        (default_id, category_id),
+    )
+    channels_moved = int(move_cursor.rowcount or 0)
+    await db.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+    await db.commit()
+    return {"deleted": 1, "channels_moved": channels_moved}
+
+
+async def update_category_llm_enabled(db: aiosqlite.Connection, category_id: int, llm_enabled: bool) -> int:
+    cursor = await db.execute(
+        "UPDATE categories SET llm_enabled = ? WHERE id = ?",
+        (1 if llm_enabled else 0, category_id),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def reorder_categories(db: aiosqlite.Connection, ordered_ids: list[int]) -> int:
+    updated = 0
+    for idx, cat_id in enumerate(ordered_ids):
+        cursor = await db.execute(
+            "UPDATE categories SET sort_order = ? WHERE id = ?",
+            (idx, cat_id),
+        )
+        updated += int(cursor.rowcount or 0)
+    await db.commit()
+    return updated
+
+
+async def move_channels_to_category(
+    db: aiosqlite.Connection,
+    channel_ids: list[str],
+    target_category_id: int,
+) -> int:
+    normalized = [cid for cid in dict.fromkeys(channel_ids) if cid]
+    if not normalized:
+        return 0
+    cat_cursor = await db.execute("SELECT id FROM categories WHERE id = ?", (target_category_id,))
+    if await cat_cursor.fetchone() is None:
+        raise ValueError("target category not found")
+    placeholders = ",".join(["?"] * len(normalized))
+    cursor = await db.execute(
+        f"UPDATE channels SET category_id = ? WHERE channel_id IN ({placeholders})",
+        (target_category_id, *normalized),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
 async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """
@@ -241,21 +368,30 @@ def normalize_channel_management_status(value: str | None) -> str:
 async def list_channels_for_management(
     db: aiosqlite.Connection,
     status: str = CHANNEL_MANAGEMENT_STATUS_ACTIVE,
+    category_id: int | None = None,
 ) -> list[dict[str, Any]]:
     normalized_status = normalize_channel_management_status(status)
     is_active = 1 if normalized_status == CHANNEL_MANAGEMENT_STATUS_ACTIVE else 0
+    params: list[object] = [ALERT_TYPE_RSS_CHANNEL_NOT_FOUND, is_active]
+    category_filter = ""
+    if category_id is not None:
+        category_filter = "AND c.category_id = ?"
+        params.append(category_id)
     cursor = await db.execute(
-        """
+        f"""
         SELECT
             c.channel_id,
             c.channel_name,
             c.rss_url,
             c.is_active,
             c.last_seen_published_at,
+            c.category_id,
             c.created_at,
+            cat.name AS category_name,
             sa.message AS inactive_reason,
             sa.created_at AS inactive_at
         FROM channels c
+        LEFT JOIN categories cat ON cat.id = c.category_id
         LEFT JOIN system_alerts sa
           ON sa.id = (
               SELECT s2.id
@@ -266,9 +402,10 @@ async def list_channels_for_management(
               LIMIT 1
           )
         WHERE c.is_active = ?
+        {category_filter}
         ORDER BY c.created_at DESC
         """,
-        (ALERT_TYPE_RSS_CHANNEL_NOT_FOUND, is_active),
+        tuple(params),
     )
     rows = await cursor.fetchall()
     return _rows_to_dicts(rows)
@@ -312,24 +449,31 @@ async def count_channels_by_status(db: aiosqlite.Connection) -> dict[str, int]:
     }
 
 
-async def add_channel(db: aiosqlite.Connection, channel_id: str, channel_name: str) -> dict[str, Any]:
+async def add_channel(
+    db: aiosqlite.Connection,
+    channel_id: str,
+    channel_name: str,
+    category_id: int | None = None,
+) -> dict[str, Any]:
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    if category_id is None:
+        category_id = await get_default_category_id(db)
     await db.execute(
         """
-        INSERT INTO channels (channel_id, channel_name, rss_url, is_active)
-        VALUES (?, ?, ?, 1)
+        INSERT INTO channels (channel_id, channel_name, rss_url, is_active, category_id)
+        VALUES (?, ?, ?, 1, ?)
         ON CONFLICT(channel_id) DO UPDATE SET
             channel_name=excluded.channel_name,
             rss_url=excluded.rss_url,
             is_active=1
         """,
-        (channel_id, channel_name, rss_url),
+        (channel_id, channel_name, rss_url, category_id),
     )
     await db.commit()
 
     cursor = await db.execute(
         """
-        SELECT channel_id, channel_name, rss_url, is_active, last_seen_published_at, created_at
+        SELECT channel_id, channel_name, rss_url, is_active, last_seen_published_at, category_id, created_at
         FROM channels
         WHERE channel_id = ?
         """,
@@ -417,54 +561,44 @@ async def list_videos(
     order: str,
     page: int,
     limit: int,
+    category_id: int | None = None,
 ) -> list[dict[str, Any]]:
     sort_column = "upload_time" if sort not in {"upload_time", "created_at"} else sort
     order_sql = "ASC" if order.lower() == "asc" else "DESC"
     offset = (max(page, 1) - 1) * max(limit, 1)
 
+    conditions: list[str] = []
+    params: list[object] = []
     if channel_id:
-        cursor = await db.execute(
-            f"""
-            SELECT
-                v.video_id,
-                v.channel_id,
-                c.channel_name AS channel_name,
-                v.title,
-                v.upload_time,
-                v.thumbnail_path,
-                v.pipeline_status,
-                v.retry_count,
-                v.created_at,
-                v.viewed_at
-            FROM videos v
-            LEFT JOIN channels c ON c.channel_id = v.channel_id
-            WHERE v.channel_id = ?
-            ORDER BY v.{sort_column} {order_sql}
-            LIMIT ? OFFSET ?
-            """,
-            (channel_id, limit, offset),
-        )
-    else:
-        cursor = await db.execute(
-            f"""
-            SELECT
-                v.video_id,
-                v.channel_id,
-                c.channel_name AS channel_name,
-                v.title,
-                v.upload_time,
-                v.thumbnail_path,
-                v.pipeline_status,
-                v.retry_count,
-                v.created_at,
-                v.viewed_at
-            FROM videos v
-            LEFT JOIN channels c ON c.channel_id = v.channel_id
-            ORDER BY v.{sort_column} {order_sql}
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        )
+        conditions.append("v.channel_id = ?")
+        params.append(channel_id)
+    if category_id is not None:
+        conditions.append("c.category_id = ?")
+        params.append(category_id)
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    params.extend([limit, offset])
+
+    cursor = await db.execute(
+        f"""
+        SELECT
+            v.video_id,
+            v.channel_id,
+            c.channel_name AS channel_name,
+            v.title,
+            v.upload_time,
+            v.thumbnail_path,
+            v.pipeline_status,
+            v.retry_count,
+            v.created_at,
+            v.viewed_at
+        FROM videos v
+        LEFT JOIN channels c ON c.channel_id = v.channel_id
+        {where_clause}
+        ORDER BY v.{sort_column} {order_sql}
+        LIMIT ? OFFSET ?
+        """,
+        tuple(params),
+    )
 
     rows = await cursor.fetchall()
     return [_with_thumbnail_url(item) for item in _rows_to_dicts(rows)]
@@ -473,14 +607,23 @@ async def list_videos(
 async def count_videos(
     db: aiosqlite.Connection,
     channel_id: str | None = None,
+    category_id: int | None = None,
 ) -> int:
+    conditions: list[str] = []
+    params: list[object] = []
+    joins = ""
     if channel_id:
-        cursor = await db.execute(
-            "SELECT COUNT(1) AS cnt FROM videos WHERE channel_id = ?",
-            (channel_id,),
-        )
-    else:
-        cursor = await db.execute("SELECT COUNT(1) AS cnt FROM videos")
+        conditions.append("v.channel_id = ?")
+        params.append(channel_id)
+    if category_id is not None:
+        joins = "LEFT JOIN channels c ON c.channel_id = v.channel_id"
+        conditions.append("c.category_id = ?")
+        params.append(category_id)
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    cursor = await db.execute(
+        f"SELECT COUNT(1) AS cnt FROM videos v {joins} {where_clause}",
+        tuple(params),
+    )
     row = await cursor.fetchone()
     if row is None:
         return 0
@@ -940,8 +1083,11 @@ async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> d
             t.raw_text
         FROM videos v
         JOIN transcripts t ON t.video_id = v.video_id
+        LEFT JOIN channels ch ON ch.channel_id = v.channel_id
+        LEFT JOIN categories cat ON cat.id = ch.category_id
         WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
           AND v.retry_count < ?
+          AND COALESCE(cat.llm_enabled, 1) = 1
         ORDER BY v.created_at ASC
         LIMIT 1
         """,
@@ -1140,8 +1286,11 @@ async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
     cursor = await db.execute(
         """
         SELECT COUNT(1) AS cnt
-        FROM videos
-        WHERE pipeline_status = 'llm_pending'
+        FROM videos v
+        LEFT JOIN channels ch ON ch.channel_id = v.channel_id
+        LEFT JOIN categories cat ON cat.id = ch.category_id
+        WHERE v.pipeline_status = 'llm_pending'
+          AND COALESCE(cat.llm_enabled, 1) = 1
         """
     )
     row = await cursor.fetchone()

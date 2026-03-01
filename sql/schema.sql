@@ -1,9 +1,20 @@
+CREATE TABLE IF NOT EXISTS categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    llm_enabled INTEGER NOT NULL DEFAULT 1,
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_categories_sort ON categories(sort_order ASC, id ASC);
+
 CREATE TABLE IF NOT EXISTS channels (
     channel_id              TEXT PRIMARY KEY,
     channel_name            TEXT NOT NULL,
     rss_url                 TEXT NOT NULL,
     is_active               INTEGER NOT NULL DEFAULT 1,
     last_seen_published_at  TEXT,
+    category_id             INTEGER REFERENCES categories(id),
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

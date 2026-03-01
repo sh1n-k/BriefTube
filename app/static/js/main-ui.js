@@ -1904,6 +1904,85 @@
         });
       }
 
+      function initCategorySortable(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-category-list]").forEach((list) => {
+          if (list.dataset.sortableBound === "1") return;
+          if (typeof Sortable === "undefined") return;
+          list.dataset.sortableBound = "1";
+          Sortable.create(list, {
+            handle: "[data-drag-handle]",
+            filter: "[data-no-drag]",
+            animation: 150,
+            onEnd: () => {
+              const items = list.querySelectorAll("[data-category-id]");
+              const ordered_ids = [];
+              items.forEach((el) => {
+                const id = el.getAttribute("data-category-id");
+                if (id) ordered_ids.push(parseInt(id, 10));
+              });
+              if (ordered_ids.length === 0) return;
+              fetch("/api/categories/reorder", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ordered_ids }),
+              });
+            },
+          });
+        });
+      }
+
+      function bindCategorySortable(scope) {
+        initCategorySortable(scope);
+      }
+
+      function initChannelMoveCategory(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-channel-move-submit]").forEach((btn) => {
+          if (btn.dataset.moveBound === "1") return;
+          btn.dataset.moveBound = "1";
+          btn.addEventListener("click", async () => {
+            const wrap = btn.closest("[data-channel-move-category]");
+            if (!wrap) return;
+            const select = wrap.querySelector("[data-channel-move-target]");
+            if (!select) return;
+            const categoryId = select.value;
+            if (!categoryId) return;
+            const form = btn.closest("form") || btn.closest("[data-channel-manage-form]");
+            if (!form) return;
+            const checked = form.querySelectorAll("[data-channel-select-item]:checked");
+            const channelIds = [];
+            checked.forEach((cb) => {
+              if (cb.value) channelIds.push(cb.value);
+            });
+            if (channelIds.length === 0) return;
+            try {
+              const resp = await fetch(`/api/categories/${categoryId}/channels`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ channel_ids: channelIds }),
+              });
+              if (resp.ok) {
+                showUiToast(btn.closest("[data-channel-move-category]")?.dataset?.moveToast || "Moved", "success");
+                const sidebar = document.querySelector("#category-sidebar");
+                if (sidebar) {
+                  htmx.ajax("GET", "/views/channel-list?" + new URLSearchParams(window.location.search).toString(), {
+                    target: "#channel-list-wrap",
+                    swap: "innerHTML",
+                  });
+                }
+              }
+            } catch (_err) {
+              // ignore
+            }
+          });
+        });
+      }
+
+      function bindChannelMoveCategory(scope) {
+        initChannelMoveCategory(scope);
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         const themeState = getThemeState();
         applyTheme(themeState.mode, themeState.tone, { persist: false });
@@ -1931,6 +2010,8 @@
         bindDownloadRetryButtons(document);
         startDownloadProgressPolling();
         bindNavTransitions(document);
+        bindCategorySortable(document);
+        bindChannelMoveCategory(document);
         revealPageShell();
       });
       window.addEventListener("pageshow", () => {
@@ -2002,5 +2083,7 @@
         bindVideoDownloadButtons(event.target);
         bindDownloadDetailButtons(event.target);
         bindDownloadRetryButtons(event.target);
+        bindCategorySortable(event.target);
+        bindChannelMoveCategory(event.target);
       });
     })();
