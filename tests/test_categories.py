@@ -29,7 +29,7 @@ def test_create_category(client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["name"] == "기술"
-    assert data["llm_enabled"] == 1
+    assert data["processing_stage"] == "off"
     assert data["is_default"] == 0
 
 
@@ -68,15 +68,29 @@ def test_rename_category(client: TestClient) -> None:
     assert rename_resp.json()["renamed"] is True
 
 
-def test_update_category_llm_enabled(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "llm테스트"})
+def test_category_processing_stage_contract(client: TestClient) -> None:
+    resp = client.post("/api/categories", json={"name": "스테이지테스트"})
     cat_id = resp.json()["id"]
-    toggle_resp = client.put(
+    categories = client.get("/api/categories").json()
+    created = [c for c in categories if c["id"] == cat_id][0]
+    assert created["processing_stage"] in {"off", "transcript_only", "full"}
+    assert created["processing_stage"] == "off"
+    update_resp = client.put(
         f"/api/categories/{cat_id}",
-        json={"llm_enabled": False},
+        json={"processing_stage": "full"},
     )
-    assert toggle_resp.status_code == 200
-    assert toggle_resp.json()["llm_enabled"] is False
+    assert update_resp.status_code == 200
+    assert update_resp.json()["processing_stage"] == "full"
+
+
+def test_category_processing_stage_rejects_invalid_value(client: TestClient) -> None:
+    resp = client.post("/api/categories", json={"name": "스테이지오류"})
+    cat_id = resp.json()["id"]
+    update_resp = client.put(
+        f"/api/categories/{cat_id}",
+        json={"processing_stage": "invalid-stage"},
+    )
+    assert update_resp.status_code == 400
 
 
 def test_delete_category(client: TestClient) -> None:

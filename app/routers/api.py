@@ -148,20 +148,26 @@ async def reorder_categories(request: Request):
 async def update_category(category_id: int, request: Request):
     content_type = request.headers.get("content-type", "")
     name: str | None = None
-    llm_enabled: bool | None = None
+    processing_stage: str | None = None
     if "application/json" in content_type:
         payload = await request.json()
         if "name" in payload:
             name = str(payload.get("name", "")).strip()
-        if "llm_enabled" in payload:
-            llm_enabled = _parse_bool_input(payload.get("llm_enabled"), default=True)
+        if "processing_stage" in payload:
+            try:
+                processing_stage = repository.parse_category_processing_stage(payload.get("processing_stage"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
     else:
         body = (await request.body()).decode("utf-8")
         parsed = parse_qs(body)
         if "name" in parsed:
             name = str(parsed["name"][0]).strip()
-        if "llm_enabled" in parsed:
-            llm_enabled = _parse_bool_input(parsed["llm_enabled"][0], default=True)
+        if "processing_stage" in parsed:
+            try:
+                processing_stage = repository.parse_category_processing_stage(parsed["processing_stage"][0])
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
 
     result: dict[str, object] = {"ok": True}
     try:
@@ -170,11 +176,15 @@ async def update_category(category_id: int, request: Request):
             if rows == 0:
                 raise HTTPException(status_code=404, detail="category not found")
             result["renamed"] = True
-        if llm_enabled is not None:
-            rows = await repository.update_category_llm_enabled(request.app.state.runtime.db, category_id, llm_enabled)
+        if processing_stage is not None:
+            rows = await repository.update_category_processing_stage(
+                request.app.state.runtime.db,
+                category_id,
+                processing_stage,
+            )
             if rows == 0:
                 raise HTTPException(status_code=404, detail="category not found")
-            result["llm_enabled"] = llm_enabled
+            result["processing_stage"] = processing_stage
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return result

@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 
 
 STATUS_CLASS_EXPECTATIONS = {
+    "auto_paused": "status-badge--no-subtitle",
     "transcript_pending": "status-badge--transcript-pending",
     "transcript_processing": "status-badge--transcript-processing",
+    "transcript_done": "status-badge--done",
     "transcript_failed": "status-badge--transcript-failed",
     "llm_pending": "status-badge--llm-pending",
     "llm_processing": "status-badge--llm-processing",
@@ -123,8 +125,10 @@ def test_status_badge_color_tokens_keep_readable_contrast() -> None:
     }
 
     status_pairs = {
+        "auto_paused": ("status-no-subtitle-text", "status-no-subtitle-bg"),
         "transcript_pending": ("status-transcript-pending-text", "status-transcript-pending-bg"),
         "transcript_processing": ("status-transcript-processing-text", "status-transcript-processing-bg"),
+        "transcript_done": ("status-done-text", "status-done-bg"),
         "transcript_failed": ("status-transcript-failed-text", "status-transcript-failed-bg"),
         "llm_pending": ("status-llm-pending-text", "status-llm-pending-bg"),
         "llm_processing": ("status-llm-processing-text", "status-llm-processing-bg"),

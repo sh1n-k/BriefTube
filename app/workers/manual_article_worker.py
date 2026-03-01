@@ -242,6 +242,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                     language=language,
                     source_type=source_type,
                     thumbnail_path=None,
+                    force_llm_pending=True,
                 )
                 await repository.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
                 llm_wake_event = getattr(state, "llm_wake_event", None)

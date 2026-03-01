@@ -9,10 +9,6 @@ from app.database import init_database, open_database
 from app import repository
 
 
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
-
-
 @pytest.fixture()
 def db(tmp_path: Path):
     loop = asyncio.new_event_loop()
@@ -41,68 +37,100 @@ def _add_channel(db, channel_id: str, name: str) -> dict:
     return db.run(repository.add_channel(db.conn, channel_id=channel_id, channel_name=name))
 
 
-def _add_video_with_transcript(db, video_id: str, channel_id: str, status: str = "llm_pending") -> None:
-    db.run(db.conn.execute(
-        "INSERT INTO videos (video_id, channel_id, title, upload_time, pipeline_status) VALUES (?, ?, ?, datetime('now'), ?)",
-        (video_id, channel_id, f"Test {video_id}", status),
-    ))
-    db.run(db.conn.execute(
-        "INSERT INTO transcripts (video_id, raw_text, source_type) VALUES (?, ?, ?)",
-        (video_id, f"Transcript for {video_id}", "auto"),
-    ))
-    db.run(db.conn.commit())
+def _insert_video(db, *, video_id: str, channel_id: str) -> None:
+    inserted = db.run(
+        repository.insert_video_if_absent(
+            db.conn,
+            video_id=video_id,
+            channel_id=channel_id,
+            title=f"Test {video_id}",
+            upload_time="2026-02-20T00:00:00+00:00",
+        )
+    )
+    assert inserted is True
 
 
-def test_llm_disabled_category_excluded_from_pop(db) -> None:
-    cat = db.run(repository.create_category(db.conn, "LLM비활성"))
-    db.run(repository.update_category_llm_enabled(db.conn, cat["id"], False))
-    _add_channel(db, "UC_llm_off", "LLM Off Channel")
-    db.run(repository.move_channels_to_category(db.conn, ["UC_llm_off"], cat["id"]))
-    _add_video_with_transcript(db, "vid_llm_off", "UC_llm_off")
+def _save_transcript(db, *, video_id: str) -> None:
+    db.run(
+        repository.save_transcript(
+            db.conn,
+            video_id=video_id,
+            raw_text=f"Transcript for {video_id}",
+            language="ko",
+            source_type="auto",
+            thumbnail_path=None,
+        )
+    )
 
+
+def _video_state(db, video_id: str) -> tuple[str, str]:
+    cursor = db.run(
+        db.conn.execute(
+            "SELECT pipeline_status, processing_stage_snapshot FROM videos WHERE video_id = ?",
+            (video_id,),
+        )
+    )
+    row = db.run(cursor.fetchone())
+    assert row is not None
+    return str(row["pipeline_status"]), str(row["processing_stage_snapshot"])
+
+
+def test_processing_stage_off_inserts_auto_paused(db) -> None:
+    cat = db.run(repository.create_category(db.conn, "중지"))
+    _add_channel(db, "UC_stage_off", "Stage Off")
+    db.run(repository.move_channels_to_category(db.conn, ["UC_stage_off"], cat["id"]))
+    _insert_video(db, video_id="vid_stage_off", channel_id="UC_stage_off")
+
+    status, snapshot = _video_state(db, "vid_stage_off")
+    assert status == "auto_paused"
+    assert snapshot == "off"
+
+
+def test_processing_stage_transcript_only_stops_at_transcript_done(db) -> None:
+    cat = db.run(repository.create_category(db.conn, "자막전용"))
+    db.run(repository.update_category_processing_stage(db.conn, cat["id"], "transcript_only"))
+    _add_channel(db, "UC_stage_tx", "Stage Transcript Only")
+    db.run(repository.move_channels_to_category(db.conn, ["UC_stage_tx"], cat["id"]))
+    _insert_video(db, video_id="vid_stage_tx", channel_id="UC_stage_tx")
+    _save_transcript(db, video_id="vid_stage_tx")
+
+    status, snapshot = _video_state(db, "vid_stage_tx")
+    assert status == "transcript_done"
+    assert snapshot == "transcript_only"
     candidate = db.run(repository.pop_llm_candidate(db.conn, max_retry_count=3))
     assert candidate is None
 
 
-def test_llm_enabled_category_included_in_pop(db) -> None:
-    cat = db.run(repository.create_category(db.conn, "LLM활성"))
-    db.run(repository.update_category_llm_enabled(db.conn, cat["id"], True))
-    _add_channel(db, "UC_llm_on", "LLM On Channel")
-    db.run(repository.move_channels_to_category(db.conn, ["UC_llm_on"], cat["id"]))
-    _add_video_with_transcript(db, "vid_llm_on", "UC_llm_on")
+def test_processing_stage_full_queues_llm_candidate(db) -> None:
+    cat = db.run(repository.create_category(db.conn, "전체처리"))
+    db.run(repository.update_category_processing_stage(db.conn, cat["id"], "full"))
+    _add_channel(db, "UC_stage_full", "Stage Full")
+    db.run(repository.move_channels_to_category(db.conn, ["UC_stage_full"], cat["id"]))
+    _insert_video(db, video_id="vid_stage_full", channel_id="UC_stage_full")
+    _save_transcript(db, video_id="vid_stage_full")
 
+    status, snapshot = _video_state(db, "vid_stage_full")
+    assert status == "llm_pending"
+    assert snapshot == "full"
     candidate = db.run(repository.pop_llm_candidate(db.conn, max_retry_count=3))
     assert candidate is not None
-    assert candidate["video_id"] == "vid_llm_on"
+    assert candidate["video_id"] == "vid_stage_full"
 
 
-def test_null_category_treated_as_enabled(db) -> None:
-    db.run(db.conn.execute(
-        "INSERT INTO channels (channel_id, channel_name, rss_url) VALUES (?, ?, ?)",
-        ("UC_null_cat", "Null Cat Channel", "https://example.com/rss"),
-    ))
-    db.run(db.conn.execute(
-        "UPDATE channels SET category_id = NULL WHERE channel_id = 'UC_null_cat'",
-    ))
-    db.run(db.conn.commit())
-    _add_video_with_transcript(db, "vid_null_cat", "UC_null_cat")
+def test_count_llm_pending_counts_only_full_stage(db) -> None:
+    cat_full = db.run(repository.create_category(db.conn, "카운트전체"))
+    db.run(repository.update_category_processing_stage(db.conn, cat_full["id"], "full"))
+    _add_channel(db, "UC_cnt_full", "Count Full")
+    db.run(repository.move_channels_to_category(db.conn, ["UC_cnt_full"], cat_full["id"]))
+    _insert_video(db, video_id="vid_cnt_full", channel_id="UC_cnt_full")
+    _save_transcript(db, video_id="vid_cnt_full")
 
-    candidate = db.run(repository.pop_llm_candidate(db.conn, max_retry_count=3))
-    assert candidate is not None
-    assert candidate["video_id"] == "vid_null_cat"
-
-
-def test_count_llm_pending_respects_category(db) -> None:
-    cat_off = db.run(repository.create_category(db.conn, "카운트비활성"))
-    db.run(repository.update_category_llm_enabled(db.conn, cat_off["id"], False))
-    _add_channel(db, "UC_cnt_off", "Count Off")
-    db.run(repository.move_channels_to_category(db.conn, ["UC_cnt_off"], cat_off["id"]))
-    _add_video_with_transcript(db, "vid_cnt_off", "UC_cnt_off")
-
-    cat_on = db.run(repository.create_category(db.conn, "카운트활성"))
-    _add_channel(db, "UC_cnt_on", "Count On")
-    db.run(repository.move_channels_to_category(db.conn, ["UC_cnt_on"], cat_on["id"]))
-    _add_video_with_transcript(db, "vid_cnt_on", "UC_cnt_on")
+    cat_tx = db.run(repository.create_category(db.conn, "카운트자막"))
+    db.run(repository.update_category_processing_stage(db.conn, cat_tx["id"], "transcript_only"))
+    _add_channel(db, "UC_cnt_tx", "Count Transcript")
+    db.run(repository.move_channels_to_category(db.conn, ["UC_cnt_tx"], cat_tx["id"]))
+    _insert_video(db, video_id="vid_cnt_tx", channel_id="UC_cnt_tx")
+    _save_transcript(db, video_id="vid_cnt_tx")
 
     count = db.run(repository.count_llm_pending_videos(db.conn))
     assert count == 1
