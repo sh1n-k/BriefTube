@@ -10,12 +10,12 @@ import httpx
 
 CHANNEL_ID_RE = re.compile(r"UC[-_A-Za-z0-9]{22}")
 YOUTUBE_URL_RE = re.compile(r"https?://(?:www\.)?youtube\.com/[^\s]+", re.IGNORECASE)
-HANDLE_RE = re.compile(r"^@[A-Za-z0-9_.-]+$")
+HANDLE_RE = re.compile(r"^@[\w._-]+$", re.UNICODE)
 
 CHANNEL_ID_PATTERNS = [
-    re.compile(r'"channelId":"(UC[-_A-Za-z0-9]{22})"'),
     re.compile(r'"externalId":"(UC[-_A-Za-z0-9]{22})"'),
     re.compile(r'"browseId":"(UC[-_A-Za-z0-9]{22})"'),
+    re.compile(r'"channelId":"(UC[-_A-Za-z0-9]{22})"'),
 ]
 
 OG_TITLE_PATTERN = re.compile(r'<meta\s+property="og:title"\s+content="([^"]+)"', re.IGNORECASE)
