@@ -72,6 +72,7 @@
           {# ── Category move dropdown ── #}
           {% set all_categories = categories if categories is defined else [] %}
           {% if all_categories and current_status == "active" %}
+          {% set selected_move_category_id = selected_category_id if selected_category_id is defined else None %}
           <div
             class="flex items-center gap-1"
             data-channel-move-category
@@ -81,7 +82,7 @@
           >
             <select name="move_category_id" data-channel-move-target class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
               {% for cat in all_categories %}
-              <option value="{{ cat.id }}">{{ txt.category_default_name if cat.is_default else cat.name }}</option>
+              <option value="{{ cat.id }}" {% if selected_move_category_id is not none and cat.id == selected_move_category_id %}selected{% endif %}>{{ txt.category_default_name if cat.is_default else cat.name }}</option>
               {% endfor %}
             </select>
             <button

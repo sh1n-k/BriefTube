@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -36,6 +38,21 @@ def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: Test
     assert 'name="bulk_action"' in html
     assert 'value="delete"' in html
     assert 'name="status" value="inactive"' in html
+
+
+def test_channel_list_move_dropdown_selects_current_category(client: TestClient) -> None:
+    created = client.post("/api/categories", json={"name": "선택카테고리"})
+    assert created.status_code == 200
+    category_id = int(created.json()["id"])
+
+    response = client.get(f"/views/channel-list?status=active&category_id={category_id}")
+    assert response.status_code == 200
+    html = response.text
+
+    assert re.search(
+        fr'<option value="{category_id}"\s+selected>선택카테고리</option>',
+        html,
+    )
 
 
 def test_index_poll_button_disables_swap(client: TestClient) -> None:
