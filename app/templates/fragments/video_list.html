@@ -30,7 +30,7 @@
         {% for cat in categories_for_filter %}
           <option value="{{ cat.id }}"
             {% if pager.category_id is defined and pager.category_id|string == cat.id|string %}selected{% endif %}>
-            {{ cat.name }} ({{ cat.channel_count }})
+            {{ txt.category_default_name if cat.is_default else cat.name }} ({{ cat.channel_count }})
           </option>
         {% endfor %}
       </select>

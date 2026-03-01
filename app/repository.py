@@ -423,6 +423,7 @@ async def list_channels_for_management(
             c.category_id,
             c.created_at,
             cat.name AS category_name,
+            COALESCE(cat.is_default, 0) AS category_is_default,
             sa.message AS inactive_reason,
             sa.created_at AS inactive_at
         FROM channels c

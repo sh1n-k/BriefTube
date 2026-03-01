@@ -81,7 +81,7 @@
           >
             <select name="move_category_id" data-channel-move-target class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
               {% for cat in all_categories %}
-              <option value="{{ cat.id }}">{{ cat.name }}</option>
+              <option value="{{ cat.id }}">{{ txt.category_default_name if cat.is_default else cat.name }}</option>
               {% endfor %}
             </select>
             <button
@@ -145,7 +145,9 @@
                   <div class="flex items-center gap-2 text-xs text-slate-500">
                     <span class="truncate font-mono">{{ channel.channel_id }}</span>
                     {% if channel.category_name is defined and channel.category_name %}
-                    <span class="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{{ channel.category_name }}</span>
+                    <span class="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                      {{ txt.category_default_name if channel.category_is_default else channel.category_name }}
+                    </span>
                     {% endif %}
                   </div>
                   {% if current_status == "inactive" %}

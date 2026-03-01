@@ -33,3 +33,4 @@ def test_channels_page_switches_to_english(client: TestClient) -> None:
     assert "Back to Videos" in response.text
     assert "Active" in response.text
     assert "Inactive" in response.text
+    assert "Uncategorized" in response.text
