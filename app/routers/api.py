@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from urllib.parse import parse_qs
 from starlette.datastructures import UploadFile
@@ -10,8 +11,14 @@ from fastapi.responses import JSONResponse
 from app import repository
 from app.download_error_registry import build_download_error_payload
 from app.domains.downloads import enqueue_video_download, retry_download_job as retry_download_job_request
-from app.i18n import SUPPORTED_LANGUAGES, normalize_language
+from app.i18n import SUPPORTED_LANGUAGES, get_texts, normalize_language
 from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
+from app.services.llm_runtime import (
+    LlmRuntimeStatus,
+    is_runtime_ready_for_resume,
+    resolve_llm_runtime_status,
+    runtime_reason_text_key,
+)
 from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
@@ -59,6 +66,37 @@ def _build_transcript_header_payload(overrides: dict[str, str]) -> dict[str, obj
         "defaults": defaults,
         "values": values,
         "multiline": format_headers_multiline(values),
+    }
+
+
+def _build_llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
+    payload = {
+        "llm-runtime-toast": {
+            "message": message,
+            "tone": tone,
+        }
+    }
+    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+
+
+async def _resolve_llm_runtime_status(request: Request) -> dict[str, object]:
+    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
+    runtime_issue = await repository.get_llm_runtime_issue(request.app.state.runtime.db)
+    pending_count = await repository.count_llm_pending_videos(request.app.state.runtime.db)
+    status = resolve_llm_runtime_status(
+        llm_client=request.app.state.runtime.llm_client,
+        llm_settings=llm_settings,
+        runtime_issue=runtime_issue,
+        pending_count=pending_count,
+    )
+    return {
+        "ready": status.ready,
+        "code": status.code,
+        "reason": status.reason,
+        "reason_text_key": runtime_reason_text_key(status.code),
+        "providers_to_try": status.providers_to_try,
+        "warnings": status.warnings,
+        "pending_count": status.pending_count,
     }
 
 
@@ -496,6 +534,8 @@ async def get_settings(request: Request):
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
+    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
+    llm_runtime_status = await _resolve_llm_runtime_status(request)
     return {
         "language": normalize_language(language),
         "timezone": normalize_timezone(timezone_value),
@@ -505,6 +545,8 @@ async def get_settings(request: Request):
         "transcript_guard": transcript_guard,
         "transcript_request_headers": transcript_request_headers,
         "download_defaults": download_defaults,
+        "llm_settings": llm_settings,
+        "llm_runtime_status": llm_runtime_status,
         "ffmpeg_available": is_ffmpeg_available(),
     }
 
@@ -569,6 +611,104 @@ async def set_transcript_request_headers(request: Request):
         "ok": True,
         "transcript_request_headers": payload,
     }
+
+
+@router.put("/settings/llm")
+async def set_llm_settings(request: Request):
+    content_type = request.headers.get("content-type", "")
+    provider_primary: str | None = None
+    provider_fallback: str | None = None
+    prompt_template: str | None = None
+
+    if "application/json" in content_type:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="llm payload must be object")
+        if "provider_primary" in payload:
+            provider_primary = str(payload.get("provider_primary", "")).strip().lower()
+        if "provider_fallback" in payload:
+            provider_fallback = str(payload.get("provider_fallback", "")).strip().lower()
+        if "prompt_template" in payload:
+            prompt_template = str(payload.get("prompt_template", ""))
+    else:
+        form = await request.form()
+        if "llm_provider_primary" in form:
+            provider_primary = str(form.get("llm_provider_primary", "")).strip().lower()
+        if "llm_provider_fallback" in form:
+            provider_fallback = str(form.get("llm_provider_fallback", "")).strip().lower()
+        if "llm_prompt_template" in form:
+            prompt_template = str(form.get("llm_prompt_template", ""))
+
+    if provider_primary is None and provider_fallback is None and prompt_template is None:
+        raise HTTPException(status_code=400, detail="empty llm settings payload")
+
+    try:
+        saved = await repository.set_llm_settings(
+            request.app.state.runtime.db,
+            provider_primary=provider_primary,
+            provider_fallback=provider_fallback,
+            prompt_template=prompt_template,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "ok": True,
+        "llm_settings": saved,
+    }
+
+
+@router.get("/settings/llm/runtime-status")
+async def get_llm_runtime_status(request: Request):
+    return await _resolve_llm_runtime_status(request)
+
+
+@router.post("/settings/llm/resume")
+async def resume_llm_runtime(request: Request):
+    language = normalize_language(
+        await repository.get_setting(
+            request.app.state.runtime.db,
+            key="language",
+            default="ko",
+        )
+    )
+    txt = get_texts(language)
+    status_payload = await _resolve_llm_runtime_status(request)
+    status = LlmRuntimeStatus(
+        ready=bool(status_payload.get("ready")),
+        code=str(status_payload.get("code") or ""),
+        reason=str(status_payload.get("reason") or ""),
+        providers_to_try=list(status_payload.get("providers_to_try") or []),
+        warnings=list(status_payload.get("warnings") or []),
+        pending_count=int(status_payload.get("pending_count") or 0),
+    )
+    if not is_runtime_ready_for_resume(status):
+        reason_key = runtime_reason_text_key(str(status_payload.get("code") or ""))
+        reason_text = txt.get(reason_key, txt["settings_llm_runtime_reason_generic"])
+        message = txt["settings_llm_runtime_resume_blocked_toast"].format(reason=reason_text)
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "status": status_payload},
+            headers=_build_llm_runtime_toast_header(message, "error"),
+        )
+
+    pending_count = int(status_payload["pending_count"])
+    if pending_count > 0:
+        request.app.state.runtime.llm_wake_event.set()
+        message = txt["settings_llm_runtime_resume_requested_toast"].format(count=pending_count)
+        tone = "success"
+    else:
+        message = txt["settings_llm_runtime_resume_no_pending_toast"]
+        tone = "info"
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ok": True,
+            "resumed_count": pending_count,
+            "status": status_payload,
+        },
+        headers=_build_llm_runtime_toast_header(message, tone),
+    )
 
 
 @router.put("/settings/language")

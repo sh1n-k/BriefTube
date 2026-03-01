@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
@@ -18,6 +19,19 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "수집/보관 정책" in response.text
     assert "워커 제어" in response.text
     assert "영상 다운로드" in response.text
+    assert "LLM 재구조화" in response.text
+    assert "재구조화 프롬프트 템플릿" in response.text
+    assert "{transcript_text}는 필수" in response.text
+    assert "런타임 상태" in response.text
+    assert "다시 점검" in response.text
+    assert "인증 완료 후 재개" in response.text
+    assert 'id="llm-runtime-status"' in response.text
+    assert 'hx-get="/views/settings/llm/runtime-status"' in response.text
+    assert 'hx-post="/views/settings/llm/resume"' in response.text
+    assert 'name="llm_provider_primary"' in response.text
+    assert 'name="llm_provider_fallback"' in response.text
+    assert 'name="llm_prompt_template"' in response.text
+    assert 'hx-put="/api/settings/llm"' in response.text
     assert "기본 화질 상한" in response.text
     assert "다운로드 저장 경로" in response.text
     assert 'name="download_output_dir"' in response.text
@@ -85,6 +99,20 @@ def test_settings_page_guard_cooldown_until_respects_timezone_setting(client: Te
     assert response.status_code == 200
     assert "2026-02-24 19:00" in response.text
     assert "2026-02-25T00:00:00+00:00" not in response.text
+
+
+def test_settings_llm_resume_view_returns_runtime_fragment_and_toast(client: TestClient) -> None:
+    response = client.post("/views/settings/llm/resume")
+    assert response.status_code == 200
+    assert 'id="llm-runtime-status"' in response.text
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "llm-runtime-toast" in trigger
+
+
+def test_settings_llm_runtime_status_fragment_renders(client: TestClient) -> None:
+    response = client.get("/views/settings/llm/runtime-status")
+    assert response.status_code == 200
+    assert 'id="llm-runtime-status"' in response.text
 
 
 @pytest.mark.parametrize("bulk_text", ["resolved-only"])

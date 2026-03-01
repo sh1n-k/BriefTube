@@ -19,7 +19,7 @@ from app.domains.downloads import recover_stuck_running_jobs, resolve_download_f
 from app.logging_setup import configure_logging
 from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
-from app.services.llm import OpenClawClient
+from app.services.llm import UnifiedLlmClient
 from app.services.rss import RSSService
 from app.services.transcript_headers import merge_with_default_headers
 from app.services.telegram import TelegramNotifier
@@ -86,11 +86,8 @@ async def lifespan(app: FastAPI):
         rss_service=RSSService(http_client, timeout_seconds=config.rss_timeout_seconds),
         transcript_service=TranscriptService(http_client),
         channel_resolver=ChannelResolverService(http_client),
-        llm_client=OpenClawClient(
-            client=http_client,
-            api_url=config.openclaw_api_url,
-            api_key=config.openclaw_api_key,
-            timeout_seconds=config.openclaw_timeout_seconds,
+        llm_client=UnifiedLlmClient(
+            timeout_seconds=config.llm_timeout_seconds,
         ),
         telegram_notifier=TelegramNotifier(
             token=config.telegram_bot_token,

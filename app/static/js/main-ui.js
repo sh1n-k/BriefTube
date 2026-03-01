@@ -719,6 +719,22 @@
         });
       }
 
+      function bindLlmRuntimeToasts() {
+        const root = document.body;
+        if (!root || root.dataset.llmRuntimeToastBound === "1") return;
+        root.dataset.llmRuntimeToastBound = "1";
+        root.addEventListener("llm-runtime-toast", (event) => {
+          const detail = event.detail;
+          const message = typeof detail === "string" ? detail : detail?.message;
+          const tone = detail && typeof detail === "object" && detail.tone === "error"
+            ? "error"
+            : detail && typeof detail === "object" && detail.tone === "info"
+              ? "info"
+              : "success";
+          showUiToast(message, tone);
+        });
+      }
+
       function resolveDownloadPathErrorMessage(detail) {
         const code = String(detail || "").trim().toLowerCase();
         if (code === "download_path_empty") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorEmpty;
@@ -1908,6 +1924,7 @@
         bindCollapsibles(document);
         bindChannelReactivateToasts();
         bindVideoDownloadBulkToasts();
+        bindLlmRuntimeToasts();
         bindYouTubeEmbeds(document);
         bindVideoDownloadButtons(document);
         bindDownloadDetailButtons(document);

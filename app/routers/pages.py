@@ -122,12 +122,14 @@ async def settings_page(request: Request):
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
+    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
     compact = compact_header_overrides(transcript_header_overrides, strict=False)
     values = merge_with_default_headers(compact)
     defaults = default_transcript_request_headers()
     reset_done = request.query_params.get("guard_reset") == "1"
     context = await build_template_context(
         request,
+        include_llm_runtime_status=True,
         worker_settings=worker_settings,
         videos_per_page=videos_per_page,
         transcript_guard=guard,
@@ -140,6 +142,7 @@ async def settings_page(request: Request):
             "multiline": format_headers_multiline(values),
         },
         download_defaults=download_defaults,
+        llm_settings=llm_settings,
         ffmpeg_available=is_ffmpeg_available(),
         guard_reset_done=reset_done,
     )
