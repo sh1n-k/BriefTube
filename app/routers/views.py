@@ -24,6 +24,7 @@ router = APIRouter(prefix="/views", tags=["views"])
 logger = logging.getLogger(__name__)
 REACTIVATE_BATCH_LIMIT = 50
 DOWNLOAD_BULK_LIMIT = 100
+ARTICLE_REQUEST_BULK_LIMIT = 10
 
 
 def _safe_int(value: str | None, default: int) -> int:
@@ -117,6 +118,16 @@ def _download_bulk_toast_header(message: str, tone: str) -> dict[str, str]:
     return {"HX-Trigger": json.dumps(payload)}
 
 
+def _video_article_request_toast_header(message: str, tone: str) -> dict[str, str]:
+    payload = {
+        "video-article-request-toast": {
+            "message": message,
+            "tone": tone,
+        }
+    }
+    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+
+
 def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
     payload = {
         "llm-runtime-toast": {
@@ -141,6 +152,42 @@ def _resolve_download_bulk_toast_tone(
     if duplicate_count > 0:
         return "info"
     return "error"
+
+
+def _resolve_article_request_toast_tone(
+    *,
+    new_count: int,
+    retry_count: int,
+    skip_count: int,
+    failed_count: int,
+) -> str:
+    if failed_count > 0:
+        return "error"
+    if (new_count + retry_count) > 0:
+        return "success"
+    if skip_count > 0:
+        return "info"
+    return "error"
+
+
+def _build_article_request_summary_message(
+    txt: dict[str, str],
+    *,
+    new_count: int,
+    retry_count: int,
+    skip_count: int,
+    failed_count: int,
+    llm_worker_waiting: bool,
+) -> str:
+    message = txt["video_article_request_summary_toast"].format(
+        new=new_count,
+        retry=retry_count,
+        skip=skip_count,
+        failed=failed_count,
+    )
+    if llm_worker_waiting and (new_count + retry_count) > 0:
+        message = f"{message} {txt['video_article_request_waiting_note']}"
+    return message
 
 
 def _format_reactivate_failure_reason(txt: dict[str, str], reason_code: str) -> str:
@@ -932,6 +979,121 @@ async def download_selected_videos(request: Request):
         context=context,
         headers=_download_bulk_toast_header(toast_message, toast_tone) if toast_message else None,
     )
+
+
+@router.post("/videos/article-request-selected")
+async def article_request_selected_videos(request: Request):
+    form = await request.form()
+    selected_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
+    video_ids = list(dict.fromkeys(selected_ids))
+    txt = await _texts(request)
+
+    llm_worker_waiting = False
+    new_count = 0
+    retry_count = 0
+    skip_count = 0
+    failed_count = 0
+
+    if not video_ids:
+        toast_message = txt["video_article_request_none_selected"]
+        toast_tone = "error"
+    elif len(video_ids) > ARTICLE_REQUEST_BULK_LIMIT:
+        toast_message = txt["video_article_request_limit_exceeded"].format(
+            selected=len(video_ids),
+            limit=ARTICLE_REQUEST_BULK_LIMIT,
+        )
+        toast_tone = "error"
+    else:
+        bulk_result = await repository.enqueue_manual_article_jobs(
+            request.app.state.runtime.db,
+            video_ids=video_ids,
+        )
+        new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+
+        if (new_count + retry_count) > 0:
+            request.app.state.runtime.manual_article_wake_event.set()
+
+        llm_worker_waiting = not await repository.is_worker_enabled(
+            request.app.state.runtime.db,
+            "llm",
+        )
+
+        toast_message = _build_article_request_summary_message(
+            txt,
+            new_count=new_count,
+            retry_count=retry_count,
+            skip_count=skip_count,
+            failed_count=failed_count,
+            llm_worker_waiting=llm_worker_waiting,
+        )
+        toast_tone = _resolve_article_request_toast_tone(
+            new_count=new_count,
+            retry_count=retry_count,
+            skip_count=skip_count,
+            failed_count=failed_count,
+        )
+
+    page = max(1, _safe_int(form.get("_page"), 1))
+    limit_val = _safe_int(form.get("_limit"), 0)
+    if limit_val <= 0:
+        limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+    sort = str(form.get("_sort") or "upload_time")
+    order = str(form.get("_order") or "desc")
+    channel_id = str(form.get("_channel_id") or "") or None
+
+    response = await video_list(
+        request=request,
+        channel_id=channel_id,
+        sort=sort,
+        order=order,
+        page=page,
+        limit=limit_val,
+    )
+    response.headers.update(_video_article_request_toast_header(toast_message, toast_tone))
+    return response
+
+
+@router.post("/videos/{video_id}/article-request")
+async def article_request_single_video(video_id: str, request: Request):
+    txt = await _texts(request)
+    bulk_result = await repository.enqueue_manual_article_jobs(
+        request.app.state.runtime.db,
+        video_ids=[video_id],
+    )
+    new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+
+    if (new_count + retry_count) > 0:
+        request.app.state.runtime.manual_article_wake_event.set()
+
+    llm_worker_waiting = not await repository.is_worker_enabled(
+        request.app.state.runtime.db,
+        "llm",
+    )
+
+    toast_message = _build_article_request_summary_message(
+        txt,
+        new_count=new_count,
+        retry_count=retry_count,
+        skip_count=skip_count,
+        failed_count=failed_count,
+        llm_worker_waiting=llm_worker_waiting,
+    )
+    toast_tone = _resolve_article_request_toast_tone(
+        new_count=new_count,
+        retry_count=retry_count,
+        skip_count=skip_count,
+        failed_count=failed_count,
+    )
+
+    response = await video_detail(video_id=video_id, request=request)
+    response.headers.update(_video_article_request_toast_header(toast_message, toast_tone))
+    return response
 
 
 @router.get("/video-detail/{video_id}")

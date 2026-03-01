@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -75,6 +76,31 @@ DOWNLOAD_STATUS_OPTIONS = {
     DOWNLOAD_STATUS_SUCCEEDED,
     DOWNLOAD_STATUS_FAILED,
 }
+MANUAL_ARTICLE_JOB_STATUS_PENDING = "pending"
+MANUAL_ARTICLE_JOB_STATUS_RUNNING = "running"
+MANUAL_ARTICLE_JOB_STATUS_SUCCEEDED = "succeeded"
+MANUAL_ARTICLE_JOB_STATUS_FAILED = "failed"
+MANUAL_ARTICLE_JOB_STATUS_SKIPPED = "skipped"
+MANUAL_ARTICLE_JOB_STATUS_OPTIONS = {
+    MANUAL_ARTICLE_JOB_STATUS_PENDING,
+    MANUAL_ARTICLE_JOB_STATUS_RUNNING,
+    MANUAL_ARTICLE_JOB_STATUS_SUCCEEDED,
+    MANUAL_ARTICLE_JOB_STATUS_FAILED,
+    MANUAL_ARTICLE_JOB_STATUS_SKIPPED,
+}
+MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES = {
+    "transcript_failed",
+    "no_subtitle",
+    "llm_failed",
+    "manual_review",
+}
+MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = {
+    "transcript_pending",
+    "transcript_processing",
+    "llm_pending",
+    "llm_processing",
+    "done",
+}
 TRANSCRIPT_GUARD_DEFAULTS: dict[str, str] = {
     "transcript_guard_adaptive_factor": "1.0",
     "transcript_guard_cooldown_until": "",
@@ -100,6 +126,7 @@ PIPELINE_STATUS_KEYS: tuple[str, ...] = (
     "manual_review",
     "done",
 )
+logger = logging.getLogger(__name__)
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -1862,6 +1889,377 @@ async def delete_channels_with_related_data(
         "deleted_videos": int(videos_cursor.rowcount or 0),
         "thumbnail_paths": thumbnail_paths,
     }
+
+
+async def get_manual_article_job(
+    db: aiosqlite.Connection,
+    job_id: int,
+) -> dict[str, Any] | None:
+    cursor = await db.execute(
+        """
+        SELECT
+            j.id,
+            j.video_id,
+            j.status,
+            j.error_message,
+            j.requested_at,
+            j.started_at,
+            j.finished_at,
+            j.updated_at,
+            v.pipeline_status,
+            v.transcript_retry_count,
+            v.transcript_target_language,
+            EXISTS(
+                SELECT 1
+                FROM transcripts t
+                WHERE t.video_id = j.video_id
+            ) AS has_transcript
+        FROM manual_article_jobs j
+        LEFT JOIN videos v ON v.video_id = j.video_id
+        WHERE j.id = ?
+        """,
+        (int(job_id),),
+    )
+    row = await cursor.fetchone()
+    payload = _row_to_dict(row)
+    if payload is None:
+        return None
+    payload["has_transcript"] = bool(payload.get("has_transcript"))
+    return payload
+
+
+async def get_active_manual_article_job_for_video(
+    db: aiosqlite.Connection,
+    video_id: str,
+) -> dict[str, Any] | None:
+    normalized_video_id = str(video_id).strip()
+    if not normalized_video_id:
+        return None
+    cursor = await db.execute(
+        """
+        SELECT id
+        FROM manual_article_jobs
+        WHERE video_id = ?
+          AND status IN ('pending', 'running')
+        ORDER BY requested_at DESC, id DESC
+        LIMIT 1
+        """,
+        (normalized_video_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return await get_manual_article_job(db, int(row["id"]))
+
+
+async def enqueue_manual_article_jobs(
+    db: aiosqlite.Connection,
+    video_ids: list[str],
+) -> dict[str, Any]:
+    summary: dict[str, list[str]] = {
+        "new": [],
+        "retry": [],
+        "skip": [],
+        "failed": [],
+    }
+    requested_ids = list(video_ids or [])
+    normalized_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for raw_video_id in requested_ids:
+        normalized = str(raw_video_id or "").strip()
+        if not normalized:
+            summary["failed"].append("")
+            continue
+        if normalized in seen_ids:
+            summary["skip"].append(normalized)
+            continue
+        seen_ids.add(normalized)
+        normalized_ids.append(normalized)
+
+    if not normalized_ids:
+        payload = {
+            "new": summary["new"],
+            "retry": summary["retry"],
+            "skip": summary["skip"],
+            "failed": summary["failed"],
+            "new_count": len(summary["new"]),
+            "retry_count": len(summary["retry"]),
+            "skip_count": len(summary["skip"]),
+            "failed_count": len(summary["failed"]),
+        }
+        logger.info(
+            "event=manual_article.enqueue requested=%s new=%s retry=%s skip=%s failed=%s",
+            len(requested_ids),
+            payload["new_count"],
+            payload["retry_count"],
+            payload["skip_count"],
+            payload["failed_count"],
+            extra={"event": "manual_article.enqueue"},
+        )
+        return payload
+
+    placeholders = ",".join(["?"] * len(normalized_ids))
+    videos_cursor = await db.execute(
+        f"""
+        SELECT
+            video_id,
+            pipeline_status
+        FROM videos
+        WHERE video_id IN ({placeholders})
+        """,
+        tuple(normalized_ids),
+    )
+    video_rows = await videos_cursor.fetchall()
+    video_status_map = {str(row["video_id"]): str(row["pipeline_status"] or "").strip().lower() for row in video_rows}
+
+    active_cursor = await db.execute(
+        f"""
+        SELECT DISTINCT video_id
+        FROM manual_article_jobs
+        WHERE video_id IN ({placeholders})
+          AND status IN ('pending', 'running')
+        """,
+        tuple(normalized_ids),
+    )
+    active_rows = await active_cursor.fetchall()
+    active_video_ids = {str(row["video_id"]) for row in active_rows}
+
+    created_count = 0
+    for video_id in normalized_ids:
+        pipeline_status = video_status_map.get(video_id)
+        if pipeline_status is None:
+            summary["failed"].append(video_id)
+            continue
+
+        if video_id in active_video_ids:
+            summary["skip"].append(video_id)
+            continue
+
+        if pipeline_status in MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES:
+            summary["skip"].append(video_id)
+            continue
+
+        category = "retry" if pipeline_status in MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES else "new"
+        try:
+            await db.execute(
+                """
+                INSERT INTO manual_article_jobs(
+                    video_id,
+                    status,
+                    requested_at,
+                    updated_at
+                )
+                VALUES (?, 'pending', datetime('now'), datetime('now'))
+                """,
+                (video_id,),
+            )
+            summary[category].append(video_id)
+            created_count += 1
+        except sqlite3.IntegrityError:
+            summary["skip"].append(video_id)
+
+    if created_count > 0:
+        await db.commit()
+
+    payload = {
+        "new": summary["new"],
+        "retry": summary["retry"],
+        "skip": summary["skip"],
+        "failed": summary["failed"],
+        "new_count": len(summary["new"]),
+        "retry_count": len(summary["retry"]),
+        "skip_count": len(summary["skip"]),
+        "failed_count": len(summary["failed"]),
+    }
+    logger.info(
+        "event=manual_article.enqueue requested=%s new=%s retry=%s skip=%s failed=%s",
+        len(requested_ids),
+        payload["new_count"],
+        payload["retry_count"],
+        payload["skip_count"],
+        payload["failed_count"],
+        extra={"event": "manual_article.enqueue"},
+    )
+    return payload
+
+
+async def claim_next_manual_article_job(db: aiosqlite.Connection) -> dict[str, Any] | None:
+    cursor = await db.execute(
+        """
+        SELECT id
+        FROM manual_article_jobs
+        WHERE status = 'pending'
+        ORDER BY requested_at ASC, id ASC
+        LIMIT 1
+        """
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+
+    job_id = int(row["id"])
+    updated = await db.execute(
+        """
+        UPDATE manual_article_jobs
+        SET
+            status = 'running',
+            started_at = COALESCE(started_at, datetime('now')),
+            finished_at = NULL,
+            error_message = NULL,
+            updated_at = datetime('now')
+        WHERE id = ?
+          AND status = 'pending'
+        """,
+        (job_id,),
+    )
+    if int(updated.rowcount or 0) == 0:
+        return None
+
+    await db.commit()
+    claimed = await get_manual_article_job(db, job_id)
+    if claimed is not None:
+        logger.info(
+            "event=manual_article.claim job_id=%s video_id=%s",
+            claimed["id"],
+            claimed["video_id"],
+            extra={"event": "manual_article.claim"},
+        )
+    return claimed
+
+
+async def mark_manual_article_job_succeeded(db: aiosqlite.Connection, *, job_id: int) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE manual_article_jobs
+        SET
+            status = 'succeeded',
+            error_message = NULL,
+            finished_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ?
+          AND status = 'running'
+        """,
+        (int(job_id),),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def mark_manual_article_job_failed(
+    db: aiosqlite.Connection,
+    *,
+    job_id: int,
+    error_message: str,
+) -> int:
+    normalized_error = _normalize_error_message(error_message)
+    cursor = await db.execute(
+        """
+        UPDATE manual_article_jobs
+        SET
+            status = 'failed',
+            error_message = ?,
+            finished_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ?
+          AND status = 'running'
+        """,
+        (normalized_error, int(job_id)),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def mark_manual_article_job_skipped(
+    db: aiosqlite.Connection,
+    *,
+    job_id: int,
+    reason: str | None = None,
+) -> int:
+    normalized_reason = _normalize_error_message(reason)
+    cursor = await db.execute(
+        """
+        UPDATE manual_article_jobs
+        SET
+            status = 'skipped',
+            error_message = ?,
+            finished_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ?
+          AND status = 'running'
+        """,
+        (normalized_reason or None, int(job_id)),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def recover_stuck_manual_article_jobs(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE manual_article_jobs
+        SET
+            status = 'failed',
+            error_message = 'manual article worker interrupted (app restart/shutdown)',
+            finished_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE status = 'running'
+        """
+    )
+    await db.commit()
+    recovered = int(cursor.rowcount or 0)
+    logger.info(
+        "event=manual_article.recover recovered=%s",
+        recovered,
+        extra={"event": "manual_article.recover"},
+    )
+    return recovered
+
+
+async def ensure_video_llm_pending_for_manual_article(db: aiosqlite.Connection, video_id: str) -> int:
+    normalized_video_id = str(video_id).strip()
+    if not normalized_video_id:
+        return 0
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'llm_pending',
+            retry_count = 0
+        WHERE video_id = ?
+          AND pipeline_status NOT IN ('llm_pending', 'llm_processing', 'done')
+        """,
+        (normalized_video_id,),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def force_mark_video_transcript_failed_for_manual_article(
+    db: aiosqlite.Connection,
+    *,
+    video_id: str,
+    retry_count: int,
+    error_message: str,
+) -> int:
+    normalized_video_id = str(video_id).strip()
+    if not normalized_video_id:
+        return 0
+    safe_retry_count = max(1, int(retry_count))
+    safe_error_message = _normalize_error_message(error_message)
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_failed',
+            transcript_retry_count = ?,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = ?,
+            transcript_last_error_at = datetime('now')
+        WHERE video_id = ?
+        """,
+        (safe_retry_count, safe_error_message, normalized_video_id),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def get_download_default_settings(

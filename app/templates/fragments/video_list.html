@@ -67,6 +67,20 @@
         >
           {{ txt.video_download_selected }}
         </button>
+        <button
+          type="button"
+          data-video-article-request-selected
+          data-busy-label="{{ txt.video_article_request_selected_busy }}"
+          data-skip-save-toast="1"
+          disabled
+          hx-post="/views/videos/article-request-selected"
+          hx-include="closest form"
+          hx-target="#video-list-wrap"
+          hx-swap="outerHTML"
+          class="rounded-md border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ txt.video_article_request_selected }}
+        </button>
         <button type="submit" data-video-delete-selected disabled
                 class="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50">
           {{ txt.video_delete_selected }}

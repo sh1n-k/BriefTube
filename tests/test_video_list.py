@@ -221,3 +221,74 @@ def test_video_download_selected_uses_single_batch_query(client: TestClient, mon
 
     assert response.status_code == 200
     assert call_counter["count"] == 1
+
+
+def test_video_list_renders_article_selected_button(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/views/video-list", params={"limit": "20"})
+    assert response.status_code == 200
+    html = response.text
+    assert "data-video-article-request-selected" in html
+    assert "/views/videos/article-request-selected" in html
+    assert "data-busy-label=" in html
+
+
+def test_video_article_selected_empty_selection_returns_bulk_toast(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.post(
+        "/views/videos/article-request-selected",
+        data={"_page": "1", "_limit": "20"},
+    )
+
+    assert response.status_code == 200
+    assert "HX-Trigger" in response.headers
+    payload = json.loads(response.headers["HX-Trigger"])
+    assert "video-article-request-toast" in payload
+
+
+def test_video_article_selected_limit_exceeded_returns_bulk_toast(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UC_MANUAL_LIMIT", "Manual Limit Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UC_MANUAL_LIMIT"),
+        )
+        for idx in range(11):
+            conn.execute(
+                """
+                INSERT INTO videos(
+                    video_id, channel_id, title, upload_time,
+                    pipeline_status, retry_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"vid-manual-limit-{idx:02d}",
+                    "UC_MANUAL_LIMIT",
+                    f"Manual Limit {idx}",
+                    f"2026-02-{10 + idx:02d}T00:00:00+00:00",
+                    "done",
+                    0,
+                ),
+            )
+        conn.commit()
+
+    response = client.post(
+        "/views/videos/article-request-selected",
+        data={
+            "video_id": [f"vid-manual-limit-{idx:02d}" for idx in range(11)],
+            "_page": "1",
+            "_limit": "20",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "HX-Trigger" in response.headers
+    payload = json.loads(response.headers["HX-Trigger"])
+    toast = payload["video-article-request-toast"]
+    assert "11" in str(toast.get("message", ""))
+    assert "10" in str(toast.get("message", ""))

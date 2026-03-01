@@ -154,3 +154,12 @@ def test_detail_download_button_contract(client: TestClient) -> None:
     assert 'data-video-id="vid-001"' in html
     assert 'data-download-default-quality="' in html
     assert "다운로드" in html or "Download" in html
+
+
+def test_detail_article_request_button_contract(client: TestClient) -> None:
+    _seed_video()
+    response = client.get("/videos/vid-001")
+    html = response.text
+    assert "data-video-article-request-button" in html
+    assert 'data-video-id="vid-001"' in html
+    assert "/views/videos/vid-001/article-request" in html

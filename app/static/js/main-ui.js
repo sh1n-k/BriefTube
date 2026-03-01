@@ -719,6 +719,22 @@
         });
       }
 
+      function bindVideoArticleRequestToasts() {
+        const root = document.body;
+        if (!root || root.dataset.videoArticleRequestToastBound === "1") return;
+        root.dataset.videoArticleRequestToastBound = "1";
+        root.addEventListener("video-article-request-toast", (event) => {
+          const detail = event.detail;
+          const message = typeof detail === "string" ? detail : detail?.message;
+          const tone = detail && typeof detail === "object" && detail.tone === "error"
+            ? "error"
+            : detail && typeof detail === "object" && detail.tone === "info"
+              ? "info"
+              : "success";
+          showUiToast(message, tone);
+        });
+      }
+
       function bindLlmRuntimeToasts() {
         const root = document.body;
         if (!root || root.dataset.llmRuntimeToastBound === "1") return;
@@ -1566,24 +1582,38 @@
         const selectAll = form.querySelector("[data-video-select-all]");
         const deleteBtn = form.querySelector("[data-video-delete-selected]");
         const downloadBtn = form.querySelector("[data-video-download-selected]");
+        const articleBtn = form.querySelector("[data-video-article-request-selected]");
         const items = () => form.querySelectorAll("[data-video-select-item]");
-        if (!selectAll || !deleteBtn || !downloadBtn) return;
+        if (!selectAll || !deleteBtn || !downloadBtn || !articleBtn) return;
         const downloadDefaultLabel = downloadBtn.textContent || "";
         const downloadBusyLabel = downloadBtn.dataset.busyLabel || downloadDefaultLabel;
+        const articleDefaultLabel = articleBtn.textContent || "";
+        const articleBusyLabel = articleBtn.dataset.busyLabel || articleDefaultLabel;
 
-        function setDownloadBulkBusy(isBusy) {
-          form.dataset.videoDownloadBulkInFlight = isBusy ? "1" : "0";
-          form.setAttribute("aria-busy", isBusy ? "true" : "false");
-          downloadBtn.textContent = isBusy ? downloadBusyLabel : downloadDefaultLabel;
+        function setBulkBusy(kind, isBusy) {
+          if (kind === "download") {
+            form.dataset.videoDownloadBulkInFlight = isBusy ? "1" : "0";
+          } else if (kind === "article") {
+            form.dataset.videoArticleRequestBulkInFlight = isBusy ? "1" : "0";
+          }
+          const isDownloadBusy = form.dataset.videoDownloadBulkInFlight === "1";
+          const isArticleBusy = form.dataset.videoArticleRequestBulkInFlight === "1";
+          const isAnyBusy = isDownloadBusy || isArticleBusy;
+          form.setAttribute("aria-busy", isAnyBusy ? "true" : "false");
+          downloadBtn.textContent = isDownloadBusy ? downloadBusyLabel : downloadDefaultLabel;
+          articleBtn.textContent = isArticleBusy ? articleBusyLabel : articleDefaultLabel;
           sync();
         }
 
         function sync() {
           const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
           const all = items();
-          const isBusy = form.dataset.videoDownloadBulkInFlight === "1";
+          const isDownloadBusy = form.dataset.videoDownloadBulkInFlight === "1";
+          const isArticleBusy = form.dataset.videoArticleRequestBulkInFlight === "1";
+          const isAnyBusy = isDownloadBusy || isArticleBusy;
           deleteBtn.disabled = checked === 0;
-          downloadBtn.disabled = checked === 0 || isBusy;
+          downloadBtn.disabled = checked === 0 || isAnyBusy;
+          articleBtn.disabled = checked === 0 || isAnyBusy;
           selectAll.checked = all.length > 0 && checked === all.length;
           selectAll.indeterminate = checked > 0 && checked < all.length;
         }
@@ -1596,27 +1626,89 @@
           if (e.target.matches("[data-video-select-item]")) sync();
         });
         downloadBtn.addEventListener("click", (event) => {
-          if (form.dataset.videoDownloadBulkInFlight === "1") {
+          const isBusy = form.dataset.videoDownloadBulkInFlight === "1"
+            || form.dataset.videoArticleRequestBulkInFlight === "1";
+          if (isBusy) {
             event.preventDefault();
             return;
           }
-          setDownloadBulkBusy(true);
+          setBulkBusy("download", true);
+        });
+        articleBtn.addEventListener("click", (event) => {
+          const isBusy = form.dataset.videoDownloadBulkInFlight === "1"
+            || form.dataset.videoArticleRequestBulkInFlight === "1";
+          if (isBusy) {
+            event.preventDefault();
+            return;
+          }
+          setBulkBusy("article", true);
         });
         const settleDownloadBulk = (event) => {
           const source = event.detail?.requestConfig?.elt;
           if (source !== downloadBtn) return;
-          setDownloadBulkBusy(false);
+          setBulkBusy("download", false);
+        };
+        const settleArticleBulk = (event) => {
+          const source = event.detail?.requestConfig?.elt;
+          if (source !== articleBtn) return;
+          setBulkBusy("article", false);
         };
         form.addEventListener("htmx:afterRequest", settleDownloadBulk);
+        form.addEventListener("htmx:afterRequest", settleArticleBulk);
         form.addEventListener("htmx:responseError", settleDownloadBulk);
+        form.addEventListener("htmx:responseError", settleArticleBulk);
         form.addEventListener("htmx:sendError", settleDownloadBulk);
+        form.addEventListener("htmx:sendError", settleArticleBulk);
         form.addEventListener("htmx:timeout", settleDownloadBulk);
+        form.addEventListener("htmx:timeout", settleArticleBulk);
         sync();
       }
 
       function bindVideoManageForms(scope) {
         const root = scope instanceof Element ? scope : document;
         root.querySelectorAll("[data-video-manage-form]").forEach(initVideoManageForm);
+      }
+
+      function initVideoArticleRequestButton(button) {
+        if (button.dataset.videoArticleRequestBound === "1") return;
+        button.dataset.videoArticleRequestBound = "1";
+
+        const defaultLabel = button.textContent || "";
+        const busyLabel = button.dataset.busyLabel || defaultLabel;
+        const owner = button.closest("#video-detail-fragment") || document.body;
+
+        function setBusy(isBusy) {
+          if (isBusy) {
+            button.dataset.videoArticleRequestInFlight = "1";
+          } else {
+            delete button.dataset.videoArticleRequestInFlight;
+          }
+          button.disabled = isBusy;
+          button.textContent = isBusy ? busyLabel : defaultLabel;
+        }
+
+        button.addEventListener("click", (event) => {
+          if (button.dataset.videoArticleRequestInFlight === "1") {
+            event.preventDefault();
+            return;
+          }
+          setBusy(true);
+        });
+
+        const settle = (event) => {
+          const source = event.detail?.requestConfig?.elt;
+          if (source !== button) return;
+          setBusy(false);
+        };
+        owner.addEventListener("htmx:afterRequest", settle);
+        owner.addEventListener("htmx:responseError", settle);
+        owner.addEventListener("htmx:sendError", settle);
+        owner.addEventListener("htmx:timeout", settle);
+      }
+
+      function bindVideoArticleRequestButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-video-article-request-button]").forEach(initVideoArticleRequestButton);
       }
 
       function initCopyButton(btn) {
@@ -1924,9 +2016,11 @@
         bindCollapsibles(document);
         bindChannelReactivateToasts();
         bindVideoDownloadBulkToasts();
+        bindVideoArticleRequestToasts();
         bindLlmRuntimeToasts();
         bindYouTubeEmbeds(document);
         bindVideoDownloadButtons(document);
+        bindVideoArticleRequestButtons(document);
         bindDownloadDetailButtons(document);
         bindDownloadRetryButtons(document);
         startDownloadProgressPolling();
@@ -2000,6 +2094,7 @@
         bindCollapsibles(event.target);
         bindYouTubeEmbeds(event.target);
         bindVideoDownloadButtons(event.target);
+        bindVideoArticleRequestButtons(event.target);
         bindDownloadDetailButtons(event.target);
         bindDownloadRetryButtons(event.target);
       });

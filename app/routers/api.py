@@ -40,6 +40,7 @@ from app.services.transcript_headers import (
 
 router = APIRouter(prefix="/api", tags=["api"])
 logger = logging.getLogger(__name__)
+ARTICLE_REQUEST_BULK_LIMIT = 10
 
 
 def _parse_bool_input(value: object, default: bool) -> bool:
@@ -315,6 +316,61 @@ async def retry_video(video_id: str, request: Request):
     if affected == 0:
         raise HTTPException(status_code=404, detail="Retry target not found")
     return {"ok": True, "video_id": video_id}
+
+
+@router.post("/videos/article-request")
+async def request_videos_article(request: Request):
+    content_type = request.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        raise HTTPException(status_code=415, detail="application/json content-type required")
+
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid json payload") from exc
+
+    raw_video_ids = payload.get("video_ids", []) if isinstance(payload, dict) else []
+    if not isinstance(raw_video_ids, list):
+        raise HTTPException(status_code=400, detail="video_ids must be an array")
+
+    selected_ids = [str(video_id).strip() for video_id in raw_video_ids if str(video_id).strip()]
+    video_ids = list(dict.fromkeys(selected_ids))
+    if not video_ids:
+        raise HTTPException(status_code=400, detail="video_ids is required")
+    if len(video_ids) > ARTICLE_REQUEST_BULK_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"video_ids can include up to {ARTICLE_REQUEST_BULK_LIMIT} items",
+        )
+
+    bulk_result = await repository.enqueue_manual_article_jobs(
+        request.app.state.runtime.db,
+        video_ids=video_ids,
+    )
+    new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+
+    if (new_count + retry_count) > 0:
+        request.app.state.runtime.manual_article_wake_event.set()
+
+    llm_worker_waiting = not await repository.is_worker_enabled(
+        request.app.state.runtime.db,
+        "llm",
+    )
+
+    return {
+        "ok": True,
+        "requested_count": len(video_ids),
+        "summary": {
+            "new": new_count,
+            "retry": retry_count,
+            "skip": skip_count,
+            "failed": failed_count,
+        },
+        "llm_worker_waiting": llm_worker_waiting,
+    }
 
 
 @router.post("/videos/{video_id}/transcript/retry")

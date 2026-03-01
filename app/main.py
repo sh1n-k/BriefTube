@@ -29,6 +29,7 @@ from app.workers.llm_worker import run_llm_queue_worker
 from app.workers.notifier_worker import run_telegram_notifier
 from app.workers.poller import run_rss_poller
 from app.workers.download_worker import run_download_worker
+from app.workers.manual_article_worker import run_manual_article_worker
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
@@ -69,11 +70,13 @@ async def lifespan(app: FastAPI):
     recovered = await recover_stuck_jobs(db)
     orphan_repaired = await repository.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
+    recovered_manual_article_jobs = await repository.recover_stuck_manual_article_jobs(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s",
+        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s",
         recovered,
         orphan_repaired,
         recovered_download_jobs,
+        recovered_manual_article_jobs,
         extra={"event": "app.recovered_stuck_jobs"},
     )
 
@@ -107,6 +110,7 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
         asyncio.create_task(run_download_worker(runtime), name="download_worker"),
+        asyncio.create_task(run_manual_article_worker(runtime), name="manual_article_worker"),
         asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"),
         asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"),
         asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),

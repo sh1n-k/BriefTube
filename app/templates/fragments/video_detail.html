@@ -1,4 +1,4 @@
-<div class="space-y-6">
+<div id="video-detail-fragment" class="space-y-6">
   {% if video %}
   {% if transcript_retry_done %}
   <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -70,18 +70,32 @@
         </svg>
         {{ txt.detail_section_video_player }}
       </h2>
-      <button
-        type="button"
-        data-video-download-open
-        data-video-id="{{ video.video_id }}"
-        data-video-title="{{ video.title }}"
-        data-download-default-quality="{{ download_defaults.quality if download_defaults else '1080' }}"
-        data-download-default-overwrite="{{ '1' if download_defaults and download_defaults.overwrite else '0' }}"
-        data-download-ffmpeg="{{ '1' if ffmpeg_available else '0' }}"
-        class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-      >
-        {{ txt.detail_download_button }}
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          data-video-article-request-button
+          data-busy-label="{{ txt.detail_article_request_button_busy }}"
+          data-skip-save-toast="1"
+          hx-post="/views/videos/{{ video.video_id }}/article-request"
+          hx-target="#video-detail-fragment"
+          hx-swap="outerHTML"
+          class="inline-flex items-center gap-1 rounded-md border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-100"
+        >
+          {{ txt.detail_article_request_button }}
+        </button>
+        <button
+          type="button"
+          data-video-download-open
+          data-video-id="{{ video.video_id }}"
+          data-video-title="{{ video.title }}"
+          data-download-default-quality="{{ download_defaults.quality if download_defaults else '1080' }}"
+          data-download-default-overwrite="{{ '1' if download_defaults and download_defaults.overwrite else '0' }}"
+          data-download-ffmpeg="{{ '1' if ffmpeg_available else '0' }}"
+          class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          {{ txt.detail_download_button }}
+        </button>
+      </div>
     </div>
     <div class="p-5">
       <div class="aspect-video overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
