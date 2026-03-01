@@ -13,29 +13,38 @@ python scripts/init_db.py              # DB 초기화 (최초 1회)
 
 ## Architecture
 
-- 단일 프로세스, `asyncio.create_task` 워커 4개 (poller, transcript, llm, notifier)
-- `main.py` lifespan → 초기화 → `app.state.runtime` (AppState) 에 저장 → 워커 시작
+- 단일 프로세스, `asyncio.create_task` 워커 5개 (poller, download, transcript, llm, notifier)
 - 라우터 3분할: `api.py` (/api, JSON) · `views.py` (/views, HTMX fragment) · `pages.py` (/, 전체 페이지)
 - 모든 SQL은 `repository.py`에 집중 (Repository 패턴)
-- 스키마: `sql/schema.sql` (FTS5 트리거로 transcripts/articles 자동 인덱싱)
-- 프론트엔드: Tailwind CSS (CDN) + htmx 1.9, 빌드 파이프라인 없음
+- 다운로드 비즈니스 로직은 `domains/downloads/`, yt-dlp 실행은 `services/downloads.py`에 분리
+- 프론트엔드: Tailwind CSS (CDN) + htmx 1.9 + `static/js/main-ui.js`, 빌드 파이프라인 없음
+
+### pipeline_status 유효 값
+
+`transcript_pending` → `transcript_processing` → `llm_pending` → `llm_processing` → `done`
+
+분기: `transcript_failed`, `no_subtitle`, `llm_failed`, `manual_review`
 
 ## Code Conventions
 
 - Python 3.11+, `from __future__ import annotations` 전 파일 사용
 - `@dataclass(slots=True)` for config/state classes
-- 라우터에서 런타임 접근: `request.app.state.runtime.db`, `.http_client`, `.config` 등
-- 템플릿: 페이지 → `templates/*.html`, HTMX fragment → `templates/fragments/*.html`
+- 라우터에서 런타임 접근: `request.app.state.runtime`
 - 템플릿 컨텍스트: 반드시 `template_context.py`의 `build_template_context()`로 생성
 - i18n 키 추가 시 `i18n.py`의 `ko`와 `en` dict **양쪽에 반드시 추가**
 - i18n 키 네이밍: `섹션_요소_설명` (예: `settings_guard_title`)
 - 설정 우선순위: 환경변수 > `APP_CONFIG_FILE` yaml > 코드 기본값
+- 새 설정값 추가: `config.py`의 `AppConfig` 필드 + `load_config()`의 yaml/env/clamp 3곳
+- 로깅: `event=카테고리.동작` 형식 (예: `event=downloads.job_started`)
+- 다운로드 에러 코드: `download_error_registry.py`에서 코드→i18n 키 매핑
 
 ## Key Patterns
 
-- **Transcript guard**: `transcript_worker.py`에서 429/403 시 adaptive factor 증가 + hard cooldown, 연속 성공 시 factor 감소. 상태는 `app_settings` KV 테이블에 문자열로 영속화
-- **HTMX fragment**: `views.py` 엔드포인트 → `fragments/*.html` 반환, 클라이언트 부분 교체
-- **FTS5 동기화**: `schema.sql` AFTER INSERT/UPDATE/DELETE 트리거로 자동 인덱싱, 수동 관리 불필요
+- **Transcript guard**: 429/403 시 adaptive factor 증가 + hard cooldown. `app_settings` KV 테이블에 영속화
+- **HTMX fragment**: `views.py` → `fragments/*.html`, 클라이언트 부분 교체
+- **FTS5 동기화**: `schema.sql` 트리거로 자동 인덱싱, 수동 관리 불필요
+- **System alerts**: 운영 이벤트를 `system_alerts` 테이블에 기록, `alert_toast.html`로 표시
+- **Worker enable/disable**: `app_settings`의 `worker_{name}_enabled` 키로 런타임 제어
 
 ## Testing
 
