@@ -5,7 +5,18 @@
 {% set default_categories = all_categories|selectattr('is_default')|list %}
 {% set custom_categories = all_categories|rejectattr('is_default')|list %}
 
-<div class="rounded-lg border border-slate-200 bg-white shadow-sm" id="category-sidebar">
+<div
+  class="rounded-lg border border-slate-200 bg-white shadow-sm"
+  id="category-sidebar"
+  data-default-category-id="{{ default_categories[0].id if default_categories else '' }}"
+  data-reorder-failed-toast="{{ txt.category_reorder_failed }}"
+  data-current-status="{{ current_status }}"
+  data-selected-category-id="{{ sel_cat_id if sel_cat_id is not none else '' }}"
+  data-rename-title="{{ txt.category_rename_title }}"
+  data-rename-success-toast="{{ txt.category_rename_success }}"
+  data-rename-failed-toast="{{ txt.category_rename_failed }}"
+  data-rename-empty-toast="{{ txt.category_rename_empty_error }}"
+>
   <div class="border-b border-slate-200 px-3 py-2">
     <h3 class="text-sm font-semibold text-slate-700">{{ txt.category_sidebar_title }}</h3>
   </div>
@@ -45,6 +56,18 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          title="{{ txt.category_rename_title }}"
+          data-category-rename-trigger
+          data-category-id="{{ cat.id }}"
+          data-category-name="{{ cat.name }}"
+          class="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 1 1 2.97 2.97L7.5 18.79 3 20l1.21-4.5L16.862 3.487Z"/>
+          </svg>
+        </button>
         <button
           type="button"
           title="{{ txt.category_llm_enabled if cat.llm_enabled else txt.category_llm_disabled }}"
@@ -91,6 +114,18 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          title="{{ txt.category_rename_title }}"
+          data-category-rename-trigger
+          data-category-id="{{ cat.id }}"
+          data-category-name="{{ cat.name }}"
+          class="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 1 1 2.97 2.97L7.5 18.79 3 20l1.21-4.5L16.862 3.487Z"/>
+          </svg>
+        </button>
         {# LLM toggle #}
         <button
           type="button"
@@ -116,7 +151,7 @@
         <button
           type="button"
           title="{{ txt.category_delete_confirm }}"
-          hx-delete="/views/categories/{{ cat.id }}?status={{ current_status }}"
+          hx-delete="/views/categories/{{ cat.id }}?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
           hx-target="#category-sidebar"
           hx-swap="outerHTML"
           hx-confirm="{{ txt.category_delete_confirm }}"

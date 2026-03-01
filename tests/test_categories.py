@@ -153,3 +153,45 @@ def test_channel_management_page_with_category_filter(client: TestClient) -> Non
     default_id = [c for c in cats if c["is_default"]][0]["id"]
     resp = client.get(f"/channels?category_id={default_id}")
     assert resp.status_code == 200
+
+
+def test_channel_management_page_renders_category_rename_controls(client: TestClient) -> None:
+    created = client.post("/api/categories", json={"name": "이름변경대상"})
+    assert created.status_code == 200
+
+    response = client.get("/channels")
+    assert response.status_code == 200
+    html = response.text
+    assert "data-category-rename-trigger" in html
+    assert 'data-rename-title="' in html
+    assert 'data-rename-success-toast="' in html
+    assert "이름변경대상" in html
+
+
+def test_create_category_fragment_refreshes_channel_list_oob(client: TestClient) -> None:
+    response = client.post(
+        "/views/categories",
+        data={"name": "즉시반영", "status": "active"},
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="channel-list-wrap" hx-swap-oob="true"' in html
+    assert "data-channel-move-target" in html
+    assert "즉시반영" in html
+
+
+def test_delete_category_fragment_refreshes_channel_list_oob_and_clears_selected_deleted_category(
+    client: TestClient,
+) -> None:
+    created = client.post("/api/categories", json={"name": "삭제즉시반영"})
+    assert created.status_code == 200
+    category_id = int(created.json()["id"])
+
+    response = client.delete(
+        f"/views/categories/{category_id}?status=active&category_id={category_id}",
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="channel-list-wrap" hx-swap-oob="true"' in html
+    assert "data-channel-move-target" in html
+    assert f"category_id={category_id}" not in html

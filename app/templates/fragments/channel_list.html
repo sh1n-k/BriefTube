@@ -72,7 +72,13 @@
           {# ── Category move dropdown ── #}
           {% set all_categories = categories if categories is defined else [] %}
           {% if all_categories and current_status == "active" %}
-          <div class="flex items-center gap-1" data-channel-move-category>
+          <div
+            class="flex items-center gap-1"
+            data-channel-move-category
+            data-move-toast="{{ txt.category_move_success }}"
+            data-move-none-selected-toast="{{ txt.category_move_none_selected }}"
+            data-move-failed-toast="{{ txt.category_move_failed }}"
+          >
             <select name="move_category_id" data-channel-move-target class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
               {% for cat in all_categories %}
               <option value="{{ cat.id }}">{{ cat.name }}</option>

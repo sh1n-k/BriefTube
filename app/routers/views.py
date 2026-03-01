@@ -277,17 +277,40 @@ async def _render_category_sidebar(
     request: Request,
     selected_category_id: int | None = None,
     channel_status: str = repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE,
+    *,
+    refresh_channel_list: bool = False,
+    channel_list_category_id: int | None = None,
 ):
+    normalized_status = repository.normalize_channel_management_status(channel_status)
     categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         categories=categories,
         selected_category_id=selected_category_id,
-        channel_status=channel_status,
+        channel_status=normalized_status,
+    )
+    if refresh_channel_list:
+        refresh_status, channels, channel_counts = await _resolve_channel_management_state(
+            request,
+            normalized_status,
+            category_id=channel_list_category_id,
+        )
+        context.update(
+            channels=channels,
+            channel_status=refresh_status,
+            channel_counts=channel_counts,
+            categories=categories,
+            **_channel_management_ui_context(request),
+        )
+
+    template_name = (
+        "fragments/category_sidebar_result.html"
+        if refresh_channel_list
+        else "fragments/category_sidebar.html"
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/category_sidebar.html",
+        name=template_name,
         context=context,
     )
 
@@ -312,10 +335,16 @@ async def create_category_fragment(request: Request):
         await repository.create_category(request.app.state.runtime.db, name)
     except ValueError:
         raise HTTPException(status_code=400, detail=txt.get("category_add_duplicate_error", "Duplicate"))
-    status = str(form.get("status", "")).strip() or repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE
+    status = repository.normalize_channel_management_status(str(form.get("status", "")).strip())
     raw_cat = form.get("category_id")
     selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
-    return await _render_category_sidebar(request, selected_category_id=selected, channel_status=status)
+    return await _render_category_sidebar(
+        request,
+        selected_category_id=selected,
+        channel_status=status,
+        refresh_channel_list=True,
+        channel_list_category_id=selected,
+    )
 
 
 @router.put("/categories/{category_id}/toggle-llm")
@@ -341,8 +370,20 @@ async def delete_category_fragment(category_id: int, request: Request):
         await repository.delete_category(request.app.state.runtime.db, category_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    status = request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
-    return await _render_category_sidebar(request, channel_status=status)
+    status = repository.normalize_channel_management_status(
+        request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
+    )
+    raw_cat = request.query_params.get("category_id")
+    selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
+    if selected == category_id:
+        selected = None
+    return await _render_category_sidebar(
+        request,
+        selected_category_id=selected,
+        channel_status=status,
+        refresh_channel_list=True,
+        channel_list_category_id=selected,
+    )
 
 
 @router.get("/channel-list")
