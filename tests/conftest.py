@@ -14,8 +14,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DB_PATH", str(db_path))
     monkeypatch.setenv("THUMBNAIL_DIR", str(thumbnail_dir))
     monkeypatch.setenv("DOWNLOAD_DIR", str(download_dir))
-    monkeypatch.setenv("OPENCLAW_API_URL", "")
-    monkeypatch.setenv("OPENCLAW_API_KEY", "")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "120")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
 

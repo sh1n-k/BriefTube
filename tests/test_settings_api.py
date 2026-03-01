@@ -26,6 +26,11 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
         "retention_days": 180,
         "rss_feed_mode": "long_form_only",
     }
+    assert initial.json()["llm_settings"] == {
+        "provider_primary": "codex",
+        "provider_fallback": "claude",
+        "prompt_template": "",
+    }
     assert initial.json()["videos_per_page"] == 8
     assert initial.json()["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
     assert initial.json()["transcript_request_headers"]["keys"] == list(TRANSCRIPT_REQUEST_HEADER_KEYS)
@@ -222,3 +227,63 @@ def test_settings_transcript_request_headers_rejects_empty_payload(client: TestC
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "empty header payload is not allowed"
+
+
+def test_settings_llm_update(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "claude",
+            "provider_fallback": "none",
+            "prompt_template": "Title={source_title}\\nBody={transcript_text}",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["llm_settings"]["provider_primary"] == "claude"
+    assert response.json()["llm_settings"]["provider_fallback"] == "none"
+    assert response.json()["llm_settings"]["prompt_template"] == "Title={source_title}\\nBody={transcript_text}"
+
+    after = client.get("/api/settings")
+    assert after.status_code == 200
+    assert after.json()["llm_settings"]["provider_primary"] == "claude"
+    assert after.json()["llm_settings"]["provider_fallback"] == "none"
+
+
+def test_settings_llm_rejects_same_primary_and_fallback(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "codex",
+            "provider_fallback": "codex",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "provider_fallback must be different from provider_primary"
+
+
+def test_settings_llm_rejects_empty_payload(client: TestClient) -> None:
+    response = client.put("/api/settings/llm", json={})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "empty llm settings payload"
+
+
+def test_settings_llm_rejects_prompt_without_transcript_placeholder(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "codex",
+            "provider_fallback": "none",
+            "prompt_template": "Title={source_title}",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "prompt_template must include {transcript_text}"
+
+
+def test_settings_llm_rejects_non_object_json_payload(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json=["invalid"],
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "llm payload must be object"

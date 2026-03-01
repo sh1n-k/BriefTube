@@ -23,7 +23,7 @@
 
 - 단일 프로세스, asyncio 기반 로컬 웹 앱 (단일 사용자 설계)
 - SQLite 단일 파일 DB, WAL 모드
-- 외부 의존: YouTube RSS/Data API, LLM API (OpenClaw), Telegram Bot API
+- 외부 의존: YouTube RSS/Data API, 로컬 LLM CLI(Codex/Claude), Telegram Bot API
 - 인증/인가 메커니즘 없음 (설계상)
 
 ### 심각도 기준

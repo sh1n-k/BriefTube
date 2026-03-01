@@ -49,8 +49,7 @@ python scripts/init_db.py
 | 키 | 설명 | 기본값 |
 |---|---|---|
 | `DB_PATH` | SQLite DB 파일 경로 | `./data.db` |
-| `OPENCLAW_API_URL` | LLM API 엔드포인트 | (없음) |
-| `OPENCLAW_API_KEY` | LLM API 키 | (없음) |
+| `LLM_TIMEOUT_SECONDS` | LLM CLI 호출 타임아웃(초) | `120` |
 | `TELEGRAM_BOT_TOKEN` | Telegram 봇 토큰 | (없음) |
 | `TELEGRAM_CHAT_ID` | Telegram 채팅 ID | (없음) |
 | `POLLING_INTERVAL_MINUTES` | RSS 폴링 주기 | `15` |

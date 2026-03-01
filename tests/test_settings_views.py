@@ -18,6 +18,13 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "수집/보관 정책" in response.text
     assert "워커 제어" in response.text
     assert "영상 다운로드" in response.text
+    assert "LLM 재구조화" in response.text
+    assert "재구조화 프롬프트 템플릿" in response.text
+    assert "{transcript_text}는 필수" in response.text
+    assert 'name="llm_provider_primary"' in response.text
+    assert 'name="llm_provider_fallback"' in response.text
+    assert 'name="llm_prompt_template"' in response.text
+    assert 'hx-put="/api/settings/llm"' in response.text
     assert "기본 화질 상한" in response.text
     assert "다운로드 저장 경로" in response.text
     assert 'name="download_output_dir"' in response.text

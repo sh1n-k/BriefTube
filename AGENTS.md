@@ -83,4 +83,4 @@ tail -f logs/dev/brieftube-dev.log | rg "channels.reactivate"
 ## 커밋/보안 체크
 - 요청 범위 파일만 커밋하고, 로컬 운영 파일(`config.dev.yaml` 등) 혼입 금지.
 - 커밋 금지: `data*.db`, `logs/`, `thumbnails*/`, 로컬 스크린샷.
-- 비밀값(`OPENCLAW_API_KEY`, `TELEGRAM_BOT_TOKEN` 등) 커밋 금지.
+- 비밀값(`TELEGRAM_BOT_TOKEN` 등) 커밋 금지.

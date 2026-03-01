@@ -496,6 +496,7 @@ async def get_settings(request: Request):
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
+    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
     return {
         "language": normalize_language(language),
         "timezone": normalize_timezone(timezone_value),
@@ -505,6 +506,7 @@ async def get_settings(request: Request):
         "transcript_guard": transcript_guard,
         "transcript_request_headers": transcript_request_headers,
         "download_defaults": download_defaults,
+        "llm_settings": llm_settings,
         "ffmpeg_available": is_ffmpeg_available(),
     }
 
@@ -568,6 +570,51 @@ async def set_transcript_request_headers(request: Request):
     return {
         "ok": True,
         "transcript_request_headers": payload,
+    }
+
+
+@router.put("/settings/llm")
+async def set_llm_settings(request: Request):
+    content_type = request.headers.get("content-type", "")
+    provider_primary: str | None = None
+    provider_fallback: str | None = None
+    prompt_template: str | None = None
+
+    if "application/json" in content_type:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="llm payload must be object")
+        if "provider_primary" in payload:
+            provider_primary = str(payload.get("provider_primary", "")).strip().lower()
+        if "provider_fallback" in payload:
+            provider_fallback = str(payload.get("provider_fallback", "")).strip().lower()
+        if "prompt_template" in payload:
+            prompt_template = str(payload.get("prompt_template", ""))
+    else:
+        form = await request.form()
+        if "llm_provider_primary" in form:
+            provider_primary = str(form.get("llm_provider_primary", "")).strip().lower()
+        if "llm_provider_fallback" in form:
+            provider_fallback = str(form.get("llm_provider_fallback", "")).strip().lower()
+        if "llm_prompt_template" in form:
+            prompt_template = str(form.get("llm_prompt_template", ""))
+
+    if provider_primary is None and provider_fallback is None and prompt_template is None:
+        raise HTTPException(status_code=400, detail="empty llm settings payload")
+
+    try:
+        saved = await repository.set_llm_settings(
+            request.app.state.runtime.db,
+            provider_primary=provider_primary,
+            provider_fallback=provider_fallback,
+            prompt_template=prompt_template,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "ok": True,
+        "llm_settings": saved,
     }
 
 

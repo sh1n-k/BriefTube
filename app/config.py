@@ -10,9 +10,7 @@ class AppConfig:
     env: str = "prod"
     polling_interval_minutes: int = 15
     max_retry_count: int = 3
-    openclaw_api_url: str = ""
-    openclaw_api_key: str = ""
-    openclaw_timeout_seconds: int = 120
+    llm_timeout_seconds: int = 120
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     thumbnail_dir: str = "./thumbnails"
@@ -102,9 +100,7 @@ def load_config() -> AppConfig:
         env=str(file_values.get("env", base.env)),
         polling_interval_minutes=int(file_values.get("polling_interval_minutes", base.polling_interval_minutes)),
         max_retry_count=int(file_values.get("max_retry_count", base.max_retry_count)),
-        openclaw_api_url=str(file_values.get("openclaw_api_url", base.openclaw_api_url)),
-        openclaw_api_key=str(file_values.get("openclaw_api_key", base.openclaw_api_key)),
-        openclaw_timeout_seconds=int(file_values.get("openclaw_timeout_seconds", base.openclaw_timeout_seconds)),
+        llm_timeout_seconds=int(file_values.get("llm_timeout_seconds", base.llm_timeout_seconds)),
         telegram_bot_token=str(file_values.get("telegram_bot_token", base.telegram_bot_token)),
         telegram_chat_id=str(file_values.get("telegram_chat_id", base.telegram_chat_id)),
         thumbnail_dir=str(file_values.get("thumbnail_dir", base.thumbnail_dir)),
@@ -238,9 +234,7 @@ def load_config() -> AppConfig:
     cfg.env = os.getenv("ENV", cfg.env).strip().lower() or "prod"
     cfg.polling_interval_minutes = int(os.getenv("POLLING_INTERVAL_MINUTES", cfg.polling_interval_minutes))
     cfg.max_retry_count = int(os.getenv("MAX_RETRY_COUNT", cfg.max_retry_count))
-    cfg.openclaw_api_url = os.getenv("OPENCLAW_API_URL", cfg.openclaw_api_url)
-    cfg.openclaw_api_key = os.getenv("OPENCLAW_API_KEY", cfg.openclaw_api_key)
-    cfg.openclaw_timeout_seconds = int(os.getenv("OPENCLAW_TIMEOUT_SECONDS", cfg.openclaw_timeout_seconds))
+    cfg.llm_timeout_seconds = int(os.getenv("LLM_TIMEOUT_SECONDS", cfg.llm_timeout_seconds))
     cfg.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", cfg.telegram_bot_token)
     cfg.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", cfg.telegram_chat_id)
     cfg.thumbnail_dir = os.getenv("THUMBNAIL_DIR", cfg.thumbnail_dir)

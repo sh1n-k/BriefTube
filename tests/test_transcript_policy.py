@@ -366,6 +366,47 @@ def test_mark_restructure_failed_skips_when_video_is_not_llm_processing(client) 
     assert retry_count == 0
 
 
+def test_requeue_llm_pending_without_retry_keeps_retry_count(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCrequeue001", "Requeue Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCrequeue001"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+            VALUES (?, ?, ?, ?, 'llm_processing', 2)
+            """,
+            ("vid-requeue-001", "UCrequeue001", "requeue-video", "2026-02-21T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[int, str, int]:
+        db = await open_database(db_path)
+        try:
+            affected = await repository.requeue_llm_pending_without_retry(
+                db,
+                video_id="vid-requeue-001",
+            )
+            cursor = await db.execute(
+                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+                ("vid-requeue-001",),
+            )
+            row = await cursor.fetchone()
+            return affected, str(row["pipeline_status"]), int(row["retry_count"])
+        finally:
+            await db.close()
+
+    affected, pipeline_status, retry_count = asyncio.run(_run())
+    assert affected == 1
+    assert pipeline_status == "llm_pending"
+    assert retry_count == 2
+
+
 def test_repair_orphan_llm_candidates_moves_only_orphans_to_manual_review(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:

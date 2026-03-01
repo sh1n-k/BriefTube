@@ -8,6 +8,15 @@ from typing import Any
 
 import aiosqlite
 from app.services.downloads import validate_download_output_dir
+from app.services.llm import (
+    LLM_PROMPT_TEMPLATE_MAX_LENGTH,
+    LLM_PROVIDER_CLAUDE,
+    LLM_PROVIDER_CODEX,
+    LLM_PROVIDER_FALLBACK_OPTIONS,
+    LLM_PROVIDER_NONE,
+    LLM_PROVIDER_OPTIONS,
+    normalize_llm_provider,
+)
 
 WORKER_SETTING_KEY_MAP: dict[str, str] = {
     "rss": "worker_rss_enabled",
@@ -32,6 +41,11 @@ CHANNEL_MANAGEMENT_STATUS_OPTIONS = {
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
 ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
+LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
+LLM_PROVIDER_FALLBACK_KEY = "llm_provider_fallback"
+LLM_PROMPT_TEMPLATE_KEY = "llm_prompt_template"
+LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
+LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_CLAUDE
 
 RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY = "rss_bootstrap_lookback_days"
 RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT = 60
@@ -135,6 +149,24 @@ def _parse_float_setting(value: str | None, default: float, min_value: float, ma
     except (TypeError, ValueError):
         parsed = default
     return max(min_value, min(max_value, parsed))
+
+
+def _validate_llm_provider_setting(value: str | None, *, allow_none: bool = False) -> str:
+    normalized = str(value or "").strip().lower()
+    options = LLM_PROVIDER_FALLBACK_OPTIONS if allow_none else LLM_PROVIDER_OPTIONS
+    if normalized not in options:
+        allowed = ", ".join(sorted(options))
+        raise ValueError(f"provider must be one of: {allowed}")
+    return normalized
+
+
+def _validate_llm_prompt_template(value: str | None) -> str:
+    prompt = str(value or "")
+    if len(prompt) > LLM_PROMPT_TEMPLATE_MAX_LENGTH:
+        raise ValueError(f"prompt_template is too long (max {LLM_PROMPT_TEMPLATE_MAX_LENGTH})")
+    if prompt.strip() and "{transcript_text}" not in prompt:
+        raise ValueError("prompt_template must include {transcript_text}")
+    return prompt
 
 
 def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
@@ -969,6 +1001,20 @@ async def mark_restructure_failed(
     return next_status, int(cursor.rowcount or 0)
 
 
+async def requeue_llm_pending_without_retry(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'llm_pending'
+        WHERE video_id = ?
+          AND pipeline_status = 'llm_processing'
+        """,
+        (video_id,),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
 async def get_setting(db: aiosqlite.Connection, key: str, default: str | None = None) -> str | None:
     cursor = await db.execute(
         "SELECT value FROM app_settings WHERE key = ?",
@@ -1025,7 +1071,7 @@ async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
     await create_system_alert(
         db,
         alert_type=ALERT_TYPE_LLM_CONFIG_MISSING,
-        message="OPENCLAW_API_URL is missing. llm_pending items are waiting.",
+        message="LLM runtime is not ready. llm_pending items are waiting.",
     )
     await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="1")
     return True
@@ -1445,6 +1491,68 @@ async def set_videos_per_page_setting(db: aiosqlite.Connection, value: int) -> i
     )
     await set_setting(db, key=VIDEOS_PER_PAGE_KEY, value=str(normalized))
     return normalized
+
+
+async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, str]:
+    primary_raw = await get_setting(
+        db,
+        key=LLM_PROVIDER_PRIMARY_KEY,
+        default=LLM_PROVIDER_PRIMARY_DEFAULT,
+    )
+    fallback_raw = await get_setting(
+        db,
+        key=LLM_PROVIDER_FALLBACK_KEY,
+        default=LLM_PROVIDER_FALLBACK_DEFAULT,
+    )
+    prompt_raw = await get_setting(
+        db,
+        key=LLM_PROMPT_TEMPLATE_KEY,
+        default="",
+    )
+
+    primary = normalize_llm_provider(primary_raw, allow_none=False)
+    fallback = normalize_llm_provider(fallback_raw, allow_none=True)
+    if fallback == primary:
+        fallback = LLM_PROVIDER_NONE
+
+    prompt_template = str(prompt_raw or "")
+    try:
+        prompt_template = _validate_llm_prompt_template(prompt_template)
+    except ValueError:
+        prompt_template = ""
+
+    return {
+        "provider_primary": primary,
+        "provider_fallback": fallback,
+        "prompt_template": prompt_template,
+    }
+
+
+async def set_llm_settings(
+    db: aiosqlite.Connection,
+    *,
+    provider_primary: str | None = None,
+    provider_fallback: str | None = None,
+    prompt_template: str | None = None,
+) -> dict[str, str]:
+    current = await get_llm_settings(db)
+    next_primary = str(current["provider_primary"])
+    next_fallback = str(current["provider_fallback"])
+    next_prompt = str(current["prompt_template"])
+
+    if provider_primary is not None:
+        next_primary = _validate_llm_provider_setting(provider_primary, allow_none=False)
+    if provider_fallback is not None:
+        next_fallback = _validate_llm_provider_setting(provider_fallback, allow_none=True)
+    if next_fallback != LLM_PROVIDER_NONE and next_fallback == next_primary:
+        raise ValueError("provider_fallback must be different from provider_primary")
+    if prompt_template is not None:
+        next_prompt = _validate_llm_prompt_template(prompt_template)
+
+    await set_setting(db, key=LLM_PROVIDER_PRIMARY_KEY, value=next_primary)
+    await set_setting(db, key=LLM_PROVIDER_FALLBACK_KEY, value=next_fallback)
+    await set_setting(db, key=LLM_PROMPT_TEMPLATE_KEY, value=next_prompt)
+    return await get_llm_settings(db)
 
 
 async def create_system_alert(
