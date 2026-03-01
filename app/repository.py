@@ -2194,25 +2194,63 @@ async def mark_manual_article_job_skipped(
     return int(cursor.rowcount or 0)
 
 
-async def recover_stuck_manual_article_jobs(db: aiosqlite.Connection) -> int:
+async def recover_stuck_manual_article_jobs(
+    db: aiosqlite.Connection,
+    *,
+    stale_after_seconds: int | None = None,
+    exclude_job_ids: list[int] | None = None,
+) -> int:
+    where_clauses: list[str] = ["status = 'running'"]
+    query_params: list[Any] = []
+    recovery_mode = "startup"
+    error_message = "manual article worker interrupted (app restart/shutdown)"
+
+    safe_stale_after_seconds: int | None = None
+    if stale_after_seconds is not None:
+        safe_stale_after_seconds = max(1, int(stale_after_seconds))
+        threshold = f"-{safe_stale_after_seconds} seconds"
+        where_clauses.append("COALESCE(started_at, updated_at, requested_at) <= datetime('now', ?)")
+        where_clauses.append("updated_at <= datetime('now', ?)")
+        query_params.extend([threshold, threshold])
+        recovery_mode = "runtime"
+        error_message = f"manual article worker stale timeout exceeded ({safe_stale_after_seconds}s)"
+
+    normalized_exclude_ids: list[int] = []
+    for raw_job_id in exclude_job_ids or []:
+        try:
+            parsed_id = int(raw_job_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed_id > 0:
+            normalized_exclude_ids.append(parsed_id)
+    normalized_exclude_ids = sorted(set(normalized_exclude_ids))
+    if normalized_exclude_ids:
+        placeholders = ",".join(["?"] * len(normalized_exclude_ids))
+        where_clauses.append(f"id NOT IN ({placeholders})")
+        query_params.extend(normalized_exclude_ids)
+
     cursor = await db.execute(
-        """
+        f"""
         UPDATE manual_article_jobs
         SET
             status = 'failed',
-            error_message = 'manual article worker interrupted (app restart/shutdown)',
+            error_message = ?,
             finished_at = datetime('now'),
             updated_at = datetime('now')
-        WHERE status = 'running'
-        """
+        WHERE {' AND '.join(where_clauses)}
+        """,
+        (error_message, *query_params),
     )
     await db.commit()
     recovered = int(cursor.rowcount or 0)
-    logger.info(
-        "event=manual_article.recover recovered=%s",
-        recovered,
-        extra={"event": "manual_article.recover"},
-    )
+    if recovered > 0:
+        logger.info(
+            "event=manual_article.recover mode=%s recovered=%s stale_after_seconds=%s",
+            recovery_mode,
+            recovered,
+            safe_stale_after_seconds if safe_stale_after_seconds is not None else "-",
+            extra={"event": "manual_article.recover"},
+        )
     return recovered
 
 

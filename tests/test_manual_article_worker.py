@@ -75,6 +75,49 @@ class _FailingTranscriptService:
         raise RuntimeError("manual fetch failed")
 
 
+def test_manual_article_worker_save_transcript_failure_marks_job_failed(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "manual-worker-save-fail.db"
+
+    async def _failing_save_transcript(*args, **kwargs):
+        raise RuntimeError("save transcript failed")
+
+    monkeypatch.setattr(repository, "save_transcript", _failing_save_transcript)
+
+    async def _run() -> tuple[str, str]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_channel(db)
+        await _insert_video(db, video_id="vid-save-fail-001", pipeline_status="transcript_failed")
+        job_id = await _insert_pending_job(db, video_id="vid-save-fail-001")
+
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(
+                transcript_idle_sleep_seconds=1,
+                transcript_request_interval_seconds=1,
+                transcript_fetch_timeout_seconds=1,
+            ),
+            transcript_service=_SuccessTranscriptService(),
+            manual_article_wake_event=asyncio.Event(),
+            llm_wake_event=asyncio.Event(),
+        )
+
+        task = asyncio.create_task(run_manual_article_worker(state))
+        try:
+            await _wait_for_job_status(db, job_id=job_id, expected="failed")
+            job = await repository.get_manual_article_job(db, job_id)
+            assert job is not None
+            return str(job["status"]), str(job["error_message"] or "")
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    job_status, error_message = asyncio.run(_run())
+    assert job_status == "failed"
+    assert "save transcript failed" in error_message
+
+
 def test_manual_article_worker_reuses_existing_transcript_without_fetch(tmp_path) -> None:
     db_path = tmp_path / "manual-worker-reuse.db"
 
@@ -290,7 +333,13 @@ def test_recover_stuck_manual_article_jobs_marks_running_failed(tmp_path) -> Non
                 requested_at,
                 started_at,
                 updated_at
-            ) VALUES (?, 'running', datetime('now'), datetime('now'), datetime('now'))
+            ) VALUES (
+                ?,
+                'running',
+                datetime('now', '-3 hours'),
+                datetime('now', '-3 hours'),
+                datetime('now', '-3 hours')
+            )
             """,
             ("vid-recover-001",),
         )

@@ -126,7 +126,21 @@ def test_manual_article_claim_mark_and_recover(tmp_path) -> None:
         await db.commit()
         claimed_again = await repository.claim_next_manual_article_job(db)
         assert claimed_again is not None
-        recovered = await repository.recover_stuck_manual_article_jobs(db)
+        await db.execute(
+            """
+            UPDATE manual_article_jobs
+            SET
+                started_at = datetime('now', '-2 hours'),
+                updated_at = datetime('now', '-2 hours')
+            WHERE id = ?
+            """,
+            (int(claimed_again["id"]),),
+        )
+        await db.commit()
+        recovered = await repository.recover_stuck_manual_article_jobs(
+            db,
+            stale_after_seconds=3600,
+        )
         row = await repository.get_manual_article_job(db, int(claimed_again["id"]))
         assert row is not None
         status = str(row["status"])
@@ -137,6 +151,62 @@ def test_manual_article_claim_mark_and_recover(tmp_path) -> None:
     assert claimed is not None
     assert status == "failed"
     assert recovered == 1
+
+
+def test_recover_stuck_manual_article_jobs_recovers_only_stale_running(tmp_path) -> None:
+    db_path = tmp_path / "manual-recover-threshold.db"
+
+    async def _run() -> tuple[int, dict[str, tuple[str, str]]]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_channel(db)
+        await _insert_video(db, video_id="vid-stale-001", pipeline_status="transcript_failed")
+        await _insert_video(db, video_id="vid-fresh-001", pipeline_status="transcript_failed")
+        await db.execute(
+            """
+            INSERT INTO manual_article_jobs(video_id, status, requested_at, started_at, updated_at)
+            VALUES (
+                ?,
+                'running',
+                datetime('now', '-4 hours'),
+                datetime('now', '-4 hours'),
+                datetime('now', '-4 hours')
+            )
+            """,
+            ("vid-stale-001",),
+        )
+        await db.execute(
+            """
+            INSERT INTO manual_article_jobs(video_id, status, requested_at, started_at, updated_at)
+            VALUES (?, 'running', datetime('now'), datetime('now'), datetime('now'))
+            """,
+            ("vid-fresh-001",),
+        )
+        await db.commit()
+
+        recovered = await repository.recover_stuck_manual_article_jobs(
+            db,
+            stale_after_seconds=3600,
+        )
+        cursor = await db.execute(
+            """
+            SELECT video_id, status, error_message
+            FROM manual_article_jobs
+            WHERE video_id IN (?, ?)
+            ORDER BY id ASC
+            """,
+            ("vid-stale-001", "vid-fresh-001"),
+        )
+        rows = await cursor.fetchall()
+        await db.close()
+        return recovered, {str(row["video_id"]): (str(row["status"]), str(row["error_message"] or "")) for row in rows}
+
+    recovered, statuses = asyncio.run(_run())
+    assert recovered == 1
+    assert statuses["vid-stale-001"][0] == "failed"
+    assert "stale timeout exceeded" in statuses["vid-stale-001"][1]
+    assert statuses["vid-fresh-001"][0] == "running"
+    assert statuses["vid-fresh-001"][1] == ""
 
 
 class _NeverCalledTranscriptService:
