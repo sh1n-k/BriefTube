@@ -6,6 +6,7 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from app.domains.downloads import service as downloads_service
 from app.routers import views as views_router
 
 
@@ -128,6 +129,46 @@ def test_video_list_channel_filter(client: TestClient) -> None:
     assert "vid-a-000" not in html
 
 
+def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/views/video-list", params={"category_id": "", "limit": "20"})
+    assert response.status_code == 200
+    html = response.text
+    assert "Channel A" in html
+    assert "Channel B" in html
+
+
+def test_home_accepts_empty_category_id_as_all(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/", params={"category_id": "", "limit": "20"})
+    assert response.status_code == 200
+    html = response.text
+    assert "Channel A" in html
+    assert "Channel B" in html
+
+
+def test_video_list_category_then_all_restores_all_channel_options(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute("INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999))
+        category_id = int(cursor.lastrowid)
+        conn.execute("UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB"))
+        conn.commit()
+
+    filtered = client.get("/views/video-list", params={"category_id": str(category_id), "limit": "20"})
+    assert filtered.status_code == 200
+    assert "Channel B" in filtered.text
+    assert "Channel A" not in filtered.text
+
+    restored = client.get("/views/video-list", params={"category_id": "", "limit": "20"})
+    assert restored.status_code == 200
+    assert "Channel A" in restored.text
+    assert "Channel B" in restored.text
+
+
 def test_video_list_sort_order(client: TestClient) -> None:
     """sort=upload_time&order=asc -> 오름차순 정렬"""
     _seed_channels_and_videos()
@@ -180,7 +221,6 @@ def test_video_download_selected_duplicate_only_returns_info_tone(
     monkeypatch,
 ) -> None:
     _seed_channels_and_videos()
-    monkeypatch.setattr("app.routers.views.is_ffmpeg_available", lambda: True)
     _seed_pending_download_job(
         "vid-a-000",
         target_dir=str(client.app.state.runtime.config.download_dir),
@@ -199,20 +239,18 @@ def test_video_download_selected_duplicate_only_returns_info_tone(
 
 def test_video_download_selected_uses_single_batch_query(client: TestClient, monkeypatch) -> None:
     _seed_channels_and_videos()
-    monkeypatch.setattr("app.routers.views.is_ffmpeg_available", lambda: True)
-
     call_counter = {"count": 0}
-    original_list_videos_by_ids = views_router.repository.list_videos_by_ids
+    original_list_videos_by_ids = downloads_service.videos_repo.list_videos_by_ids
 
     async def wrapped_list_videos_by_ids(db, video_ids):
         call_counter["count"] += 1
         return await original_list_videos_by_ids(db, video_ids)
 
     async def should_not_be_called(*_args, **_kwargs):
-        raise AssertionError("repository.get_video should not be called in bulk download flow")
+        raise AssertionError("videos_repo.get_video should not be called in bulk download flow")
 
-    monkeypatch.setattr("app.routers.views.repository.list_videos_by_ids", wrapped_list_videos_by_ids)
-    monkeypatch.setattr("app.routers.views.repository.get_video", should_not_be_called)
+    monkeypatch.setattr("app.domains.downloads.service.videos_repo.list_videos_by_ids", wrapped_list_videos_by_ids)
+    monkeypatch.setattr("app.domains.downloads.service.videos_repo.get_video", should_not_be_called)
 
     response = client.post(
         "/views/videos/download-selected",

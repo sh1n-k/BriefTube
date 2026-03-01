@@ -8,9 +8,15 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
 import httpx
 from starlette.datastructures import UploadFile
 
-from app import repository
-from app.domains.downloads import enqueue_bulk_downloads
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
+from app.repositories import alerts_retention as alerts_repo
+from app.repositories import categories as categories_repo
+from app.repositories import channels as channels_repo
+from app.repositories import downloads as downloads_repo
+from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import settings as settings_repo
+from app.repositories import videos as videos_repo
+from app.routers import views_downloads
 from app.routers.template_context import build_template_context
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
@@ -21,9 +27,9 @@ from app.services.downloads import is_ffmpeg_available
 from app.services.llm_runtime import LlmRuntimeStatus, is_runtime_ready_for_resume
 
 router = APIRouter(prefix="/views", tags=["views"])
+router.include_router(views_downloads.router)
 logger = logging.getLogger(__name__)
 REACTIVATE_BATCH_LIMIT = 50
-DOWNLOAD_BULK_LIMIT = 100
 ARTICLE_REQUEST_BULK_LIMIT = 10
 
 
@@ -34,6 +40,17 @@ def _safe_int(value: str | None, default: int) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return default
+
+
+def _parse_optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    return None
 
 
 def _cleanup_thumbnail_files(thumbnail_paths: list[str], thumbnail_dir: str) -> None:
@@ -66,7 +83,7 @@ def _unpack_candidate(value: str) -> tuple[str, str] | None:
 
 async def _texts(request: Request) -> dict[str, str]:
     language = normalize_language(
-        await repository.get_setting(
+        await settings_repo.get_setting(
             request.app.state.runtime.db,
             key="language",
             default=DEFAULT_LANGUAGE,
@@ -80,13 +97,13 @@ async def _resolve_channel_management_state(
     raw_status: str | None,
     category_id: int | None = None,
 ) -> tuple[str, list[dict[str, object]], dict[str, int]]:
-    channel_status = repository.normalize_channel_management_status(raw_status)
-    channels = await repository.list_channels_for_management(
+    channel_status = channels_repo.normalize_channel_management_status(raw_status)
+    channels = await channels_repo.list_channels_for_management(
         request.app.state.runtime.db,
         status=channel_status,
         category_id=category_id,
     )
-    channel_counts = await repository.count_channels_by_status(request.app.state.runtime.db)
+    channel_counts = await channels_repo.count_channels_by_status(request.app.state.runtime.db)
     return channel_status, channels, channel_counts
 
 
@@ -120,16 +137,6 @@ def _channel_metadata_toast_header(message: str, tone: str) -> dict[str, str]:
     return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
 
 
-def _download_bulk_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "video-download-bulk-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload)}
-
-
 def _video_article_request_toast_header(message: str, tone: str) -> dict[str, str]:
     payload = {
         "video-article-request-toast": {
@@ -148,22 +155,6 @@ def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
         }
     }
     return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
-
-
-def _resolve_download_bulk_toast_tone(
-    *,
-    created_count: int,
-    duplicate_count: int,
-    missing_count: int,
-    failed_count: int,
-) -> str:
-    if failed_count > 0 or missing_count > 0:
-        return "error"
-    if created_count > 0:
-        return "success"
-    if duplicate_count > 0:
-        return "info"
-    return "error"
 
 
 def _resolve_article_request_toast_tone(
@@ -286,13 +277,13 @@ async def _probe_channel_reactivation(
 async def _render_category_sidebar(
     request: Request,
     selected_category_id: int | None = None,
-    channel_status: str = repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE,
+    channel_status: str = channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE,
     *,
     refresh_channel_list: bool = False,
     channel_list_category_id: int | None = None,
 ):
-    normalized_status = repository.normalize_channel_management_status(channel_status)
-    categories = await repository.list_categories(request.app.state.runtime.db)
+    normalized_status = channels_repo.normalize_channel_management_status(channel_status)
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         categories=categories,
@@ -329,7 +320,7 @@ async def _render_category_sidebar(
 async def category_sidebar(
     request: Request,
     category_id: int | None = Query(default=None),
-    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
 ):
     return await _render_category_sidebar(request, selected_category_id=category_id, channel_status=status)
 
@@ -342,10 +333,10 @@ async def create_category_fragment(request: Request):
     if not name:
         raise HTTPException(status_code=400, detail=txt.get("category_add_empty_error", "Name required"))
     try:
-        await repository.create_category(request.app.state.runtime.db, name)
+        await categories_repo.create_category(request.app.state.runtime.db, name)
     except ValueError:
         raise HTTPException(status_code=400, detail=txt.get("category_add_duplicate_error", "Duplicate"))
-    status = repository.normalize_channel_management_status(str(form.get("status", "")).strip())
+    status = channels_repo.normalize_channel_management_status(str(form.get("status", "")).strip())
     raw_cat = form.get("category_id")
     selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
     return await _render_category_sidebar(
@@ -359,10 +350,10 @@ async def create_category_fragment(request: Request):
 
 @router.put("/categories/{category_id}/cycle-processing-stage")
 async def cycle_category_processing_stage_fragment(category_id: int, request: Request):
-    next_stage = await repository.cycle_category_processing_stage(request.app.state.runtime.db, category_id)
+    next_stage = await categories_repo.cycle_category_processing_stage(request.app.state.runtime.db, category_id)
     if next_stage is None:
         raise HTTPException(status_code=404, detail="category not found")
-    status = request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
+    status = request.query_params.get("status", channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
     raw_cat = request.query_params.get("category_id")
     selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
     return await _render_category_sidebar(request, selected_category_id=selected, channel_status=status)
@@ -371,11 +362,11 @@ async def cycle_category_processing_stage_fragment(category_id: int, request: Re
 @router.delete("/categories/{category_id}")
 async def delete_category_fragment(category_id: int, request: Request):
     try:
-        await repository.delete_category(request.app.state.runtime.db, category_id)
+        await categories_repo.delete_category(request.app.state.runtime.db, category_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    status = repository.normalize_channel_management_status(
-        request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
+    status = channels_repo.normalize_channel_management_status(
+        request.query_params.get("status", channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
     )
     raw_cat = request.query_params.get("category_id")
     selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
@@ -393,13 +384,13 @@ async def delete_category_fragment(category_id: int, request: Request):
 @router.get("/channel-list")
 async def channel_list(
     request: Request,
-    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
     category_id: int | None = Query(default=None),
 ):
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request, status, category_id=category_id,
     )
-    categories = await repository.list_categories(request.app.state.runtime.db)
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         channels=channels,
@@ -419,7 +410,7 @@ async def channel_list(
 @router.post("/channels/add")
 async def add_channel(request: Request):
     form = await request.form()
-    requested_status = repository.normalize_channel_management_status(
+    requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
     selected_candidate = str(form.get("selected_candidate", "")).strip()
@@ -444,12 +435,12 @@ async def add_channel(request: Request):
             )
 
         channel_id, channel_name = unpacked
-        await repository.add_channel(
+        await channels_repo.add_channel(
             request.app.state.runtime.db,
             channel_id=channel_id,
             channel_name=channel_name,
         )
-        await repository.enqueue_channel_metadata_refresh(
+        await channels_repo.enqueue_channel_metadata_refresh(
             request.app.state.runtime.db,
             channel_id=channel_id,
         )
@@ -519,7 +510,7 @@ async def add_channel(request: Request):
         channel_id = str(item.get("channel_id", "")).strip()
         channel_name = str(item.get("channel_name", "")).strip()
         if channel_id and channel_name:
-            await repository.add_channel(
+            await channels_repo.add_channel(
                 request.app.state.runtime.db,
                 channel_id=channel_id,
                 channel_name=channel_name,
@@ -528,9 +519,9 @@ async def add_channel(request: Request):
                 channel_thumbnail_url=str(item.get("channel_thumbnail_url", "")).strip() or None,
                 channel_description=str(item.get("channel_description", "")).strip() or None,
                 channel_language_hint=str(item.get("channel_language_hint", "")).strip() or None,
-                metadata_fetch_status=repository.CHANNEL_METADATA_STATUS_PENDING,
+                metadata_fetch_status=channels_repo.CHANNEL_METADATA_STATUS_PENDING,
             )
-            await repository.enqueue_channel_metadata_refresh(
+            await channels_repo.enqueue_channel_metadata_refresh(
                 request.app.state.runtime.db,
                 channel_id=channel_id,
             )
@@ -591,11 +582,11 @@ async def add_channel(request: Request):
 @router.post("/channels/delete-selected")
 async def delete_selected_channels(request: Request):
     form = await request.form()
-    requested_status = repository.normalize_channel_management_status(
+    requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
     channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
-    result = await repository.delete_channels_with_related_data(
+    result = await channels_repo.delete_channels_with_related_data(
         request.app.state.runtime.db,
         channel_ids,
     )
@@ -627,12 +618,12 @@ async def delete_selected_channels(request: Request):
 @router.post("/channels/metadata/retry-failed")
 async def retry_failed_channel_metadata(request: Request):
     form = await request.form()
-    requested_status = repository.normalize_channel_management_status(
+    requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
     raw_category_id = str(form.get("category_id") or request.query_params.get("category_id", "")).strip()
     selected_category_id = int(raw_category_id) if raw_category_id.isdigit() else None
-    queued = await repository.enqueue_failed_channel_metadata(
+    queued = await channels_repo.enqueue_failed_channel_metadata(
         request.app.state.runtime.db,
         status=requested_status,
         category_id=selected_category_id,
@@ -658,7 +649,7 @@ async def retry_failed_channel_metadata(request: Request):
         requested_status,
         category_id=selected_category_id,
     )
-    categories = await repository.list_categories(request.app.state.runtime.db)
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         channels=channels,
@@ -680,11 +671,11 @@ async def retry_failed_channel_metadata(request: Request):
 async def delete_single_channel(
     channel_id: str,
     request: Request,
-    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
 ):
     normalized = channel_id.strip()
-    requested_status = repository.normalize_channel_management_status(status)
-    result = await repository.delete_channels_with_related_data(
+    requested_status = channels_repo.normalize_channel_management_status(status)
+    result = await channels_repo.delete_channels_with_related_data(
         request.app.state.runtime.db,
         [normalized],
     )
@@ -715,7 +706,7 @@ async def delete_single_channel(
 @router.post("/channels/reactivate-selected")
 async def reactivate_selected_channels(request: Request):
     form = await request.form()
-    requested_status = repository.normalize_channel_management_status(
+    requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
     bulk_action = str(form.get("bulk_action", "")).strip().lower()
@@ -730,7 +721,7 @@ async def reactivate_selected_channels(request: Request):
     toast_message = ""
     toast_tone = "success"
     if bulk_action == "delete":
-        result = await repository.delete_channels_with_related_data(
+        result = await channels_repo.delete_channels_with_related_data(
             request.app.state.runtime.db,
             channel_ids,
         )
@@ -764,9 +755,9 @@ async def reactivate_selected_channels(request: Request):
                 extra={"event": "channels.reactivate_bulk_limited", "code": str(REACTIVATE_BATCH_LIMIT)},
             )
         else:
-            policy = await repository.get_policy_settings(request.app.state.runtime.db)
-            feed_mode = str(policy.get("rss_feed_mode", repository.RSS_FEED_MODE_DEFAULT))
-            channel_name_map = await repository.get_channel_name_map(
+            policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
+            feed_mode = str(policy.get("rss_feed_mode", settings_repo.RSS_FEED_MODE_DEFAULT))
+            channel_name_map = await channels_repo.get_channel_name_map(
                 request.app.state.runtime.db,
                 channel_ids,
             )
@@ -783,7 +774,7 @@ async def reactivate_selected_channels(request: Request):
                 else:
                     failed.append((channel_id, reason_code))
 
-            await repository.reactivate_channels(request.app.state.runtime.db, success_ids)
+            await channels_repo.reactivate_channels(request.app.state.runtime.db, success_ids)
 
             success_count = len(success_ids)
             failed_labels = [channel_name_map.get(channel_id, channel_id) for channel_id, _ in failed]
@@ -845,10 +836,10 @@ async def reactivate_selected_channels(request: Request):
 async def reactivate_single_channel(
     channel_id: str,
     request: Request,
-    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
 ):
     normalized = channel_id.strip()
-    requested_status = repository.normalize_channel_management_status(status)
+    requested_status = channels_repo.normalize_channel_management_status(status)
     logger.debug(
         "event=channels.reactivate_single_requested channel_id=%s status=%s",
         normalized,
@@ -856,16 +847,16 @@ async def reactivate_single_channel(
         extra={"event": "channels.reactivate_single_requested"},
     )
     txt = await _texts(request)
-    channel_name_map = await repository.get_channel_name_map(
+    channel_name_map = await channels_repo.get_channel_name_map(
         request.app.state.runtime.db,
         [normalized],
     )
     channel_label = channel_name_map.get(normalized, normalized)
-    policy = await repository.get_policy_settings(request.app.state.runtime.db)
-    feed_mode = str(policy.get("rss_feed_mode", repository.RSS_FEED_MODE_DEFAULT))
+    policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
+    feed_mode = str(policy.get("rss_feed_mode", settings_repo.RSS_FEED_MODE_DEFAULT))
     ok, reason_code = await _probe_channel_reactivation(request, normalized, feed_mode)
     if ok:
-        await repository.reactivate_channel(request.app.state.runtime.db, normalized)
+        await channels_repo.reactivate_channel(request.app.state.runtime.db, normalized)
         logger.info(
             "event=channels.reactivate_single_success channel_id=%s channel_name=%s",
             normalized,
@@ -912,32 +903,38 @@ async def reactivate_single_channel(
 async def video_list(
     request: Request,
     channel_id: str | None = Query(default=None),
-    category_id: int | None = Query(default=None),
+    category_id: str | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
-    if limit is None:
-        limit = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+    normalized_category_id = _parse_optional_int(category_id)
 
-    total = await repository.count_videos(
-        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
+    if limit is None:
+        limit = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
+
+    total = await videos_repo.count_videos(
+        request.app.state.runtime.db, channel_id=channel_id, category_id=normalized_category_id,
     )
     total_pages = max(1, (total + limit - 1) // limit)
     current_page = min(max(1, page), total_pages)
-    videos = await repository.list_videos(
+    videos = await videos_repo.list_videos(
         request.app.state.runtime.db,
         channel_id=channel_id,
         sort=sort,
         order=order,
         page=current_page,
         limit=limit,
-        category_id=category_id,
+        category_id=normalized_category_id,
     )
-    all_channels = await repository.list_channels(request.app.state.runtime.db)
-    channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
-    categories = await repository.list_categories(request.app.state.runtime.db)
+    all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
+    channels = (
+        [ch for ch in all_channels if ch.get("category_id") == normalized_category_id]
+        if normalized_category_id is not None
+        else all_channels
+    )
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         videos=videos,
@@ -949,7 +946,7 @@ async def video_list(
             "total": total,
             "total_pages": total_pages,
             "channel_id": channel_id or "",
-            "category_id": category_id if category_id is not None else "",
+            "category_id": normalized_category_id if normalized_category_id is not None else "",
             "sort": sort,
             "order": order,
         },
@@ -963,7 +960,7 @@ async def delete_selected_videos(request: Request):
     video_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
 
     if video_ids:
-        result = await repository.delete_videos_by_ids(
+        result = await videos_repo.delete_videos_by_ids(
             request.app.state.runtime.db, video_ids,
         )
         _cleanup_thumbnail_files(
@@ -974,19 +971,19 @@ async def delete_selected_videos(request: Request):
     page = _safe_int(form.get("_page"), 1)
     limit_val = _safe_int(form.get("_limit"), 0)
     if limit_val <= 0:
-        limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+        limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
     raw_cat = form.get("_category_id")
     category_id = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
 
-    total = await repository.count_videos(
+    total = await videos_repo.count_videos(
         request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
     )
     total_pages = max(1, (total + limit_val - 1) // limit_val)
     current_page = min(max(1, page), total_pages)
-    videos = await repository.list_videos(
+    videos = await videos_repo.list_videos(
         request.app.state.runtime.db,
         channel_id=channel_id,
         sort=sort,
@@ -995,9 +992,9 @@ async def delete_selected_videos(request: Request):
         limit=limit_val,
         category_id=category_id,
     )
-    all_channels = await repository.list_channels(request.app.state.runtime.db)
+    all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
     channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
-    categories = await repository.list_categories(request.app.state.runtime.db)
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         videos=videos,
@@ -1018,194 +1015,6 @@ async def delete_selected_videos(request: Request):
         request=request,
         name="fragments/video_list.html",
         context=context,
-    )
-
-
-@router.post("/videos/download-selected")
-async def download_selected_videos(request: Request):
-    form = await request.form()
-    selected_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
-    video_ids = list(dict.fromkeys(selected_ids))
-    txt = await _texts(request)
-
-    toast_message = ""
-    toast_tone = "success"
-    created_count = 0
-    duplicate_count = 0
-    missing_count = 0
-    failed_count = 0
-
-    if not video_ids:
-        toast_message = txt["download_bulk_none_selected"]
-        toast_tone = "error"
-    elif len(video_ids) > DOWNLOAD_BULK_LIMIT:
-        toast_message = txt["download_bulk_limit_exceeded"].format(
-            selected=len(video_ids),
-            limit=DOWNLOAD_BULK_LIMIT,
-        )
-        toast_tone = "error"
-    else:
-        defaults = await repository.get_download_default_settings(
-            request.app.state.runtime.db,
-            default_output_dir=request.app.state.runtime.config.download_dir,
-        )
-        bulk_result = await enqueue_bulk_downloads(
-            request.app.state.runtime.db,
-            video_ids=video_ids,
-            default_output_dir=str(defaults.get("output_dir") or ""),
-            quality=str(defaults["quality"]),
-            overwrite=bool(defaults["overwrite"]),
-        )
-        if bulk_result.had_error:
-            logger.warning(
-                "event=downloads.bulk_enqueue_invalid_output_dir code=%s path=%s",
-                bulk_result.error_code or "download_path_invalid",
-                str(defaults.get("output_dir") or ""),
-                extra={
-                    "event": "downloads.bulk_enqueue_invalid_output_dir",
-                    "code": bulk_result.error_code or "download_path_invalid",
-                },
-            )
-            if bulk_result.error_code == "ffmpeg_missing":
-                toast_message = txt["download_toast_ffmpeg_missing"]
-            else:
-                toast_message = txt["download_bulk_output_dir_invalid"]
-            toast_tone = "error"
-            page = _safe_int(form.get("_page"), 1)
-            limit_val = _safe_int(form.get("_limit"), 0)
-            if limit_val <= 0:
-                limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
-            sort = str(form.get("_sort") or "upload_time")
-            order = str(form.get("_order") or "desc")
-            channel_id = str(form.get("_channel_id") or "") or None
-            raw_cat_early = form.get("_category_id")
-            category_id_early = int(raw_cat_early) if raw_cat_early and str(raw_cat_early).strip().isdigit() else None
-
-            total = await repository.count_videos(
-                request.app.state.runtime.db, channel_id=channel_id, category_id=category_id_early,
-            )
-            total_pages = max(1, (total + limit_val - 1) // limit_val)
-            current_page = min(max(1, page), total_pages)
-            videos = await repository.list_videos(
-                request.app.state.runtime.db,
-                channel_id=channel_id,
-                sort=sort,
-                order=order,
-                page=current_page,
-                limit=limit_val,
-                category_id=category_id_early,
-            )
-            all_channels = await repository.list_channels(request.app.state.runtime.db)
-            channels = [ch for ch in all_channels if ch.get("category_id") == category_id_early] if category_id_early is not None else all_channels
-            categories_early = await repository.list_categories(request.app.state.runtime.db)
-            context = await build_template_context(
-                request,
-                videos=videos,
-                channels=channels,
-                categories_for_filter=categories_early,
-                pagination={
-                    "page": current_page,
-                    "limit": limit_val,
-                    "total": total,
-                    "total_pages": total_pages,
-                    "channel_id": channel_id or "",
-                    "category_id": category_id_early if category_id_early is not None else "",
-                    "sort": sort,
-                    "order": order,
-                },
-            )
-            return request.app.state.templates.TemplateResponse(
-                request=request,
-                name="fragments/video_list.html",
-                context=context,
-                headers=_download_bulk_toast_header(toast_message, toast_tone),
-            )
-        created_count = int(bulk_result.created_count)
-        duplicate_count = int(bulk_result.duplicate_count)
-        missing_count = int(bulk_result.missing_count)
-        failed_count = int(bulk_result.failed_count)
-
-        if created_count > 0:
-            request.app.state.runtime.download_wake_event.set()
-            logger.info(
-                "event=downloads.bulk_enqueue_queued selected=%s created=%s duplicate=%s missing=%s failed=%s",
-                len(video_ids),
-                created_count,
-                duplicate_count,
-                missing_count,
-                failed_count,
-                extra={"event": "downloads.bulk_enqueue_queued"},
-            )
-        else:
-            logger.warning(
-                "event=downloads.bulk_enqueue_none selected=%s duplicate=%s missing=%s failed=%s",
-                len(video_ids),
-                duplicate_count,
-                missing_count,
-                failed_count,
-                extra={"event": "downloads.bulk_enqueue_none"},
-            )
-        toast_message = txt["download_bulk_result"].format(
-            created=created_count,
-            duplicate=duplicate_count,
-            missing=missing_count,
-            failed=failed_count,
-        )
-        toast_tone = _resolve_download_bulk_toast_tone(
-            created_count=created_count,
-            duplicate_count=duplicate_count,
-            missing_count=missing_count,
-            failed_count=failed_count,
-        )
-
-    page = _safe_int(form.get("_page"), 1)
-    limit_val = _safe_int(form.get("_limit"), 0)
-    if limit_val <= 0:
-        limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
-    sort = str(form.get("_sort") or "upload_time")
-    order = str(form.get("_order") or "desc")
-    channel_id = str(form.get("_channel_id") or "") or None
-    raw_cat_final = form.get("_category_id")
-    category_id_final = int(raw_cat_final) if raw_cat_final and str(raw_cat_final).strip().isdigit() else None
-
-    total = await repository.count_videos(
-        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id_final,
-    )
-    total_pages = max(1, (total + limit_val - 1) // limit_val)
-    current_page = min(max(1, page), total_pages)
-    videos = await repository.list_videos(
-        request.app.state.runtime.db,
-        channel_id=channel_id,
-        sort=sort,
-        order=order,
-        page=current_page,
-        limit=limit_val,
-        category_id=category_id_final,
-    )
-    all_channels = await repository.list_channels(request.app.state.runtime.db)
-    channels = [ch for ch in all_channels if ch.get("category_id") == category_id_final] if category_id_final is not None else all_channels
-    categories_final = await repository.list_categories(request.app.state.runtime.db)
-    context = await build_template_context(
-        request,
-        videos=videos,
-        channels=channels,
-        categories_for_filter=categories_final,
-        pagination={
-            "page": current_page,
-            "limit": limit_val,
-            "total": total,
-            "total_pages": total_pages,
-            "channel_id": channel_id or "",
-            "category_id": category_id_final if category_id_final is not None else "",
-            "sort": sort,
-            "order": order,
-        },
-    )
-    return request.app.state.templates.TemplateResponse(
-        request=request,
-        name="fragments/video_list.html",
-        context=context,
-        headers=_download_bulk_toast_header(toast_message, toast_tone) if toast_message else None,
     )
 
 
@@ -1232,7 +1041,7 @@ async def article_request_selected_videos(request: Request):
         )
         toast_tone = "error"
     else:
-        bulk_result = await repository.enqueue_manual_article_jobs(
+        bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
             request.app.state.runtime.db,
             video_ids=video_ids,
         )
@@ -1244,7 +1053,7 @@ async def article_request_selected_videos(request: Request):
         if (new_count + retry_count) > 0:
             request.app.state.runtime.manual_article_wake_event.set()
 
-        llm_worker_waiting = not await repository.is_worker_enabled(
+        llm_worker_waiting = not await settings_repo.is_worker_enabled(
             request.app.state.runtime.db,
             "llm",
         )
@@ -1267,7 +1076,7 @@ async def article_request_selected_videos(request: Request):
     page = max(1, _safe_int(form.get("_page"), 1))
     limit_val = _safe_int(form.get("_limit"), 0)
     if limit_val <= 0:
-        limit_val = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+        limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
@@ -1290,7 +1099,7 @@ async def article_request_selected_videos(request: Request):
 @router.post("/videos/{video_id}/article-request")
 async def article_request_single_video(video_id: str, request: Request):
     txt = await _texts(request)
-    bulk_result = await repository.enqueue_manual_article_jobs(
+    bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
         request.app.state.runtime.db,
         video_ids=[video_id],
     )
@@ -1302,7 +1111,7 @@ async def article_request_single_video(video_id: str, request: Request):
     if (new_count + retry_count) > 0:
         request.app.state.runtime.manual_article_wake_event.set()
 
-    llm_worker_waiting = not await repository.is_worker_enabled(
+    llm_worker_waiting = not await settings_repo.is_worker_enabled(
         request.app.state.runtime.db,
         "llm",
     )
@@ -1329,10 +1138,10 @@ async def article_request_single_video(video_id: str, request: Request):
 
 @router.get("/video-detail/{video_id}")
 async def video_detail(video_id: str, request: Request):
-    detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
+    detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
     if detail:
-        await repository.mark_video_viewed(request.app.state.runtime.db, video_id)
-    download_defaults = await repository.get_download_default_settings(
+        await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
+    download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
@@ -1351,7 +1160,7 @@ async def video_detail(video_id: str, request: Request):
 
 @router.get("/search-results")
 async def search_results(request: Request, q: str = Query(default="")):
-    results = await repository.search_documents(request.app.state.runtime.db, q) if q else []
+    results = await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
     context = await build_template_context(request, results=results, q=q)
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -1362,7 +1171,7 @@ async def search_results(request: Request, q: str = Query(default="")):
 
 @router.get("/status-badge/{video_id}")
 async def status_badge(video_id: str, request: Request):
-    video = await repository.get_video(request.app.state.runtime.db, video_id)
+    video = await videos_repo.get_video(request.app.state.runtime.db, video_id)
     status = video["pipeline_status"] if video else "unknown"
     context = await build_template_context(request, status=status)
     return request.app.state.templates.TemplateResponse(
@@ -1375,7 +1184,7 @@ async def status_badge(video_id: str, request: Request):
 @router.post("/channels/bulk-resolve")
 async def bulk_resolve(request: Request):
     form = await request.form()
-    channel_status = repository.normalize_channel_management_status(
+    channel_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
     bulk_text = str(form.get("bulk_text", ""))
@@ -1409,7 +1218,7 @@ async def bulk_resolve(request: Request):
 @router.post("/channels/bulk-commit")
 async def bulk_commit(request: Request):
     form = await request.form()
-    requested_status = repository.normalize_channel_management_status(
+    requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
     items: list[dict[str, str]] = []
@@ -1442,12 +1251,12 @@ async def bulk_commit(request: Request):
         if channel_id in seen:
             continue
         seen.add(channel_id)
-        await repository.add_channel(
+        await channels_repo.add_channel(
             request.app.state.runtime.db,
             channel_id=channel_id,
             channel_name=channel_name,
         )
-        await repository.enqueue_channel_metadata_refresh(
+        await channels_repo.enqueue_channel_metadata_refresh(
             request.app.state.runtime.db,
             channel_id=channel_id,
         )
@@ -1538,7 +1347,7 @@ async def acknowledge_alert(
     if confirmed != "on":
         return Response(status_code=400)
 
-    affected = await repository.acknowledge_alert(
+    affected = await alerts_repo.acknowledge_alert(
         request.app.state.runtime.db,
         alert_id=alert_id,
     )
@@ -1560,7 +1369,7 @@ async def acknowledge_alert_group(
     if not normalized_alert_type:
         return Response(status_code=400)
 
-    affected = await repository.acknowledge_alerts_by_type(
+    affected = await alerts_repo.acknowledge_alerts_by_type(
         request.app.state.runtime.db,
         alert_type=normalized_alert_type,
     )
