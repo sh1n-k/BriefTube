@@ -1479,8 +1479,12 @@
         const badgeClass = QUEUE_STATUS_BADGE_MAP[status] || "status-badge--unknown";
         const label = getQueueStatusLabel(status);
 
+        const failedStatuses = ["transcript_failed", "no_subtitle", "llm_failed", "manual_review"];
+        const isFailed = failedStatuses.includes(status);
         const row = document.createElement("div");
-        row.className = "flex items-center gap-3 py-3";
+        row.className = isFailed
+          ? "flex items-center gap-3 py-3 -mx-2 rounded-md bg-rose-50/60 px-2"
+          : "flex items-center gap-3 py-3";
 
         const thumbWrap = document.createElement("div");
         thumbWrap.className = "h-12 w-20 flex-shrink-0 overflow-hidden rounded";
@@ -2029,7 +2033,12 @@
         const body = section.querySelector("[data-collapsible-body]");
         const icon = toggle?.querySelector("[data-collapsible-icon]");
         if (!toggle || !body) return;
-        body.classList.add("hidden");
+        const startOpen = section.hasAttribute("data-collapsible-open");
+        if (startOpen) {
+          if (icon) icon.style.transform = "rotate(180deg)";
+        } else {
+          body.classList.add("hidden");
+        }
         toggle.addEventListener("click", () => {
           const isHidden = body.classList.toggle("hidden");
           if (icon) icon.style.transform = isHidden ? "" : "rotate(180deg)";
