@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ txt.brand }} - {{ txt.queue_page_title }}{% endblock %}
+{% block content %}
+<div class="space-y-4" data-queue-page
+     data-retry-success-text="{{ txt.queue_retry_success }}"
+     data-retry-failed-text="{{ txt.queue_retry_failed }}"
+     data-retry-button-text="{{ txt.queue_retry_button }}"
+     data-transcript-empty-text="{{ txt.queue_transcript_empty }}"
+     data-llm-empty-text="{{ txt.queue_llm_empty }}"
+     data-label-transcript-pending="{{ txt.pipeline_status_transcript_pending }}"
+     data-label-transcript-processing="{{ txt.pipeline_status_transcript_processing }}"
+     data-label-transcript-failed="{{ txt.pipeline_status_transcript_failed }}"
+     data-label-no-subtitle="{{ txt.pipeline_status_no_subtitle }}"
+     data-label-llm-pending="{{ txt.pipeline_status_llm_pending }}"
+     data-label-llm-processing="{{ txt.pipeline_status_llm_processing }}"
+     data-label-llm-failed="{{ txt.pipeline_status_llm_failed }}"
+     data-label-manual-review="{{ txt.pipeline_status_manual_review }}"
+     data-label-worker-active="{{ txt.queue_worker_active }}"
+     data-label-worker-inactive="{{ txt.queue_worker_inactive }}">
+
+  <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <h1 class="text-xl font-semibold text-slate-900">{{ txt.queue_page_title }}</h1>
+    <p class="mt-1 text-sm text-slate-500">{{ txt.queue_page_subtitle }}</p>
+  </section>
+
+  <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="flex flex-wrap items-center gap-4 text-sm">
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-slate-700">{{ txt.queue_worker_transcript }}</span>
+        <span data-queue-transcript-worker-indicator
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
+                     {% if worker_settings.get('transcript') %}bg-emerald-50 text-emerald-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+          <span class="h-1.5 w-1.5 rounded-full {% if worker_settings.get('transcript') %}bg-emerald-500{% else %}bg-slate-400{% endif %}"></span>
+          {% if worker_settings.get('transcript') %}{{ txt.queue_worker_active }}{% else %}{{ txt.queue_worker_inactive }}{% endif %}
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-slate-700">{{ txt.queue_worker_llm }}</span>
+        <span data-queue-llm-worker-indicator
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
+                     {% if worker_settings.get('llm') %}bg-emerald-50 text-emerald-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+          <span class="h-1.5 w-1.5 rounded-full {% if worker_settings.get('llm') %}bg-emerald-500{% else %}bg-slate-400{% endif %}"></span>
+          {% if worker_settings.get('llm') %}{{ txt.queue_worker_active }}{% else %}{{ txt.queue_worker_inactive }}{% endif %}
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-slate-700">{{ txt.queue_guard_label }}</span>
+        {% set bs = transcript_guard.get('breaker_state', 'closed') %}
+        <span data-queue-guard-indicator
+              data-guard-label-closed="{{ txt.queue_guard_closed }}"
+              data-guard-label-open="{{ txt.queue_guard_open }}"
+              data-guard-label-half-open="{{ txt.queue_guard_half_open }}"
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium
+                     {% if bs == 'closed' %}bg-emerald-50 text-emerald-700{% elif bs == 'open' %}bg-rose-50 text-rose-700{% else %}bg-amber-50 text-amber-700{% endif %}">
+          <span class="h-1.5 w-1.5 rounded-full {% if bs == 'closed' %}bg-emerald-500{% elif bs == 'open' %}bg-rose-500{% else %}bg-amber-500{% endif %}"></span>
+          <span data-guard-label>{% if bs == 'closed' %}{{ txt.queue_guard_closed }}{% elif bs == 'open' %}{{ txt.queue_guard_open }}{% else %}{{ txt.queue_guard_half_open }}{% endif %}</span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <div data-queue-content>
+    {% include "fragments/queue_list.html" %}
+  </div>
+</div>
+{% endblock %}

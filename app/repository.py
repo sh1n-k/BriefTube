@@ -126,6 +126,8 @@ PIPELINE_STATUS_KEYS: tuple[str, ...] = (
     "manual_review",
     "done",
 )
+TRANSCRIPT_QUEUE_STATUSES = ("transcript_pending", "transcript_processing", "transcript_failed", "no_subtitle")
+LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_review")
 logger = logging.getLogger(__name__)
 
 DEFAULT_CATEGORY_NAME = "미분류"
@@ -825,6 +827,48 @@ async def search_documents(db: aiosqlite.Connection, query: str, limit: int = 20
     )
     rows = await cursor.fetchall()
     return _rows_to_dicts(rows)
+
+
+async def list_queue_items(
+    db: aiosqlite.Connection,
+    statuses: tuple[str, ...],
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if not statuses:
+        return []
+    safe_limit = max(1, min(500, int(limit)))
+    placeholders = ", ".join("?" for _ in statuses)
+    cursor = await db.execute(
+        f"""
+        SELECT
+            v.video_id,
+            v.channel_id,
+            c.channel_name,
+            v.title,
+            v.upload_time,
+            v.thumbnail_path,
+            v.pipeline_status,
+            v.retry_count,
+            v.transcript_retry_count,
+            v.created_at
+        FROM videos v
+        LEFT JOIN channels c ON c.channel_id = v.channel_id
+        WHERE v.pipeline_status IN ({placeholders})
+        ORDER BY
+            CASE v.pipeline_status
+                WHEN 'transcript_processing' THEN 0
+                WHEN 'llm_processing' THEN 0
+                WHEN 'transcript_pending' THEN 1
+                WHEN 'llm_pending' THEN 1
+                ELSE 2
+            END,
+            v.created_at ASC
+        LIMIT ?
+        """,
+        (*statuses, safe_limit),
+    )
+    rows = await cursor.fetchall()
+    return [_with_thumbnail_url(item) for item in _rows_to_dicts(rows)]
 
 
 async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:

@@ -183,6 +183,33 @@ async def retry_transcript(video_id: str, request: Request):
     return RedirectResponse(url=f"/videos/{video_id}?transcript_retry={retry_flag}", status_code=303)
 
 
+@router.get("/queue")
+async def queue_page(request: Request):
+    db = request.app.state.runtime.db
+    transcript_items = await repository.list_queue_items(
+        db, repository.TRANSCRIPT_QUEUE_STATUSES,
+    )
+    llm_items = await repository.list_queue_items(
+        db, repository.LLM_QUEUE_STATUSES,
+    )
+    queue_counts = await repository.queue_status(db)
+    worker_settings = await repository.get_worker_settings(db)
+    transcript_guard = await repository.get_transcript_guard_state(db)
+    context = await build_template_context(
+        request,
+        transcript_items=transcript_items,
+        llm_items=llm_items,
+        queue_counts=queue_counts,
+        worker_settings=worker_settings,
+        transcript_guard=transcript_guard,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="queue.html",
+        context=context,
+    )
+
+
 @router.get("/retention")
 async def retention_page(request: Request):
     policy = await repository.get_policy_settings(request.app.state.runtime.db)
