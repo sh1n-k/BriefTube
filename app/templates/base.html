@@ -534,6 +534,7 @@
     html[data-theme="dark"] .bg-white { background-color: var(--surface-1) !important; }
     html[data-theme="dark"] .bg-slate-50 { background-color: var(--surface-2) !important; }
     html[data-theme="dark"] .bg-slate-100 { background-color: var(--app-bg) !important; }
+    html[data-theme="dark"] .bg-slate-200 { background-color: var(--surface-2) !important; }
     html[data-theme="dark"] .bg-slate-900\/35 { background-color: rgb(2 6 23 / 0.56) !important; }
     html[data-theme="dark"] .bg-slate-900\/45 { background-color: rgb(2 6 23 / 0.64) !important; }
     html[data-theme="dark"] .bg-slate-900\/50 { background-color: rgb(2 6 23 / 0.72) !important; }
@@ -600,6 +601,9 @@
     html[data-theme="dark"] .text-emerald-700 { color: var(--success-text) !important; }
 
     html[data-theme="dark"] .bg-rose-50 { background-color: var(--danger-bg) !important; }
+    html[data-theme="dark"] .bg-rose-50\/60 {
+      background-color: color-mix(in srgb, var(--danger-bg), transparent 40%) !important;
+    }
     html[data-theme="dark"] .bg-rose-100 {
       background-color: color-mix(in srgb, var(--danger-bg), white 10%) !important;
     }
@@ -620,6 +624,9 @@
     html[data-theme="dark"] .hover\:text-rose-600:hover { color: var(--danger-text) !important; }
 
     html[data-theme="dark"] .bg-amber-50 { background-color: var(--warn-bg) !important; }
+    html[data-theme="dark"] .bg-amber-100 {
+      background-color: color-mix(in srgb, var(--warn-bg), white 6%) !important;
+    }
     html[data-theme="dark"] .bg-amber-100\/50 {
       background-color: color-mix(in srgb, var(--warn-bg), transparent 50%) !important;
     }
@@ -656,6 +663,10 @@
     html[data-theme="dark"] .text-sky-700 { color: var(--info-text) !important; }
     html[data-theme="dark"] .hover\:bg-sky-100:hover { background-color: color-mix(in srgb, var(--info-bg), white 8%) !important; }
     html[data-theme="dark"] .hover\:bg-sky-200:hover { background-color: color-mix(in srgb, var(--info-bg), white 14%) !important; }
+
+    html[data-theme="dark"] .bg-orange-100 { background-color: var(--status-manual-review-bg) !important; }
+    html[data-theme="dark"] .text-orange-900,
+    html[data-theme="dark"] .text-orange-800 { color: var(--status-manual-review-text) !important; }
 
     html[data-theme="dark"] .bg-violet-100 { background-color: var(--violet-bg) !important; }
     html[data-theme="dark"] .text-violet-700 { color: var(--violet-text) !important; }
