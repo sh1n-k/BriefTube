@@ -24,6 +24,7 @@
       <input type="hidden" name="page" value="1" />
       {% if has_categories %}
       <select name="category_id"
+              data-category-filter
               class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700">
         <option value="">{{ txt.video_filter_all_categories }}</option>
         {% for cat in categories_for_filter %}

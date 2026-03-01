@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import logging
 
-from fastapi import APIRouter, Form, Query, Request, Response
+from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
 import httpx
 from starlette.datastructures import UploadFile
 
@@ -224,6 +224,78 @@ async def _probe_channel_reactivation(
         extra={"event": "channels.reactivate_probe_ok"},
     )
     return True, ""
+
+
+async def _render_category_sidebar(
+    request: Request,
+    selected_category_id: int | None = None,
+    channel_status: str = repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE,
+):
+    categories = await repository.list_categories(request.app.state.runtime.db)
+    context = await build_template_context(
+        request,
+        categories=categories,
+        selected_category_id=selected_category_id,
+        channel_status=channel_status,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/category_sidebar.html",
+        context=context,
+    )
+
+
+@router.get("/category-sidebar")
+async def category_sidebar(
+    request: Request,
+    category_id: int | None = Query(default=None),
+    status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+):
+    return await _render_category_sidebar(request, selected_category_id=category_id, channel_status=status)
+
+
+@router.post("/categories")
+async def create_category_fragment(request: Request):
+    form = await request.form()
+    name = str(form.get("name", "")).strip()
+    txt = await _texts(request)
+    if not name:
+        raise HTTPException(status_code=400, detail=txt.get("category_add_empty_error", "Name required"))
+    try:
+        await repository.create_category(request.app.state.runtime.db, name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=txt.get("category_add_duplicate_error", "Duplicate"))
+    status = str(form.get("status", "")).strip() or repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE
+    raw_cat = form.get("category_id")
+    selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
+    return await _render_category_sidebar(request, selected_category_id=selected, channel_status=status)
+
+
+@router.put("/categories/{category_id}/toggle-llm")
+async def toggle_category_llm_fragment(category_id: int, request: Request):
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = await request.json()
+        llm_enabled = payload.get("llm_enabled", True)
+    else:
+        form = await request.form()
+        raw = str(form.get("llm_enabled", "true")).strip().lower()
+        llm_enabled = raw not in ("false", "0", "no")
+    await repository.update_category_llm_enabled(request.app.state.runtime.db, category_id, llm_enabled)
+    status = request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
+    raw_cat = request.query_params.get("category_id")
+    selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
+    return await _render_category_sidebar(request, selected_category_id=selected, channel_status=status)
+
+
+@router.delete("/categories/{category_id}")
+async def delete_category_fragment(category_id: int, request: Request):
+    try:
+        await repository.delete_category(request.app.state.runtime.db, category_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    status = request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
+    return await _render_category_sidebar(request, channel_status=status)
 
 
 @router.get("/channel-list")

@@ -165,10 +165,14 @@ async def update_category(category_id: int, request: Request):
     result: dict[str, object] = {"ok": True}
     try:
         if name is not None:
-            await repository.rename_category(request.app.state.runtime.db, category_id, name)
+            rows = await repository.rename_category(request.app.state.runtime.db, category_id, name)
+            if rows == 0:
+                raise HTTPException(status_code=404, detail="category not found")
             result["renamed"] = True
         if llm_enabled is not None:
-            await repository.update_category_llm_enabled(request.app.state.runtime.db, category_id, llm_enabled)
+            rows = await repository.update_category_llm_enabled(request.app.state.runtime.db, category_id, llm_enabled)
+            if rows == 0:
+                raise HTTPException(status_code=404, detail="category not found")
             result["llm_enabled"] = llm_enabled
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

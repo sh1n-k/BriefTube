@@ -315,13 +315,21 @@ async def update_category_llm_enabled(db: aiosqlite.Connection, category_id: int
 
 
 async def reorder_categories(db: aiosqlite.Connection, ordered_ids: list[int]) -> int:
+    cursor = await db.execute("SELECT id FROM categories")
+    rows = await cursor.fetchall()
+    existing_ids = {int(r["id"]) for r in rows}
+    input_ids = set(ordered_ids)
+    if input_ids != existing_ids:
+        missing_in_input = existing_ids - input_ids
+        for mid in missing_in_input:
+            ordered_ids.append(mid)
     updated = 0
     for idx, cat_id in enumerate(ordered_ids):
-        cursor = await db.execute(
+        cur = await db.execute(
             "UPDATE categories SET sort_order = ? WHERE id = ?",
             (idx, cat_id),
         )
-        updated += int(cursor.rowcount or 0)
+        updated += int(cur.rowcount or 0)
     await db.commit()
     return updated
 
@@ -611,17 +619,20 @@ async def count_videos(
 ) -> int:
     conditions: list[str] = []
     params: list[object] = []
-    joins = ""
     if channel_id:
         conditions.append("v.channel_id = ?")
         params.append(channel_id)
     if category_id is not None:
-        joins = "LEFT JOIN channels c ON c.channel_id = v.channel_id"
         conditions.append("c.category_id = ?")
         params.append(category_id)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = await db.execute(
-        f"SELECT COUNT(1) AS cnt FROM videos v {joins} {where_clause}",
+        f"""
+        SELECT COUNT(1) AS cnt
+        FROM videos v
+        LEFT JOIN channels c ON c.channel_id = v.channel_id
+        {where_clause}
+        """,
         tuple(params),
     )
     row = await cursor.fetchone()

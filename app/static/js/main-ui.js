@@ -1912,9 +1912,8 @@
           list.dataset.sortableBound = "1";
           Sortable.create(list, {
             handle: "[data-drag-handle]",
-            filter: "[data-no-drag]",
             animation: 150,
-            onEnd: () => {
+            onEnd: async () => {
               const items = list.querySelectorAll("[data-category-id]");
               const ordered_ids = [];
               items.forEach((el) => {
@@ -1922,11 +1921,18 @@
                 if (id) ordered_ids.push(parseInt(id, 10));
               });
               if (ordered_ids.length === 0) return;
-              fetch("/api/categories/reorder", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ordered_ids }),
-              });
+              try {
+                const resp = await fetch("/api/categories/reorder", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ordered_ids }),
+                });
+                if (!resp.ok) {
+                  showUiToast("Reorder failed", "error");
+                }
+              } catch (_err) {
+                showUiToast("Reorder failed", "error");
+              }
             },
           });
         });
@@ -1964,13 +1970,15 @@
               });
               if (resp.ok) {
                 showUiToast(btn.closest("[data-channel-move-category]")?.dataset?.moveToast || "Moved", "success");
-                const sidebar = document.querySelector("#category-sidebar");
-                if (sidebar) {
-                  htmx.ajax("GET", "/views/channel-list?" + new URLSearchParams(window.location.search).toString(), {
-                    target: "#channel-list-wrap",
-                    swap: "innerHTML",
-                  });
-                }
+                const params = new URLSearchParams(window.location.search);
+                htmx.ajax("GET", "/views/channel-list?" + params.toString(), {
+                  target: "#channel-list-wrap",
+                  swap: "innerHTML",
+                });
+                htmx.ajax("GET", "/views/category-sidebar?" + params.toString(), {
+                  target: "#category-sidebar",
+                  swap: "outerHTML",
+                });
               }
             } catch (_err) {
               // ignore
@@ -1981,6 +1989,20 @@
 
       function bindChannelMoveCategory(scope) {
         initChannelMoveCategory(scope);
+      }
+
+      function bindCategoryFilterReset(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-category-filter]").forEach((sel) => {
+          if (sel.dataset.filterResetBound === "1") return;
+          sel.dataset.filterResetBound = "1";
+          sel.addEventListener("change", () => {
+            const form = sel.closest("form");
+            if (!form) return;
+            const channelSel = form.querySelector("[name='channel_id']");
+            if (channelSel) channelSel.value = "";
+          });
+        });
       }
 
       document.addEventListener("DOMContentLoaded", () => {
@@ -2012,6 +2034,7 @@
         bindNavTransitions(document);
         bindCategorySortable(document);
         bindChannelMoveCategory(document);
+        bindCategoryFilterReset(document);
         revealPageShell();
       });
       window.addEventListener("pageshow", () => {
@@ -2085,5 +2108,6 @@
         bindDownloadRetryButtons(event.target);
         bindCategorySortable(event.target);
         bindChannelMoveCategory(event.target);
+        bindCategoryFilterReset(event.target);
       });
     })();
