@@ -1,6 +1,6 @@
     (() => {
       const THEME_MODE_KEY = "brieftube.theme.mode";
-      const THEME_TONE_KEY = "brieftube.theme.darkTone";
+      const THEME_TONE_KEY = "brieftube.theme.tone";
       const PAGE_FADE_ENABLE_KEY = "brieftube.enableNextPageFade";
       const THEME_MODE_DEFAULT = "system";
       const THEME_TONE_DEFAULT = "neutral";
@@ -42,7 +42,7 @@
         return THEME_MODES.has(normalized) ? normalized : THEME_MODE_DEFAULT;
       }
 
-      function normalizeDarkTone(value) {
+      function normalizeTone(value) {
         const normalized = String(value || "").trim().toLowerCase();
         return THEME_TONES.has(normalized) ? normalized : THEME_TONE_DEFAULT;
       }
@@ -56,7 +56,7 @@
       function getThemeState() {
         return {
           mode: normalizeThemeMode(getStoredValue(THEME_MODE_KEY)),
-          tone: normalizeDarkTone(getStoredValue(THEME_TONE_KEY)),
+          tone: normalizeTone(getStoredValue(THEME_TONE_KEY)),
         };
       }
 
@@ -64,7 +64,7 @@
         const root = scope instanceof Element ? scope : document;
         const html = document.documentElement;
         const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
-        const tone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+        const tone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
         const effective = resolveEffectiveTheme(mode);
         root.querySelectorAll("[data-theme-mode-select]").forEach((node) => {
           if (node instanceof HTMLSelectElement) {
@@ -85,7 +85,7 @@
 
       function applyTheme(modeInput, toneInput, options = {}) {
         const mode = normalizeThemeMode(modeInput);
-        const tone = normalizeDarkTone(toneInput);
+        const tone = normalizeTone(toneInput);
         const persist = options.persist !== false;
         if (persist) {
           setStoredValue(THEME_MODE_KEY, mode);
@@ -94,7 +94,7 @@
         const effective = resolveEffectiveTheme(mode);
         const html = document.documentElement;
         html.dataset.themeMode = mode;
-        html.dataset.darkTone = tone;
+        html.dataset.tone = tone;
         html.dataset.theme = effective;
         syncThemeControls(document);
       }
@@ -107,7 +107,7 @@
           node.dataset.themeBound = "1";
           node.addEventListener("change", () => {
             const html = document.documentElement;
-            const tone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+            const tone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
             applyTheme(node.value, tone, { persist: true });
           });
         });
@@ -136,7 +136,7 @@
           node.addEventListener("click", () => {
             const html = document.documentElement;
             const currentMode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
-            const currentTone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+            const currentTone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
             const effective = resolveEffectiveTheme(currentMode);
             const nextMode = effective === "dark" ? "light" : "dark";
             applyTheme(nextMode, currentTone, { persist: true });
@@ -153,7 +153,7 @@
           const html = document.documentElement;
           const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
           if (mode !== "system") return;
-          const tone = normalizeDarkTone(html.dataset.darkTone || getStoredValue(THEME_TONE_KEY));
+          const tone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
           applyTheme(mode, tone, { persist: false });
         };
         if (typeof media.addEventListener === "function") {
