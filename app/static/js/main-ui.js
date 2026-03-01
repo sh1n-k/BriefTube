@@ -1,18 +1,19 @@
     (() => {
-      const THEME_MODE_KEY = "brieftube.theme.mode";
-      const THEME_TONE_KEY = "brieftube.theme.tone";
       const PAGE_FADE_ENABLE_KEY = "brieftube.enableNextPageFade";
-      const THEME_MODE_DEFAULT = "system";
-      const THEME_TONE_DEFAULT = "neutral";
-      const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
-      const THEME_MODES = new Set(["light", "dark", "system"]);
-      const THEME_TONES = new Set(["brand", "neutral", "high-contrast"]);
       const NAV_FADE_DURATION_MS = 120;
       const DOWNLOAD_EVENT_CURSOR_KEY = "brieftube.download.lastEventId";
       const DOWNLOAD_PROGRESS_POLL_INTERVAL_MS = 5000;
       const QUEUE_POLL_INTERVAL_MS = 2000;
       const MATCH_CLASSES = ["bg-amber-50", "ring-1", "ring-inset", "ring-amber-200"];
       const ACTIVE_CLASSES = ["bg-indigo-100", "ring-indigo-300"];
+      const themeController = window.BrieftubeTheme || null;
+      const navTransitionController = window.BrieftubeNavTransition || null;
+      if (navTransitionController && typeof navTransitionController.configure === "function") {
+        navTransitionController.configure({
+          pageFadeKey: PAGE_FADE_ENABLE_KEY,
+          navFadeDurationMs: NAV_FADE_DURATION_MS,
+        });
+      }
 
       function getStoredValue(key) {
         try {
@@ -30,147 +31,29 @@
         }
       }
 
-      function enableNextPageFade() {
-        try {
-          sessionStorage.setItem(PAGE_FADE_ENABLE_KEY, "1");
-        } catch (_err) {
-          // ignore storage write errors.
-        }
-      }
-
-      function normalizeThemeMode(value) {
-        const normalized = String(value || "").trim().toLowerCase();
-        return THEME_MODES.has(normalized) ? normalized : THEME_MODE_DEFAULT;
-      }
-
-      function normalizeTone(value) {
-        const normalized = String(value || "").trim().toLowerCase();
-        return THEME_TONES.has(normalized) ? normalized : THEME_TONE_DEFAULT;
-      }
-
-      function resolveEffectiveTheme(mode) {
-        if (mode !== "system") return mode;
-        const prefersDark = window.matchMedia && window.matchMedia(SYSTEM_DARK_QUERY).matches;
-        return prefersDark ? "dark" : "light";
-      }
-
       function getThemeState() {
-        return {
-          mode: normalizeThemeMode(getStoredValue(THEME_MODE_KEY)),
-          tone: normalizeTone(getStoredValue(THEME_TONE_KEY)),
-        };
-      }
-
-      function syncThemeControls(scope) {
-        const root = scope instanceof Element ? scope : document;
-        const html = document.documentElement;
-        const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
-        const tone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
-        const effective = resolveEffectiveTheme(mode);
-        root.querySelectorAll("[data-theme-mode-select]").forEach((node) => {
-          if (node instanceof HTMLSelectElement) {
-            node.value = mode;
-          }
-        });
-        root.querySelectorAll("[data-theme-tone-select]").forEach((node) => {
-          if (node instanceof HTMLSelectElement) {
-            node.value = tone;
-          }
-        });
-        root.querySelectorAll("[data-theme-toggle-label]").forEach((node) => {
-          const darkLabel = node.getAttribute("data-theme-label-dark") || "Dark";
-          const lightLabel = node.getAttribute("data-theme-label-light") || "Light";
-          node.textContent = effective === "dark" ? lightLabel : darkLabel;
-        });
+        if (themeController && typeof themeController.getThemeState === "function") {
+          return themeController.getThemeState();
+        }
+        return { mode: "system", tone: "neutral" };
       }
 
       function applyTheme(modeInput, toneInput, options = {}) {
-        const mode = normalizeThemeMode(modeInput);
-        const tone = normalizeTone(toneInput);
-        const persist = options.persist !== false;
-        if (persist) {
-          setStoredValue(THEME_MODE_KEY, mode);
-          setStoredValue(THEME_TONE_KEY, tone);
+        if (themeController && typeof themeController.applyTheme === "function") {
+          themeController.applyTheme(modeInput, toneInput, options);
         }
-        const effective = resolveEffectiveTheme(mode);
-        const html = document.documentElement;
-        html.dataset.themeMode = mode;
-        html.dataset.tone = tone;
-        html.dataset.theme = effective;
-        syncThemeControls(document);
-      }
-
-      function bindThemeModeSelects(scope) {
-        const root = scope instanceof Element ? scope : document;
-        root.querySelectorAll("[data-theme-mode-select]").forEach((node) => {
-          if (!(node instanceof HTMLSelectElement)) return;
-          if (node.dataset.themeBound === "1") return;
-          node.dataset.themeBound = "1";
-          node.addEventListener("change", () => {
-            const html = document.documentElement;
-            const tone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
-            applyTheme(node.value, tone, { persist: true });
-          });
-        });
-      }
-
-      function bindThemeToneSelects(scope) {
-        const root = scope instanceof Element ? scope : document;
-        root.querySelectorAll("[data-theme-tone-select]").forEach((node) => {
-          if (!(node instanceof HTMLSelectElement)) return;
-          if (node.dataset.themeBound === "1") return;
-          node.dataset.themeBound = "1";
-          node.addEventListener("change", () => {
-            const html = document.documentElement;
-            const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
-            applyTheme(mode, node.value, { persist: true });
-          });
-        });
-      }
-
-      function bindThemeToggles(scope) {
-        const root = scope instanceof Element ? scope : document;
-        root.querySelectorAll("[data-theme-toggle]").forEach((node) => {
-          if (!(node instanceof HTMLButtonElement)) return;
-          if (node.dataset.themeBound === "1") return;
-          node.dataset.themeBound = "1";
-          node.addEventListener("click", () => {
-            const html = document.documentElement;
-            const currentMode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
-            const currentTone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
-            const effective = resolveEffectiveTheme(currentMode);
-            const nextMode = effective === "dark" ? "light" : "dark";
-            applyTheme(nextMode, currentTone, { persist: true });
-          });
-        });
       }
 
       function bindSystemThemeObserver() {
-        if (window.__themeSystemObserverBound === true) return;
-        window.__themeSystemObserverBound = true;
-        if (!window.matchMedia) return;
-        const media = window.matchMedia(SYSTEM_DARK_QUERY);
-        const onChange = () => {
-          const html = document.documentElement;
-          const mode = normalizeThemeMode(html.dataset.themeMode || getStoredValue(THEME_MODE_KEY));
-          if (mode !== "system") return;
-          const tone = normalizeTone(html.dataset.tone || getStoredValue(THEME_TONE_KEY));
-          applyTheme(mode, tone, { persist: false });
-        };
-        if (typeof media.addEventListener === "function") {
-          media.addEventListener("change", onChange);
-          return;
-        }
-        if (typeof media.addListener === "function") {
-          media.addListener(onChange);
+        if (themeController && typeof themeController.bindSystemThemeObserver === "function") {
+          themeController.bindSystemThemeObserver();
         }
       }
 
       function bindThemeControls(scope) {
-        bindThemeModeSelects(scope);
-        bindThemeToneSelects(scope);
-        bindThemeToggles(scope);
-        syncThemeControls(scope);
+        if (themeController && typeof themeController.bindThemeControls === "function") {
+          themeController.bindThemeControls(scope);
+        }
       }
 
       function clearMatchStyles(row) {
@@ -2371,72 +2254,20 @@
       }
 
       function revealPageShell() {
-        const shell = document.querySelector("[data-page-shell]");
-        if (!(shell instanceof HTMLElement)) return;
-        shell.classList.remove("is-leaving");
-        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-          shell.classList.add("is-visible");
+        if (navTransitionController && typeof navTransitionController.revealPageShell === "function") {
+          navTransitionController.revealPageShell();
           return;
         }
-        window.requestAnimationFrame(() => {
-          shell.classList.add("is-visible");
-        });
-      }
-
-      function isPrimaryNavigationEvent(event) {
-        return (
-          event.button === 0 &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey
-        );
-      }
-
-      function initNavTransitionLink(link) {
-        if (link.dataset.navTransitionBound === "1") return;
-        link.dataset.navTransitionBound = "1";
-
-        link.addEventListener("click", (event) => {
-          if (!isPrimaryNavigationEvent(event)) return;
-          if (link.target && link.target !== "_self") return;
-          if (event.defaultPrevented) return;
-          if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-          const href = link.getAttribute("href");
-          if (!href) return;
-          const nextUrl = new URL(href, window.location.href);
-          if (nextUrl.origin !== window.location.origin) return;
-
-          const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-          const target = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
-          if (current === target) return;
-
-          const shell = document.querySelector("[data-page-shell]");
-          if (!(shell instanceof HTMLElement)) return;
-          if (window.__navTransitionLock === true) {
-            event.preventDefault();
-            return;
-          }
-
-          event.preventDefault();
-          window.__navTransitionLock = true;
-          enableNextPageFade();
-          shell.classList.remove("is-visible");
-          shell.classList.add("is-leaving");
-          window.setTimeout(() => {
-            window.location.assign(nextUrl.toString());
-          }, NAV_FADE_DURATION_MS);
-        });
+        const shell = document.querySelector("[data-page-shell]");
+        if (!(shell instanceof HTMLElement)) return;
+        shell.classList.add("is-visible");
+        shell.classList.remove("is-leaving");
       }
 
       function bindNavTransitions(scope) {
-        const root = scope instanceof Element ? scope : document;
-        root.querySelectorAll("[data-nav-transition]").forEach((node) => {
-          if (node instanceof HTMLAnchorElement) {
-            initNavTransitionLink(node);
-          }
-        });
+        if (navTransitionController && typeof navTransitionController.bindNavTransitions === "function") {
+          navTransitionController.bindNavTransitions(scope);
+        }
       }
 
       function syncChannelMoveTargetsOrder(orderedIds, defaultCategoryId) {

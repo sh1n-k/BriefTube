@@ -1,0 +1,15 @@
+"""Alerts and retention repository accessors."""
+
+from app import repository as legacy
+
+ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = legacy.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND
+
+create_system_alert = legacy.create_system_alert
+list_unacknowledged_alerts = legacy.list_unacknowledged_alerts
+list_unacknowledged_alert_groups = legacy.list_unacknowledged_alert_groups
+acknowledge_alert = legacy.acknowledge_alert
+acknowledge_alerts_by_type = legacy.acknowledge_alerts_by_type
+
+count_retention_expired_videos = legacy.count_retention_expired_videos
+list_retention_expired_video_ids = legacy.list_retention_expired_video_ids
+list_retention_expired_videos = legacy.list_retention_expired_videos

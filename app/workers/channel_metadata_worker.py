@@ -5,7 +5,7 @@ import logging
 import random
 import time
 
-from app import repository
+from app.repositories import channels as channels_repo
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ async def run_channel_metadata_worker(state: AppState) -> None:
                 await _sleep_with_wake(state, rate_limit_cooldown_until - now)
                 continue
 
-            job = await repository.claim_next_channel_metadata_target(state.db)
+            job = await channels_repo.claim_next_channel_metadata_target(state.db)
             if job is None:
                 await _sleep_with_wake(state, IDLE_WAIT_SECONDS)
                 continue
@@ -79,7 +79,7 @@ async def run_channel_metadata_worker(state: AppState) -> None:
             next_allowed_at = time.monotonic() + request_gap
 
             if result.ok:
-                await repository.mark_channel_metadata_succeeded(
+                await channels_repo.mark_channel_metadata_succeeded(
                     state.db,
                     channel_id=channel_id,
                     channel_name=result.channel_name,
@@ -100,7 +100,7 @@ async def run_channel_metadata_worker(state: AppState) -> None:
                 rate_limit_cooldown_until = 0.0
                 continue
 
-            await repository.mark_channel_metadata_failed(
+            await channels_repo.mark_channel_metadata_failed(
                 state.db,
                 channel_id=channel_id,
                 error_message=result.error or "metadata_fetch_failed",

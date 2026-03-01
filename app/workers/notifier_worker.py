@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app import repository
+from app.repositories import settings as settings_repo
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ async def run_telegram_notifier(state: AppState) -> None:
         if not state.telegram_notifier.is_configured():
             await asyncio.sleep(5)
             continue
-        if not await repository.is_worker_enabled(state.db, "notifier"):
+        if not await settings_repo.is_worker_enabled(state.db, "notifier"):
             await asyncio.sleep(3)
             continue
 

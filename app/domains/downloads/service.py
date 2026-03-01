@@ -5,9 +5,10 @@ from typing import Any
 
 import aiosqlite
 
-from app import repository
 from app.download_error_registry import build_download_error_payload, get_download_error_spec
 from app.domains.downloads.types import BulkEnqueueResult, DownloadActionResult, DownloadFileTargetResult
+from app.repositories import downloads as downloads_repo
+from app.repositories import videos as videos_repo
 from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
 
 
@@ -17,7 +18,7 @@ def resolve_worker_timeout_seconds(*, quality: str, base_timeout_seconds: int) -
 
 
 async def recover_stuck_running_jobs(db: aiosqlite.Connection) -> int:
-    return await repository.recover_stuck_download_jobs(db)
+    return await downloads_repo.recover_stuck_download_jobs(db)
 
 
 def _download_environment_error(*, output_dir: str) -> DownloadActionResult | None:
@@ -76,7 +77,7 @@ async def enqueue_video_download(
         require_existing=True,
     )
     target_dir = validation.normalized_path
-    result = await repository.create_download_job(
+    result = await downloads_repo.create_download_job(
         db,
         video_id=str(video["video_id"]),
         video_title=str(video.get("title") or video["video_id"]),
@@ -124,7 +125,7 @@ async def enqueue_video_download(
 
 
 async def retry_download_job(db: aiosqlite.Connection, *, job_id: int) -> DownloadActionResult:
-    result = await repository.retry_download_job(db, job_id)
+    result = await downloads_repo.retry_download_job(db, job_id)
     if int(result.get("updated", 0)) <= 0:
         reason = str(result.get("reason", "unknown"))
         spec = get_download_error_spec(reason)
@@ -139,7 +140,7 @@ async def retry_download_job(db: aiosqlite.Connection, *, job_id: int) -> Downlo
             ),
         )
 
-    job = await repository.get_download_job(db, job_id)
+    job = await downloads_repo.get_download_job(db, job_id)
     return DownloadActionResult(
         ok=True,
         status_code=200,
@@ -178,7 +179,7 @@ async def enqueue_bulk_downloads(
     )
     result.target_dir = validation.normalized_path
 
-    candidates = await repository.list_videos_by_ids(db, video_ids)
+    candidates = await videos_repo.list_videos_by_ids(db, video_ids)
     candidate_map = {str(item.get("video_id")): item for item in candidates}
 
     for video_id in video_ids:
@@ -187,7 +188,7 @@ async def enqueue_bulk_downloads(
             result.missing_count += 1
             continue
         try:
-            enqueue_result = await repository.create_download_job(
+            enqueue_result = await downloads_repo.create_download_job(
                 db,
                 video_id=str(video["video_id"]),
                 video_title=str(video.get("title") or video["video_id"]),
@@ -226,7 +227,7 @@ async def resolve_download_file_target(
 
     target_base = Path(default_download_dir)
     if job_id is not None:
-        job = await repository.get_download_job(db, int(job_id))
+        job = await downloads_repo.get_download_job(db, int(job_id))
         if not job:
             return DownloadFileTargetResult(
                 ok=False,

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from app import repository
 from app.i18n import DEFAULT_LANGUAGE, get_languages, get_texts, normalize_language
+from app.repositories import alerts_retention as alerts_repo
+from app.repositories import llm as llm_repo
+from app.repositories import settings as settings_repo
 from app.services.llm_runtime import resolve_llm_runtime_status, runtime_reason_text_key
 from app.time_utils import format_upload_time
 from app.timezone_policy import DEFAULT_TIMEZONE, get_timezone_options, normalize_timezone
@@ -13,9 +15,9 @@ async def _build_llm_runtime_context(
     request: Request,
     txt: dict[str, str],
 ) -> dict[str, object]:
-    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
-    runtime_issue = await repository.get_llm_runtime_issue(request.app.state.runtime.db)
-    pending_count = await repository.count_llm_pending_videos(request.app.state.runtime.db)
+    llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
+    runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
+    pending_count = await llm_repo.count_llm_pending_videos(request.app.state.runtime.db)
     status = resolve_llm_runtime_status(
         llm_client=request.app.state.runtime.llm_client,
         llm_settings=llm_settings,
@@ -46,21 +48,21 @@ async def build_template_context(
     include_llm_runtime_status: bool = False,
     **extra: object,
 ) -> dict[str, object]:
-    language_raw = await repository.get_setting(
+    language_raw = await settings_repo.get_setting(
         request.app.state.runtime.db,
         key="language",
         default=DEFAULT_LANGUAGE,
     )
     language = normalize_language(language_raw)
-    timezone_raw = await repository.get_setting(
+    timezone_raw = await settings_repo.get_setting(
         request.app.state.runtime.db,
         key="timezone",
         default=DEFAULT_TIMEZONE,
     )
     timezone_name = normalize_timezone(timezone_raw)
-    alert_groups = await repository.list_unacknowledged_alert_groups(request.app.state.runtime.db, limit=5)
-    policy_settings = await repository.get_policy_settings(request.app.state.runtime.db)
-    retention_expired_count = await repository.count_retention_expired_videos(
+    alert_groups = await alerts_repo.list_unacknowledged_alert_groups(request.app.state.runtime.db, limit=5)
+    policy_settings = await settings_repo.get_policy_settings(request.app.state.runtime.db)
+    retention_expired_count = await alerts_repo.count_retention_expired_videos(
         request.app.state.runtime.db,
         policy_settings["retention_days"],
     )

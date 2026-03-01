@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from app import repository
 from app.config import AppConfig
 from app.database import init_database, open_database
+from app.repositories import transcripts as transcripts_repo
 from app.workers.manual_article_worker import run_manual_article_worker
 
 
@@ -81,7 +82,7 @@ def test_manual_article_worker_save_transcript_failure_marks_job_failed(tmp_path
     async def _failing_save_transcript(*args, **kwargs):
         raise RuntimeError("save transcript failed")
 
-    monkeypatch.setattr(repository, "save_transcript", _failing_save_transcript)
+    monkeypatch.setattr(transcripts_repo, "save_transcript", _failing_save_transcript)
 
     async def _run() -> tuple[str, str]:
         db = await open_database(str(db_path))

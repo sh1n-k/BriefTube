@@ -13,7 +13,7 @@ python scripts/init_db.py              # DB 초기화 (최초 1회)
 
 ## Architecture
 
-- 단일 프로세스, `asyncio.create_task` 워커 5개 (poller, download, transcript, llm, notifier)
+- 단일 프로세스, `asyncio.create_task` 워커 7개 (rss_poller, download_worker, transcript_fetcher, llm_queue_worker, telegram_notifier, channel_metadata_worker, manual_article_worker)
 - 라우터 3분할: `api.py` (/api, JSON) · `views.py` (/views, HTMX fragment) · `pages.py` (/, 전체 페이지)
 - 모든 SQL은 `repository.py`에 집중 (Repository 패턴)
 - 다운로드 비즈니스 로직은 `domains/downloads/`, yt-dlp 실행은 `services/downloads.py`에 분리
@@ -21,9 +21,9 @@ python scripts/init_db.py              # DB 초기화 (최초 1회)
 
 ### pipeline_status 유효 값
 
-`transcript_pending` → `transcript_processing` → `llm_pending` → `llm_processing` → `done`
+`transcript_pending` → `transcript_processing` → `transcript_done` → `llm_pending` → `llm_processing` → `done`
 
-분기: `transcript_failed`, `no_subtitle`, `llm_failed`, `manual_review`
+분기: `auto_paused`, `transcript_failed`, `no_subtitle`, `llm_failed`, `manual_review`
 
 ## Code Conventions
 
@@ -41,10 +41,13 @@ python scripts/init_db.py              # DB 초기화 (최초 1회)
 ## Key Patterns
 
 - **Transcript guard**: 429/403 시 adaptive factor 증가 + hard cooldown. `app_settings` KV 테이블에 영속화
-- **HTMX fragment**: `views.py` → `fragments/*.html`, 클라이언트 부분 교체
+- **HTMX fragment**: `views.py` → `fragments/*.html`, 클라이언트 부분 교체. 각 fragment는 HTMX swap 대상이 되는 고유 `id` wrapper element를 유지해야 함 (예: `#channel-list-wrap`)
 - **FTS5 동기화**: `schema.sql` 트리거로 자동 인덱싱, 수동 관리 불필요
 - **System alerts**: 운영 이벤트를 `system_alerts` 테이블에 기록, `alert_toast.html`로 표시
 - **Worker enable/disable**: `app_settings`의 `worker_{name}_enabled` 키로 런타임 제어
+- **Worker wake event**: `state.py`의 `asyncio.Event` 필드 (`poll_now_event`, `llm_wake_event`, `download_wake_event`, `manual_article_wake_event`, `channel_metadata_wake_event`). 라우터에서 `.set()` → 워커에서 `.wait()`로 즉시 깨우기
+- **app_settings KV**: 런타임 상태 영속화 테이블. 워커 on/off, transcript guard 8개 키 (`transcript_guard_*`), LLM provider/prompt 등 저장. 모든 값은 TEXT, `repository.get_setting()`/`set_setting()`으로 접근
+- **Schema migration**: 별도 도구 없이 `database.py`의 `_ensure_*_columns()` 함수로 점진적 `ALTER TABLE ADD COLUMN` 수행
 
 ## Testing
 

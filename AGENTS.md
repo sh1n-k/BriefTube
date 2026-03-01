@@ -75,6 +75,10 @@ claude -p "Respond with exactly: OK" --output-format text --no-session-persisten
   - 권장 메타: `provider`, `exit_code`, `schema_valid`, `retry_count`, `refusal_detected`, `latency_ms`
 
 ## 테스트 최소 기준
+- 문서만 변경(`README.md`, `AGENTS.md`, `CONTRIBUTING.md`)이고 로직/템플릿/JS 변경이 없으면:
+```bash
+.venv/bin/python -m pytest -q tests/test_health.py
+```
 - 채널 관리/재활성화를 건드렸다면 최소:
 ```bash
 .venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py
@@ -100,7 +104,11 @@ claude -p "Respond with exactly: OK" --output-format text --no-session-persisten
 ```
 - `profile:channels` (채널 추가/삭제/재활성화/벌크 변경)
 ```bash
-.venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py
+.venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
+```
+- `profile:llm-manual-article` (수동 기사화/LLM 런타임/재개 플로우 변경)
+```bash
+.venv/bin/python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py
 ```
 - `profile:full` (릴리즈 전 또는 광범위 리팩터링)
 ```bash

@@ -1,0 +1,54 @@
+# CONTRIBUTING
+
+## 목적
+
+이 문서는 BriefTube 기여 시 충돌/회귀를 줄이기 위한 최소 규칙을 정리합니다.
+
+## 브랜치/워크트리 규칙
+
+- 문서/설정처럼 로직 변경이 없는 작업은 `main`에서 직접 커밋 가능
+- 로직 변경은 작업 시작 전에 `main 직접` 또는 `feature + worktree`를 합의
+- 작업 중 본인이 만들지 않은 변경은 되돌리지 않음
+
+권장 worktree 예시:
+
+```bash
+git worktree add -b feature/<topic> .worktrees/feature-<topic>
+```
+
+## 커밋 범위
+
+- 요청 범위 파일만 커밋
+- 다음 파일/경로는 커밋 금지
+  - `data*.db`
+  - `logs/`
+  - `thumbnails*/`
+  - 로컬 스크린샷/임시 산출물
+  - 로컬 운영 설정(`config.dev.yaml` 등)
+
+## 테스트/검증 기준
+
+- 변경 범위와 맞는 최소 프로파일을 실행
+- 부분 실행 시, 미실행 항목과 이유를 PR 설명에 기록
+- 가능하면 마지막에 전체 테스트 실행
+
+자주 쓰는 명령:
+
+```bash
+.venv/bin/python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
+.venv/bin/python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_detail.py
+.venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
+.venv/bin/python -m pytest -q
+```
+
+## 리팩터링 PR 규칙
+
+- 동작 불변을 기본 원칙으로 유지
+- 기능 추가와 구조 변경을 같은 PR에 섞지 않음
+- 대형 파일 분리는 단계적으로 진행
+- 내부 모듈 경계 변경 시 기존 import 경로 호환성 보존
+
+## 보안/운영 주의
+
+- 비밀값(`TELEGRAM_BOT_TOKEN`, API 키)은 절대 커밋 금지
+- 외부 CLI/모델 응답 원문은 로그에 남기지 않음

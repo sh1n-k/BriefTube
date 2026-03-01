@@ -1,0 +1,21 @@
+"""Category-related repository accessors."""
+
+from app import repository as legacy
+
+CATEGORY_PROCESSING_STAGE_OFF = legacy.CATEGORY_PROCESSING_STAGE_OFF
+CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY = legacy.CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY
+CATEGORY_PROCESSING_STAGE_FULL = legacy.CATEGORY_PROCESSING_STAGE_FULL
+
+normalize_category_processing_stage = legacy.normalize_category_processing_stage
+parse_category_processing_stage = legacy.parse_category_processing_stage
+next_category_processing_stage = legacy.next_category_processing_stage
+
+get_default_category_id = legacy.get_default_category_id
+list_categories = legacy.list_categories
+create_category = legacy.create_category
+rename_category = legacy.rename_category
+delete_category = legacy.delete_category
+update_category_processing_stage = legacy.update_category_processing_stage
+cycle_category_processing_stage = legacy.cycle_category_processing_stage
+reorder_categories = legacy.reorder_categories
+move_channels_to_category = legacy.move_channels_to_category

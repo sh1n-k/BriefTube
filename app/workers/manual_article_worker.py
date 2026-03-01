@@ -4,7 +4,8 @@ import asyncio
 import logging
 import time
 
-from app import repository
+from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import transcripts as transcripts_repo
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ async def _recover_stale_running_manual_article_jobs(
     exclude_job_id: int | None = None,
 ) -> None:
     exclude_job_ids = [exclude_job_id] if isinstance(exclude_job_id, int) and exclude_job_id > 0 else None
-    recovered = await repository.recover_stuck_manual_article_jobs(
+    recovered = await manual_articles_repo.recover_stuck_manual_article_jobs(
         state.db,
         stale_after_seconds=stale_after_seconds,
         exclude_job_ids=exclude_job_ids,
@@ -82,7 +83,7 @@ async def _finalize_failed_job_on_unhandled_exception(
 ) -> None:
     error_message = str(exc).strip() or exc.__class__.__name__
     try:
-        await repository.mark_manual_article_job_failed(
+        await manual_articles_repo.mark_manual_article_job_failed(
             state.db,
             job_id=job_id,
             error_message=f"worker unhandled exception: {error_message}",
@@ -121,7 +122,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                 )
                 next_runtime_recover_monotonic_at = now_monotonic + runtime_recover_check_interval_seconds
 
-            job = await repository.claim_next_manual_article_job(state.db)
+            job = await manual_articles_repo.claim_next_manual_article_job(state.db)
             if job is None:
                 await _sleep_with_wake(state, idle_sleep_seconds)
                 continue
@@ -132,7 +133,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                 active_video_id = video_id or "-"
 
                 if not video_id:
-                    await repository.mark_manual_article_job_failed(
+                    await manual_articles_repo.mark_manual_article_job_failed(
                         state.db,
                         job_id=active_job_id,
                         error_message="invalid video_id",
@@ -146,8 +147,8 @@ async def run_manual_article_worker(state: AppState) -> None:
                     continue
 
                 pipeline_status = str(job.get("pipeline_status") or "").strip().lower()
-                if pipeline_status in repository.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES:
-                    await repository.mark_manual_article_job_skipped(
+                if pipeline_status in manual_articles_repo.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES:
+                    await manual_articles_repo.mark_manual_article_job_skipped(
                         state.db,
                         job_id=active_job_id,
                         reason=f"pipeline_status:{pipeline_status}",
@@ -162,8 +163,8 @@ async def run_manual_article_worker(state: AppState) -> None:
                     continue
 
                 if bool(job.get("has_transcript")):
-                    updated = await repository.ensure_video_llm_pending_for_manual_article(state.db, video_id)
-                    await repository.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
+                    updated = await manual_articles_repo.ensure_video_llm_pending_for_manual_article(state.db, video_id)
+                    await manual_articles_repo.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
                     llm_wake_event = getattr(state, "llm_wake_event", None)
                     if updated > 0 and isinstance(llm_wake_event, asyncio.Event):
                         llm_wake_event.set()
@@ -192,13 +193,13 @@ async def run_manual_article_worker(state: AppState) -> None:
                     next_request_monotonic_at = time.monotonic() + request_interval_seconds
                     error_message = str(exc).strip() or exc.__class__.__name__
                     current_retry_count = int(job.get("transcript_retry_count") or 0)
-                    await repository.force_mark_video_transcript_failed_for_manual_article(
+                    await manual_articles_repo.force_mark_video_transcript_failed_for_manual_article(
                         state.db,
                         video_id=video_id,
                         retry_count=current_retry_count + 1,
                         error_message=error_message,
                     )
-                    await repository.mark_manual_article_job_failed(
+                    await manual_articles_repo.mark_manual_article_job_failed(
                         state.db,
                         job_id=active_job_id,
                         error_message=error_message,
@@ -216,13 +217,13 @@ async def run_manual_article_worker(state: AppState) -> None:
                 if not raw_text.strip():
                     error_message = "Transcript payload is empty"
                     current_retry_count = int(job.get("transcript_retry_count") or 0)
-                    await repository.force_mark_video_transcript_failed_for_manual_article(
+                    await manual_articles_repo.force_mark_video_transcript_failed_for_manual_article(
                         state.db,
                         video_id=video_id,
                         retry_count=current_retry_count + 1,
                         error_message=error_message,
                     )
-                    await repository.mark_manual_article_job_failed(
+                    await manual_articles_repo.mark_manual_article_job_failed(
                         state.db,
                         job_id=active_job_id,
                         error_message=error_message,
@@ -235,7 +236,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                     )
                     continue
 
-                await repository.save_transcript(
+                await transcripts_repo.save_transcript(
                     state.db,
                     video_id=video_id,
                     raw_text=raw_text,
@@ -244,7 +245,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                     thumbnail_path=None,
                     force_llm_pending=True,
                 )
-                await repository.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
+                await manual_articles_repo.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
                 llm_wake_event = getattr(state, "llm_wake_event", None)
                 if isinstance(llm_wake_event, asyncio.Event):
                     llm_wake_event.set()

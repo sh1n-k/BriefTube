@@ -4,8 +4,8 @@ import asyncio
 import logging
 import time
 
-from app import repository
 from app.domains.downloads import resolve_worker_timeout_seconds
+from app.repositories import downloads as downloads_repo
 from app.services.downloads import download_video
 from app.state import AppState
 
@@ -19,7 +19,7 @@ async def _run_single_download_job(
     started_monotonic = time.monotonic()
     job_id = int(job["id"])
     video_id = str(job.get("video_id") or "").strip()
-    quality = str(job.get("quality") or repository.DOWNLOAD_QUALITY_DEFAULT)
+    quality = str(job.get("quality") or downloads_repo.DOWNLOAD_QUALITY_DEFAULT)
     overwrite = bool(int(job.get("overwrite") or 0))
     target_dir = str(job.get("target_dir") or state.config.download_dir).strip() or state.config.download_dir
     timeout_seconds = resolve_worker_timeout_seconds(
@@ -53,7 +53,7 @@ async def _run_single_download_job(
             extra={"event": "downloads.job_cancelled"},
         )
         try:
-            await repository.mark_download_job_failed(
+            await downloads_repo.mark_download_job_failed(
                 state.db,
                 job_id=job_id,
                 error_code="worker_interrupted",
@@ -72,7 +72,7 @@ async def _run_single_download_job(
             job_id,
             extra={"event": "downloads.job_runner_exception"},
         )
-        await repository.mark_download_job_failed(
+        await downloads_repo.mark_download_job_failed(
             state.db,
             job_id=job_id,
             error_code="exception",
@@ -81,7 +81,7 @@ async def _run_single_download_job(
         return
 
     if result.ok:
-        await repository.mark_download_job_succeeded(
+        await downloads_repo.mark_download_job_succeeded(
             state.db,
             job_id=job_id,
             output_path=result.output_path,
@@ -99,7 +99,7 @@ async def _run_single_download_job(
         )
         return
 
-    await repository.mark_download_job_failed(
+    await downloads_repo.mark_download_job_failed(
         state.db,
         job_id=job_id,
         error_code=result.error_code,
@@ -137,7 +137,7 @@ async def run_download_worker(state: AppState) -> None:
     while True:
         try:
             while len(active_tasks) < max_concurrency:
-                job = await repository.claim_next_download_job(state.db)
+                job = await downloads_repo.claim_next_download_job(state.db)
                 if job is None:
                     break
                 task = asyncio.create_task(_run_single_download_job(state, job))

@@ -13,11 +13,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import httpx
 
-from app import repository
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
 from app.domains.downloads import recover_stuck_running_jobs, resolve_download_file_target
 from app.logging_setup import configure_logging
+from app.repositories import channels as channels_repo
+from app.repositories import llm as llm_repo
+from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import transcripts as transcripts_repo
 from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
@@ -81,15 +84,15 @@ async def lifespan(app: FastAPI):
     db = await open_database(config.db_path)
     await init_database(db)
     recovered = await recover_stuck_jobs(db)
-    orphan_repaired = await repository.repair_orphan_llm_candidates(db)
+    orphan_repaired = await llm_repo.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
-    recovered_manual_article_jobs = await repository.recover_stuck_manual_article_jobs(db)
+    recovered_manual_article_jobs = await manual_articles_repo.recover_stuck_manual_article_jobs(db)
     metadata_worker_enabled = _is_channel_metadata_worker_enabled()
     recovered_metadata_running = 0
     scheduled_metadata_targets = 0
     if metadata_worker_enabled:
-        recovered_metadata_running = await repository.recover_stuck_channel_metadata_running(db)
-        scheduled_metadata_targets = await repository.schedule_channel_metadata_backfill(db)
+        recovered_metadata_running = await channels_repo.recover_stuck_channel_metadata_running(db)
+        scheduled_metadata_targets = await channels_repo.schedule_channel_metadata_backfill(db)
     logger.info(
         "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
         recovered,
@@ -121,7 +124,7 @@ async def lifespan(app: FastAPI):
         ),
         started_at=datetime.now(timezone.utc),
     )
-    transcript_header_overrides = await repository.get_transcript_request_header_overrides(db)
+    transcript_header_overrides = await transcripts_repo.get_transcript_request_header_overrides(db)
     runtime.transcript_service.apply_transcript_request_headers(
         merge_with_default_headers(transcript_header_overrides)
     )

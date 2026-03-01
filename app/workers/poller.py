@@ -6,7 +6,11 @@ import logging
 
 import httpx
 
-from app import repository
+from app.repositories import alerts_retention as alerts_repo
+from app.repositories import channels as channels_repo
+from app.repositories import settings as settings_repo
+from app.repositories import videos as videos_repo
+from app.repository import is_newer_published
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -27,7 +31,7 @@ async def run_rss_poller(state: AppState) -> None:
     check_step_seconds = 5
 
     while True:
-        if not await repository.is_worker_enabled(state.db, "rss"):
+        if not await settings_repo.is_worker_enabled(state.db, "rss"):
             if state.poll_now_event.is_set():
                 state.poll_now_event.clear()
             await asyncio.sleep(5)
@@ -50,7 +54,7 @@ async def run_rss_poller(state: AppState) -> None:
         try:
             remaining = interval_seconds
             while remaining > 0:
-                if not await repository.is_worker_enabled(state.db, "rss"):
+                if not await settings_repo.is_worker_enabled(state.db, "rss"):
                     if state.poll_now_event.is_set():
                         state.poll_now_event.clear()
                     break
@@ -73,8 +77,8 @@ async def run_rss_poller(state: AppState) -> None:
 
 
 async def poll_once(state: AppState) -> int:
-    channels = await repository.list_active_channels(state.db)
-    policy = await repository.get_policy_settings(state.db)
+    channels = await channels_repo.list_active_channels(state.db)
+    policy = await settings_repo.get_policy_settings(state.db)
     lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
     feed_mode = str(policy.get("rss_feed_mode", "long_form_only"))
     started_at = getattr(state, "started_at", datetime.now(timezone.utc))
@@ -101,10 +105,10 @@ async def poll_once(state: AppState) -> int:
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
             if status_code == 404:
-                await repository.deactivate_channel(state.db, channel_id)
-                await repository.create_system_alert(
+                await channels_repo.deactivate_channel(state.db, channel_id)
+                await alerts_repo.create_system_alert(
                     state.db,
-                    alert_type=repository.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND,
+                    alert_type=alerts_repo.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND,
                     channel_id=channel_id,
                     channel_name=channel_name,
                     message="RSS feed returned 404 Not Found. Channel was deactivated automatically.",
@@ -151,13 +155,13 @@ async def poll_once(state: AppState) -> int:
             if watermark is None:
                 published_dt = _parse_iso_datetime(published)
                 if published_dt and published_dt < lower_bound:
-                    if max_published is None or repository.is_newer_published(published, max_published):
+                    if max_published is None or is_newer_published(published, max_published):
                         max_published = published
                     continue
-            if not repository.is_newer_published(published, watermark):
+            if not is_newer_published(published, watermark):
                 continue
 
-            inserted = await repository.insert_video_if_absent(
+            inserted = await videos_repo.insert_video_if_absent(
                 state.db,
                 video_id=entry["video_id"],
                 channel_id=channel_id,
@@ -167,10 +171,10 @@ async def poll_once(state: AppState) -> int:
             if inserted:
                 total_inserted += 1
 
-            if max_published is None or repository.is_newer_published(published, max_published):
+            if max_published is None or is_newer_published(published, max_published):
                 max_published = published
 
         if max_published and max_published != watermark:
-            await repository.update_channel_watermark(state.db, channel_id, max_published)
+            await channels_repo.update_channel_watermark(state.db, channel_id, max_published)
 
     return total_inserted

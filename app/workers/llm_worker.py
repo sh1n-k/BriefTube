@@ -4,7 +4,8 @@ import asyncio
 import logging
 import time
 
-from app import repository
+from app.repositories import llm as llm_repo
+from app.repositories import settings as settings_repo
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -32,18 +33,18 @@ async def run_llm_queue_worker(state: AppState) -> None:
     next_missing_config_log_at = 0.0
     next_runtime_warning_log_at = 0.0
     while True:
-        if not await repository.is_worker_enabled(state.db, "llm"):
+        if not await settings_repo.is_worker_enabled(state.db, "llm"):
             await _sleep_with_wake(state, 5)
             continue
 
         try:
-            candidate = await repository.pop_llm_candidate(state.db, state.config.max_retry_count)
+            candidate = await llm_repo.pop_llm_candidate(state.db, state.config.max_retry_count)
             if not candidate:
                 await _sleep_with_wake(state, 5)
                 continue
 
             video_id = candidate["video_id"]
-            llm_settings = await repository.get_llm_settings(state.db)
+            llm_settings = await settings_repo.get_llm_settings(state.db)
             runtime_plan = state.llm_client.resolve_runtime_plan(llm_settings)
             runtime_reason = runtime_plan.blocking_reason
 
@@ -60,8 +61,8 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     next_runtime_warning_log_at = now + 60.0
 
             if runtime_reason is not None:
-                alert_created = await repository.ensure_llm_config_missing_alert(state.db)
-                await repository.set_llm_runtime_issue(
+                alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
+                await llm_repo.set_llm_runtime_issue(
                     state.db,
                     code=runtime_reason,
                     message="LLM runtime is not ready",
@@ -79,8 +80,8 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 await _sleep_with_wake(state, 10)
                 continue
 
-            await repository.clear_llm_config_missing_alert_flag(state.db)
-            marked = await repository.mark_restructure_processing(state.db, video_id)
+            await llm_repo.clear_llm_config_missing_alert_flag(state.db)
+            marked = await llm_repo.mark_restructure_processing(state.db, video_id)
             if marked == 0:
                 await _sleep_with_wake(state, 1)
                 continue
@@ -91,7 +92,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     transcript_text=candidate["raw_text"],
                     settings=llm_settings,
                 )
-                await repository.save_article(
+                await llm_repo.save_article(
                     state.db,
                     video_id=video_id,
                     title=article["title"],
@@ -107,7 +108,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         "lead": article["lead"],
                     }
                 )
-                await repository.clear_llm_runtime_issue(state.db)
+                await llm_repo.clear_llm_runtime_issue(state.db)
                 logger.info(
                     "event=llm.restructure_succeeded worker=llm video_id=%s",
                     video_id,
@@ -116,12 +117,12 @@ async def run_llm_queue_worker(state: AppState) -> None:
             except Exception as exc:
                 error_code = str(getattr(exc, "code", "unknown") or "unknown")
                 if error_code == "llm_provider_auth_required" or error_code.startswith("llm_provider_unavailable_"):
-                    requeued = await repository.requeue_llm_pending_without_retry(
+                    requeued = await llm_repo.requeue_llm_pending_without_retry(
                         state.db,
                         video_id=video_id,
                     )
-                    alert_created = await repository.ensure_llm_config_missing_alert(state.db)
-                    await repository.set_llm_runtime_issue(
+                    alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
+                    await llm_repo.set_llm_runtime_issue(
                         state.db,
                         code=error_code,
                         message=str(exc),
@@ -137,7 +138,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     await _sleep_with_wake(state, 5)
                     continue
 
-                next_status, affected = await repository.mark_restructure_failed(
+                next_status, affected = await llm_repo.mark_restructure_failed(
                     state.db,
                     video_id=video_id,
                     retry_count=int(candidate["retry_count"]),

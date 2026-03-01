@@ -1,0 +1,31 @@
+"""Download domain repository accessors."""
+
+from app import repository as legacy
+
+DOWNLOAD_QUALITY_OPTIONS = legacy.DOWNLOAD_QUALITY_OPTIONS
+DOWNLOAD_QUALITY_DEFAULT = legacy.DOWNLOAD_QUALITY_DEFAULT
+DOWNLOAD_STATUS_PENDING = legacy.DOWNLOAD_STATUS_PENDING
+DOWNLOAD_STATUS_RUNNING = legacy.DOWNLOAD_STATUS_RUNNING
+DOWNLOAD_STATUS_SUCCEEDED = legacy.DOWNLOAD_STATUS_SUCCEEDED
+DOWNLOAD_STATUS_FAILED = legacy.DOWNLOAD_STATUS_FAILED
+
+normalize_download_quality = legacy.normalize_download_quality
+normalize_download_status_filter = legacy.normalize_download_status_filter
+
+get_download_default_settings = legacy.get_download_default_settings
+set_download_default_settings = legacy.set_download_default_settings
+
+get_download_job = legacy.get_download_job
+get_active_download_job_for_video = legacy.get_active_download_job_for_video
+create_download_job = legacy.create_download_job
+claim_next_download_job = legacy.claim_next_download_job
+mark_download_job_succeeded = legacy.mark_download_job_succeeded
+mark_download_job_failed = legacy.mark_download_job_failed
+retry_download_job = legacy.retry_download_job
+recover_stuck_download_jobs = legacy.recover_stuck_download_jobs
+count_download_jobs_by_status = legacy.count_download_jobs_by_status
+list_download_jobs = legacy.list_download_jobs
+count_download_jobs = legacy.count_download_jobs
+latest_download_event_id = legacy.latest_download_event_id
+list_download_events_after = legacy.list_download_events_after
+get_download_progress = legacy.get_download_progress

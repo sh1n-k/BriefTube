@@ -1,0 +1,16 @@
+"""Manual article job repository accessors."""
+
+from app import repository as legacy
+
+MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = legacy.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES
+
+get_manual_article_job = legacy.get_manual_article_job
+get_active_manual_article_job_for_video = legacy.get_active_manual_article_job_for_video
+enqueue_manual_article_jobs = legacy.enqueue_manual_article_jobs
+claim_next_manual_article_job = legacy.claim_next_manual_article_job
+mark_manual_article_job_succeeded = legacy.mark_manual_article_job_succeeded
+mark_manual_article_job_failed = legacy.mark_manual_article_job_failed
+mark_manual_article_job_skipped = legacy.mark_manual_article_job_skipped
+recover_stuck_manual_article_jobs = legacy.recover_stuck_manual_article_jobs
+ensure_video_llm_pending_for_manual_article = legacy.ensure_video_llm_pending_for_manual_article
+force_mark_video_transcript_failed_for_manual_article = legacy.force_mark_video_transcript_failed_for_manual_article

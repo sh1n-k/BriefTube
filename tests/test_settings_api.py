@@ -337,8 +337,8 @@ def test_settings_llm_runtime_status_prefers_auth_issue_when_pending(
     async def fake_pending(_db):
         return 2
 
-    monkeypatch.setattr(api_router.repository, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.repository, "count_llm_pending_videos", fake_pending)
+    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
+    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
 
     runtime_response = client.get("/api/settings/llm/runtime-status")
     assert runtime_response.status_code == 200
@@ -388,8 +388,8 @@ def test_settings_llm_resume_wakes_worker_when_ready(
     async def fake_pending(_db):
         return 3
 
-    monkeypatch.setattr(api_router.repository, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.repository, "count_llm_pending_videos", fake_pending)
+    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
+    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
 
     client.app.state.runtime.llm_wake_event.clear()
     resume_response = client.post("/api/settings/llm/resume")
@@ -437,8 +437,8 @@ def test_settings_llm_resume_allows_retry_when_auth_issue_exists(
     async def fake_pending(_db):
         return 2
 
-    monkeypatch.setattr(api_router.repository, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.repository, "count_llm_pending_videos", fake_pending)
+    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
+    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
 
     client.app.state.runtime.llm_wake_event.clear()
     resume_response = client.post("/api/settings/llm/resume")

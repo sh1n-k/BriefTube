@@ -1,0 +1,26 @@
+"""Transcript pipeline repository accessors."""
+
+from app import repository as legacy
+
+TRANSCRIPT_QUEUE_STATUSES = legacy.TRANSCRIPT_QUEUE_STATUSES
+
+list_queue_items = legacy.list_queue_items
+queue_status = legacy.queue_status
+pop_pending_transcript_videos = legacy.pop_pending_transcript_videos
+mark_transcript_processing = legacy.mark_transcript_processing
+save_transcript = legacy.save_transcript
+mark_no_subtitle = legacy.mark_no_subtitle
+schedule_transcript_retry = legacy.schedule_transcript_retry
+defer_channel_transcript_retries = legacy.defer_channel_transcript_retries
+mark_transcript_failed = legacy.mark_transcript_failed
+reset_transcript_for_retry = legacy.reset_transcript_for_retry
+
+acquire_transcript_worker_lease = legacy.acquire_transcript_worker_lease
+renew_transcript_worker_lease = legacy.renew_transcript_worker_lease
+release_transcript_worker_lease = legacy.release_transcript_worker_lease
+get_transcript_guard_state = legacy.get_transcript_guard_state
+save_transcript_guard_state = legacy.save_transcript_guard_state
+reset_transcript_guard_state = legacy.reset_transcript_guard_state
+
+get_transcript_request_header_overrides = legacy.get_transcript_request_header_overrides
+save_transcript_request_header_overrides = legacy.save_transcript_request_header_overrides

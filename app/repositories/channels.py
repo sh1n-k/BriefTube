@@ -1,0 +1,40 @@
+"""Channel-related repository accessors."""
+
+from app import repository as legacy
+
+CHANNEL_MANAGEMENT_STATUS_ACTIVE = legacy.CHANNEL_MANAGEMENT_STATUS_ACTIVE
+CHANNEL_MANAGEMENT_STATUS_INACTIVE = legacy.CHANNEL_MANAGEMENT_STATUS_INACTIVE
+CHANNEL_MANAGEMENT_STATUS_OPTIONS = legacy.CHANNEL_MANAGEMENT_STATUS_OPTIONS
+
+CHANNEL_METADATA_STATUS_NEVER = legacy.CHANNEL_METADATA_STATUS_NEVER
+CHANNEL_METADATA_STATUS_PENDING = legacy.CHANNEL_METADATA_STATUS_PENDING
+CHANNEL_METADATA_STATUS_RUNNING = legacy.CHANNEL_METADATA_STATUS_RUNNING
+CHANNEL_METADATA_STATUS_SUCCESS = legacy.CHANNEL_METADATA_STATUS_SUCCESS
+CHANNEL_METADATA_STATUS_FAILED = legacy.CHANNEL_METADATA_STATUS_FAILED
+CHANNEL_METADATA_STATUS_RATE_LIMITED = legacy.CHANNEL_METADATA_STATUS_RATE_LIMITED
+
+normalize_channel_management_status = legacy.normalize_channel_management_status
+normalize_channel_metadata_status = legacy.normalize_channel_metadata_status
+
+list_channels = legacy.list_channels
+list_channels_for_management = legacy.list_channels_for_management
+get_channel_name_map = legacy.get_channel_name_map
+count_channels_by_status = legacy.count_channels_by_status
+add_channel = legacy.add_channel
+get_channel_by_id = legacy.get_channel_by_id
+
+enqueue_channel_metadata_refresh = legacy.enqueue_channel_metadata_refresh
+schedule_channel_metadata_backfill = legacy.schedule_channel_metadata_backfill
+claim_next_channel_metadata_target = legacy.claim_next_channel_metadata_target
+mark_channel_metadata_succeeded = legacy.mark_channel_metadata_succeeded
+mark_channel_metadata_failed = legacy.mark_channel_metadata_failed
+enqueue_failed_channel_metadata = legacy.enqueue_failed_channel_metadata
+recover_stuck_channel_metadata_running = legacy.recover_stuck_channel_metadata_running
+
+deactivate_channel = legacy.deactivate_channel
+reactivate_channel = legacy.reactivate_channel
+reactivate_channels = legacy.reactivate_channels
+list_active_channels = legacy.list_active_channels
+update_channel_watermark = legacy.update_channel_watermark
+
+delete_channels_with_related_data = legacy.delete_channels_with_related_data

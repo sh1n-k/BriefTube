@@ -8,11 +8,17 @@ from starlette.datastructures import UploadFile
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app import repository
-from app.download_error_registry import build_download_error_payload
-from app.domains.downloads import enqueue_video_download, retry_download_job as retry_download_job_request
 from app.i18n import SUPPORTED_LANGUAGES, get_texts, normalize_language
-from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
+from app.repositories import categories as categories_repo
+from app.repositories import channels as channels_repo
+from app.repositories import downloads as downloads_repo
+from app.repositories import llm as llm_repo
+from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import settings as settings_repo
+from app.repositories import transcripts as transcripts_repo
+from app.repositories import videos as videos_repo
+from app.routers import api_downloads
+from app.services.downloads import is_ffmpeg_available
 from app.services.llm_runtime import (
     LlmRuntimeStatus,
     is_runtime_ready_for_resume,
@@ -39,6 +45,7 @@ from app.services.transcript_headers import (
 )
 
 router = APIRouter(prefix="/api", tags=["api"])
+router.include_router(api_downloads.router)
 logger = logging.getLogger(__name__)
 ARTICLE_REQUEST_BULK_LIMIT = 10
 
@@ -81,9 +88,9 @@ def _build_llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
 
 
 async def _resolve_llm_runtime_status(request: Request) -> dict[str, object]:
-    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
-    runtime_issue = await repository.get_llm_runtime_issue(request.app.state.runtime.db)
-    pending_count = await repository.count_llm_pending_videos(request.app.state.runtime.db)
+    llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
+    runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
+    pending_count = await llm_repo.count_llm_pending_videos(request.app.state.runtime.db)
     status = resolve_llm_runtime_status(
         llm_client=request.app.state.runtime.llm_client,
         llm_settings=llm_settings,
@@ -103,7 +110,7 @@ async def _resolve_llm_runtime_status(request: Request) -> dict[str, object]:
 
 @router.get("/categories")
 async def get_categories(request: Request):
-    return await repository.list_categories(request.app.state.runtime.db)
+    return await categories_repo.list_categories(request.app.state.runtime.db)
 
 
 @router.post("/categories")
@@ -120,7 +127,7 @@ async def create_category(request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
     try:
-        category = await repository.create_category(request.app.state.runtime.db, name=name)
+        category = await categories_repo.create_category(request.app.state.runtime.db, name=name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return category
@@ -140,7 +147,7 @@ async def reorder_categories(request: Request):
         ordered_ids = [int(i) for i in parsed.get("ordered_ids", [])]
     if not ordered_ids:
         raise HTTPException(status_code=400, detail="ordered_ids is required")
-    updated = await repository.reorder_categories(request.app.state.runtime.db, ordered_ids)
+    updated = await categories_repo.reorder_categories(request.app.state.runtime.db, ordered_ids)
     return {"ok": True, "updated": updated}
 
 
@@ -155,7 +162,7 @@ async def update_category(category_id: int, request: Request):
             name = str(payload.get("name", "")).strip()
         if "processing_stage" in payload:
             try:
-                processing_stage = repository.parse_category_processing_stage(payload.get("processing_stage"))
+                processing_stage = categories_repo.parse_category_processing_stage(payload.get("processing_stage"))
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
     else:
@@ -165,19 +172,19 @@ async def update_category(category_id: int, request: Request):
             name = str(parsed["name"][0]).strip()
         if "processing_stage" in parsed:
             try:
-                processing_stage = repository.parse_category_processing_stage(parsed["processing_stage"][0])
+                processing_stage = categories_repo.parse_category_processing_stage(parsed["processing_stage"][0])
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
 
     result: dict[str, object] = {"ok": True}
     try:
         if name is not None:
-            rows = await repository.rename_category(request.app.state.runtime.db, category_id, name)
+            rows = await categories_repo.rename_category(request.app.state.runtime.db, category_id, name)
             if rows == 0:
                 raise HTTPException(status_code=404, detail="category not found")
             result["renamed"] = True
         if processing_stage is not None:
-            rows = await repository.update_category_processing_stage(
+            rows = await categories_repo.update_category_processing_stage(
                 request.app.state.runtime.db,
                 category_id,
                 processing_stage,
@@ -193,7 +200,7 @@ async def update_category(category_id: int, request: Request):
 @router.delete("/categories/{category_id}")
 async def delete_category(category_id: int, request: Request):
     try:
-        result = await repository.delete_category(request.app.state.runtime.db, category_id)
+        result = await categories_repo.delete_category(request.app.state.runtime.db, category_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, **result}
@@ -213,7 +220,7 @@ async def move_channels_to_category(category_id: int, request: Request):
     if not channel_ids:
         raise HTTPException(status_code=400, detail="channel_ids is required")
     try:
-        moved = await repository.move_channels_to_category(
+        moved = await categories_repo.move_channels_to_category(
             request.app.state.runtime.db, channel_ids, category_id,
         )
     except ValueError as exc:
@@ -223,7 +230,7 @@ async def move_channels_to_category(category_id: int, request: Request):
 
 @router.get("/channels")
 async def get_channels(request: Request):
-    return await repository.list_channels(request.app.state.runtime.db)
+    return await channels_repo.list_channels(request.app.state.runtime.db)
 
 
 @router.post("/channels")
@@ -259,7 +266,7 @@ async def create_channel(request: Request):
     if not channel_id or not channel_name:
         raise HTTPException(status_code=400, detail="channel_id and channel_name are required")
 
-    created = await repository.add_channel(
+    created = await channels_repo.add_channel(
         request.app.state.runtime.db,
         channel_id=channel_id,
         channel_name=channel_name,
@@ -269,12 +276,12 @@ async def create_channel(request: Request):
         channel_description=channel_description,
         channel_language_hint=channel_language_hint,
     )
-    await repository.enqueue_channel_metadata_refresh(
+    await channels_repo.enqueue_channel_metadata_refresh(
         request.app.state.runtime.db,
         channel_id=channel_id,
     )
     request.app.state.runtime.channel_metadata_wake_event.set()
-    refreshed = await repository.get_channel_by_id(
+    refreshed = await channels_repo.get_channel_by_id(
         request.app.state.runtime.db,
         channel_id,
     )
@@ -370,12 +377,12 @@ async def commit_bulk_channels(request: Request):
 
     saved = 0
     for channel_id, channel_name in normalized:
-        await repository.add_channel(
+        await channels_repo.add_channel(
             request.app.state.runtime.db,
             channel_id=channel_id,
             channel_name=channel_name,
         )
-        await repository.enqueue_channel_metadata_refresh(
+        await channels_repo.enqueue_channel_metadata_refresh(
             request.app.state.runtime.db,
             channel_id=channel_id,
         )
@@ -387,7 +394,7 @@ async def commit_bulk_channels(request: Request):
 
 @router.delete("/channels/{channel_id}")
 async def delete_channel(channel_id: str, request: Request):
-    result = await repository.delete_channels_with_related_data(
+    result = await channels_repo.delete_channels_with_related_data(
         request.app.state.runtime.db,
         [channel_id],
     )
@@ -412,9 +419,9 @@ async def get_videos(
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
     if limit is None:
-        limit = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
+        limit = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
 
-    return await repository.list_videos(
+    return await videos_repo.list_videos(
         request.app.state.runtime.db,
         channel_id=channel_id,
         sort=sort,
@@ -426,7 +433,7 @@ async def get_videos(
 
 @router.get("/videos/{video_id}")
 async def get_video(video_id: str, request: Request):
-    detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
+    detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Video not found")
     return detail
@@ -434,7 +441,7 @@ async def get_video(video_id: str, request: Request):
 
 @router.get("/videos/{video_id}/transcript")
 async def get_transcript(video_id: str, request: Request):
-    transcript = await repository.get_transcript(request.app.state.runtime.db, video_id)
+    transcript = await videos_repo.get_transcript(request.app.state.runtime.db, video_id)
     if not transcript:
         raise HTTPException(status_code=404, detail="Transcript not found")
     return transcript
@@ -442,7 +449,7 @@ async def get_transcript(video_id: str, request: Request):
 
 @router.get("/videos/{video_id}/article")
 async def get_article(video_id: str, request: Request):
-    article = await repository.get_article(request.app.state.runtime.db, video_id)
+    article = await videos_repo.get_article(request.app.state.runtime.db, video_id)
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
     return article
@@ -450,12 +457,12 @@ async def get_article(video_id: str, request: Request):
 
 @router.get("/search")
 async def search(request: Request, q: str = Query(min_length=1)):
-    return await repository.search_documents(request.app.state.runtime.db, query=q)
+    return await videos_repo.search_documents(request.app.state.runtime.db, query=q)
 
 
 @router.post("/poll/trigger")
 async def trigger_poll(request: Request):
-    if not await repository.is_worker_enabled(request.app.state.runtime.db, "rss"):
+    if not await settings_repo.is_worker_enabled(request.app.state.runtime.db, "rss"):
         return {"ok": True, "triggered": False, "reason": "rss_worker_disabled"}
     request.app.state.runtime.poll_now_event.set()
     return {"ok": True, "triggered": True}
@@ -464,15 +471,15 @@ async def trigger_poll(request: Request):
 @router.get("/queue/poll")
 async def queue_poll(request: Request):
     db = request.app.state.runtime.db
-    transcript_items = await repository.list_queue_items(
-        db, repository.TRANSCRIPT_QUEUE_STATUSES,
+    transcript_items = await transcripts_repo.list_queue_items(
+        db, transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
     )
-    llm_items = await repository.list_queue_items(
-        db, repository.LLM_QUEUE_STATUSES,
+    llm_items = await transcripts_repo.list_queue_items(
+        db, llm_repo.LLM_QUEUE_STATUSES,
     )
-    counts = await repository.queue_status(db)
-    workers = await repository.get_worker_settings(db)
-    guard = await repository.get_transcript_guard_state(db)
+    counts = await transcripts_repo.queue_status(db)
+    workers = await settings_repo.get_worker_settings(db)
+    guard = await transcripts_repo.get_transcript_guard_state(db)
     badge_count = (
         counts.get("transcript_pending", 0)
         + counts.get("transcript_processing", 0)
@@ -498,12 +505,12 @@ async def queue_poll(request: Request):
 
 @router.get("/status")
 async def status(request: Request):
-    return await repository.queue_status(request.app.state.runtime.db)
+    return await transcripts_repo.queue_status(request.app.state.runtime.db)
 
 
 @router.post("/videos/{video_id}/retry")
 async def retry_video(video_id: str, request: Request):
-    affected = await repository.mark_video_retry(request.app.state.runtime.db, video_id)
+    affected = await videos_repo.mark_video_retry(request.app.state.runtime.db, video_id)
     if affected == 0:
         raise HTTPException(status_code=404, detail="Retry target not found")
     return {"ok": True, "video_id": video_id}
@@ -534,7 +541,7 @@ async def request_videos_article(request: Request):
             detail=f"video_ids can include up to {ARTICLE_REQUEST_BULK_LIMIT} items",
         )
 
-    bulk_result = await repository.enqueue_manual_article_jobs(
+    bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
         request.app.state.runtime.db,
         video_ids=video_ids,
     )
@@ -546,7 +553,7 @@ async def request_videos_article(request: Request):
     if (new_count + retry_count) > 0:
         request.app.state.runtime.manual_article_wake_event.set()
 
-    llm_worker_waiting = not await repository.is_worker_enabled(
+    llm_worker_waiting = not await settings_repo.is_worker_enabled(
         request.app.state.runtime.db,
         "llm",
     )
@@ -566,222 +573,37 @@ async def request_videos_article(request: Request):
 
 @router.post("/videos/{video_id}/transcript/retry")
 async def retry_transcript(video_id: str, request: Request):
-    affected = await repository.reset_transcript_for_retry(request.app.state.runtime.db, video_id)
+    affected = await transcripts_repo.reset_transcript_for_retry(request.app.state.runtime.db, video_id)
     if affected == 0:
         raise HTTPException(status_code=404, detail="Transcript retry target not found")
     return {"ok": True, "video_id": video_id}
 
 
-@router.post("/videos/{video_id}/downloads")
-async def request_video_download(video_id: str, request: Request):
-    video = await repository.get_video(request.app.state.runtime.db, video_id)
-    if not video:
-        raise HTTPException(status_code=404, detail="Video not found")
-
-    defaults = await repository.get_download_default_settings(
-        request.app.state.runtime.db,
-        default_output_dir=request.app.state.runtime.config.download_dir,
-    )
-    content_type = request.headers.get("content-type", "")
-    quality = str(defaults["quality"])
-    overwrite = bool(defaults["overwrite"])
-    if "application/json" in content_type:
-        payload = await request.json()
-        if "quality" in payload:
-            quality = repository.normalize_download_quality(str(payload.get("quality")))
-        if "overwrite" in payload:
-            overwrite = _parse_bool_input(payload.get("overwrite"), default=overwrite)
-    else:
-        form = await request.form()
-        if "quality" in form:
-            quality = repository.normalize_download_quality(str(form.get("quality")))
-        if "overwrite" in form:
-            overwrite = _parse_bool_input(form.get("overwrite"), default=overwrite)
-
-    logger.info(
-        "event=downloads.enqueue_requested video_id=%s quality=%s overwrite=%s",
-        str(video["video_id"]),
-        quality,
-        overwrite,
-        extra={"event": "downloads.enqueue_requested"},
-    )
-    if not is_ffmpeg_available():
-        return JSONResponse(
-            status_code=409,
-            content=build_download_error_payload(
-                code="ffmpeg_missing",
-                message="ffmpeg is not installed",
-                queued=False,
-                retried=False,
-            ),
-        )
-
-    operation = await enqueue_video_download(
-        request.app.state.runtime.db,
-        video=video,
-        quality=quality,
-        overwrite=overwrite,
-        default_output_dir=str(defaults.get("output_dir") or request.app.state.runtime.config.download_dir),
-        skip_environment_check=True,
-    )
-
-    if operation.payload.get("queued") is True:
-        request.app.state.runtime.download_wake_event.set()
-    if operation.ok and operation.payload.get("duplicate") is True:
-        logger.info(
-            "event=downloads.enqueue_duplicate video_id=%s job_id=%s status=%s",
-            str(video["video_id"]),
-            operation.payload.get("job_id"),
-            operation.payload.get("status"),
-            extra={"event": "downloads.enqueue_duplicate"},
-        )
-    elif operation.ok and operation.payload.get("queued") is True:
-        logger.info(
-            "event=downloads.enqueue_created video_id=%s job_id=%s quality=%s overwrite=%s",
-            str(video["video_id"]),
-            operation.payload.get("job_id"),
-            operation.payload.get("quality"),
-            bool(operation.payload.get("overwrite")),
-            extra={"event": "downloads.enqueue_created"},
-        )
-    elif not operation.ok:
-        logger.warning(
-            "event=downloads.enqueue_rejected video_id=%s code=%s",
-            str(video["video_id"]),
-            str(operation.payload.get("code") or "unknown"),
-            extra={"event": "downloads.enqueue_rejected", "code": str(operation.payload.get("code") or "unknown")},
-        )
-    return JSONResponse(status_code=operation.status_code, content=operation.payload)
-
-
-@router.get("/downloads")
-async def get_downloads(
-    request: Request,
-    status: str = Query(default="all"),
-    page: int = Query(default=1, ge=1),
-    limit: int = Query(default=50, ge=1, le=200),
-):
-    normalized_status = repository.normalize_download_status_filter(status)
-    jobs = await repository.list_download_jobs(
-        request.app.state.runtime.db,
-        status=normalized_status,
-        page=page,
-        limit=limit,
-    )
-    total = await repository.count_download_jobs(
-        request.app.state.runtime.db,
-        status=normalized_status,
-    )
-    counts = await repository.count_download_jobs_by_status(request.app.state.runtime.db)
-    return {
-        "ok": True,
-        "status": normalized_status,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "counts": counts,
-        "jobs": jobs,
-    }
-
-
-@router.get("/downloads/progress")
-async def get_download_progress(
-    request: Request,
-    after_event_id: int = Query(default=0, ge=0),
-    event_limit: int = Query(default=100, ge=1, le=200),
-):
-    payload = await repository.get_download_progress(
-        request.app.state.runtime.db,
-        after_event_id=after_event_id,
-        event_limit=event_limit,
-    )
-    counts = payload["counts"]
-    event_count = len(payload["events"])
-    if event_count > 0:
-        logger.debug(
-            "event=downloads.progress_events after_event_id=%s returned_events=%s latest_event_id=%s active=%s",
-            after_event_id,
-            event_count,
-            int(payload["latest_event_id"]),
-            int(counts[repository.DOWNLOAD_STATUS_PENDING]) + int(counts[repository.DOWNLOAD_STATUS_RUNNING]),
-            extra={"event": "downloads.progress_events"},
-        )
-    return {
-        "ok": True,
-        "pending_count": int(counts[repository.DOWNLOAD_STATUS_PENDING]),
-        "running_count": int(counts[repository.DOWNLOAD_STATUS_RUNNING]),
-        "succeeded_count": int(counts[repository.DOWNLOAD_STATUS_SUCCEEDED]),
-        "failed_count": int(counts[repository.DOWNLOAD_STATUS_FAILED]),
-        "active_count": int(counts[repository.DOWNLOAD_STATUS_PENDING])
-        + int(counts[repository.DOWNLOAD_STATUS_RUNNING]),
-        "latest_event_id": int(payload["latest_event_id"]),
-        "events": payload["events"],
-    }
-
-
-@router.post("/downloads/{job_id}/retry")
-async def retry_download(job_id: int, request: Request):
-    logger.info(
-        "event=downloads.retry_requested job_id=%s",
-        job_id,
-        extra={"event": "downloads.retry_requested"},
-    )
-    if not is_ffmpeg_available():
-        return JSONResponse(
-            status_code=409,
-            content=build_download_error_payload(
-                code="ffmpeg_missing",
-                message="ffmpeg is not installed",
-                queued=False,
-                retried=False,
-            ),
-        )
-    operation = await retry_download_job_request(request.app.state.runtime.db, job_id=job_id)
-    if operation.ok:
-        request.app.state.runtime.download_wake_event.set()
-        job = operation.payload.get("job")
-        logger.info(
-            "event=downloads.retry_queued job_id=%s status=%s attempt_count=%s",
-            job_id,
-            job.get("status") if isinstance(job, dict) else "",
-            job.get("attempt_count") if isinstance(job, dict) else "",
-            extra={"event": "downloads.retry_queued"},
-        )
-    else:
-        logger.warning(
-            "event=downloads.retry_rejected job_id=%s reason=%s",
-            job_id,
-            str(operation.payload.get("code") or "unknown"),
-            extra={"event": "downloads.retry_rejected", "code": str(operation.payload.get("code") or "unknown")},
-        )
-    return JSONResponse(status_code=operation.status_code, content=operation.payload)
-
-
 @router.get("/settings")
 async def get_settings(request: Request):
-    language = await repository.get_setting(
+    language = await settings_repo.get_setting(
         request.app.state.runtime.db,
         key="language",
         default="ko",
     )
-    workers = await repository.get_worker_settings(request.app.state.runtime.db)
-    policy = await repository.get_policy_settings(request.app.state.runtime.db)
-    videos_per_page = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
-    transcript_guard = await repository.get_transcript_guard_state(request.app.state.runtime.db)
-    timezone_value = await repository.get_setting(
+    workers = await settings_repo.get_worker_settings(request.app.state.runtime.db)
+    policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
+    videos_per_page = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
+    transcript_guard = await transcripts_repo.get_transcript_guard_state(request.app.state.runtime.db)
+    timezone_value = await settings_repo.get_setting(
         request.app.state.runtime.db,
         key="timezone",
         default="Asia/Seoul",
     )
-    transcript_request_header_overrides = await repository.get_transcript_request_header_overrides(
+    transcript_request_header_overrides = await transcripts_repo.get_transcript_request_header_overrides(
         request.app.state.runtime.db
     )
     transcript_request_headers = _build_transcript_header_payload(transcript_request_header_overrides)
-    download_defaults = await repository.get_download_default_settings(
+    download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
-    llm_settings = await repository.get_llm_settings(request.app.state.runtime.db)
+    llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
     llm_runtime_status = await _resolve_llm_runtime_status(request)
     return {
         "language": normalize_language(language),
@@ -800,7 +622,7 @@ async def get_settings(request: Request):
 
 @router.post("/settings/transcript-guard/reset")
 async def reset_transcript_guard(request: Request):
-    guard = await repository.reset_transcript_guard_state(request.app.state.runtime.db)
+    guard = await transcripts_repo.reset_transcript_guard_state(request.app.state.runtime.db)
     return {
         "ok": True,
         "transcript_guard": guard,
@@ -847,7 +669,7 @@ async def set_transcript_request_headers(request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    saved_overrides = await repository.save_transcript_request_header_overrides(
+    saved_overrides = await transcripts_repo.save_transcript_request_header_overrides(
         request.app.state.runtime.db,
         overrides,
     )
@@ -890,7 +712,7 @@ async def set_llm_settings(request: Request):
         raise HTTPException(status_code=400, detail="empty llm settings payload")
 
     try:
-        saved = await repository.set_llm_settings(
+        saved = await settings_repo.set_llm_settings(
             request.app.state.runtime.db,
             provider_primary=provider_primary,
             provider_fallback=provider_fallback,
@@ -913,7 +735,7 @@ async def get_llm_runtime_status(request: Request):
 @router.post("/settings/llm/resume")
 async def resume_llm_runtime(request: Request):
     language = normalize_language(
-        await repository.get_setting(
+        await settings_repo.get_setting(
             request.app.state.runtime.db,
             key="language",
             default="ko",
@@ -973,7 +795,7 @@ async def set_language(request: Request):
     if value not in SUPPORTED_LANGUAGES:
         raise HTTPException(status_code=400, detail="language must be one of: ko, en")
 
-    await repository.set_setting(request.app.state.runtime.db, key="language", value=value)
+    await settings_repo.set_setting(request.app.state.runtime.db, key="language", value=value)
     return {"ok": True, "language": value}
 
 
@@ -992,7 +814,7 @@ async def set_timezone(request: Request):
     if value not in SUPPORTED_TIMEZONES:
         raise HTTPException(status_code=400, detail="unsupported timezone")
 
-    await repository.set_setting(request.app.state.runtime.db, key="timezone", value=value)
+    await settings_repo.set_setting(request.app.state.runtime.db, key="timezone", value=value)
     return {"ok": True, "timezone": value}
 
 
@@ -1013,14 +835,14 @@ async def set_videos_per_page(request: Request):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="videos_per_page must be integer")
 
-    saved = await repository.set_videos_per_page_setting(request.app.state.runtime.db, value)
+    saved = await settings_repo.set_videos_per_page_setting(request.app.state.runtime.db, value)
     return {"ok": True, "videos_per_page": saved}
 
 
 @router.put("/settings/workers")
 async def set_workers(request: Request):
-    defaults = repository.WORKER_SETTING_DEFAULTS
-    values = await repository.get_worker_settings(request.app.state.runtime.db)
+    defaults = settings_repo.WORKER_SETTING_DEFAULTS
+    values = await settings_repo.get_worker_settings(request.app.state.runtime.db)
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
@@ -1042,7 +864,7 @@ async def set_workers(request: Request):
                 default=False,
             )
 
-    saved = await repository.set_worker_settings(request.app.state.runtime.db, values)
+    saved = await settings_repo.set_worker_settings(request.app.state.runtime.db, values)
     return {"ok": True, "workers": saved}
 
 
@@ -1076,74 +898,10 @@ async def set_policy(request: Request):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="policy values must be integers")
 
-    saved = await repository.set_policy_settings(
+    saved = await settings_repo.set_policy_settings(
         request.app.state.runtime.db,
         rss_bootstrap_lookback_days=lookback_value,
         retention_days=retention_value,
         rss_feed_mode=feed_mode_value,
     )
     return {"ok": True, "policy": saved}
-
-
-@router.put("/settings/downloads")
-async def set_download_defaults(request: Request):
-    content_type = request.headers.get("content-type", "")
-    quality: str | None = None
-    overwrite: bool | None = None
-    output_dir: str | None = None
-    allowed_qualities = ", ".join(["2160", "1440", "1080", "720", "480"])
-    if "application/json" in content_type:
-        payload = await request.json()
-        if "quality" in payload:
-            parsed_quality = str(payload.get("quality", "")).strip().lower()
-            if parsed_quality not in repository.DOWNLOAD_QUALITY_OPTIONS:
-                raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
-            quality = parsed_quality
-        if "overwrite" in payload:
-            overwrite = _parse_bool_input(payload.get("overwrite"), default=False)
-        if "output_dir" in payload or "download_output_dir" in payload:
-            output_dir = str(payload.get("output_dir", payload.get("download_output_dir", ""))).strip()
-    else:
-        form = await request.form()
-        if "download_quality" in form:
-            parsed_quality = str(form.get("download_quality", "")).strip().lower()
-            if parsed_quality not in repository.DOWNLOAD_QUALITY_OPTIONS:
-                raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
-            quality = parsed_quality
-        overwrite = _parse_bool_input(form.get("download_overwrite"), default=False)
-        if "download_output_dir" in form:
-            output_dir = str(form.get("download_output_dir", "")).strip()
-
-    if quality is None and overwrite is None and output_dir is None:
-        raise HTTPException(status_code=400, detail="empty download settings payload")
-
-    if output_dir is not None:
-        validation = validate_download_output_dir(
-            output_dir,
-            require_absolute=True,
-            require_existing=True,
-        )
-        if not validation.ok:
-            raise HTTPException(status_code=400, detail=validation.error_code or "download_path_invalid")
-        output_dir = validation.normalized_path
-
-    try:
-        saved = await repository.set_download_default_settings(
-            request.app.state.runtime.db,
-            quality=quality,
-            overwrite=overwrite,
-            output_dir=output_dir,
-            default_output_dir=request.app.state.runtime.config.download_dir,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    logger.info(
-        "event=downloads.settings_saved quality=%s overwrite=%s",
-        saved.get("quality"),
-        saved.get("overwrite"),
-        extra={"event": "downloads.settings_saved"},
-    )
-    return {
-        "ok": True,
-        "download_defaults": saved,
-    }

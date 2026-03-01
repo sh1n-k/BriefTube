@@ -1,0 +1,19 @@
+"""LLM pipeline repository accessors."""
+
+from app import repository as legacy
+
+LLM_QUEUE_STATUSES = legacy.LLM_QUEUE_STATUSES
+
+repair_orphan_llm_candidates = legacy.repair_orphan_llm_candidates
+pop_llm_candidate = legacy.pop_llm_candidate
+mark_restructure_processing = legacy.mark_restructure_processing
+save_article = legacy.save_article
+mark_restructure_failed = legacy.mark_restructure_failed
+requeue_llm_pending_without_retry = legacy.requeue_llm_pending_without_retry
+
+ensure_llm_config_missing_alert = legacy.ensure_llm_config_missing_alert
+clear_llm_config_missing_alert_flag = legacy.clear_llm_config_missing_alert_flag
+set_llm_runtime_issue = legacy.set_llm_runtime_issue
+clear_llm_runtime_issue = legacy.clear_llm_runtime_issue
+get_llm_runtime_issue = legacy.get_llm_runtime_issue
+count_llm_pending_videos = legacy.count_llm_pending_videos

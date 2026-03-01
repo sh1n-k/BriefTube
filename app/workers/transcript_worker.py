@@ -25,7 +25,8 @@ from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImp
     YouTubeRequestFailed,
 )
 
-from app import repository
+from app.repositories import settings as settings_repo
+from app.repositories import transcripts as transcripts_repo
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -200,7 +201,7 @@ class TranscriptGuardState:
 
 async def _save_guard_state(state: AppState, guard: TranscriptGuardState) -> None:
     payload = guard.to_repository_payload()
-    await repository.save_transcript_guard_state(
+    await transcripts_repo.save_transcript_guard_state(
         state.db,
         adaptive_factor=float(payload["adaptive_factor"]),
         cooldown_until=payload["cooldown_until"],
@@ -266,7 +267,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
     lease_renew_interval_seconds = max(1.0, lease_ttl_seconds / 3.0)
     next_lease_renew_monotonic_at = 0.0
 
-    persisted = await repository.get_transcript_guard_state(state.db)
+    persisted = await transcripts_repo.get_transcript_guard_state(state.db)
     guard = TranscriptGuardState.from_repository(persisted)
     guard.half_open_probe_remaining = max(1, guard.half_open_probe_remaining)
     next_request_monotonic_at = 0.0
@@ -289,9 +290,9 @@ async def run_transcript_fetcher(state: AppState) -> None:
 
     try:
         while True:
-            if not await repository.is_worker_enabled(state.db, "transcript"):
+            if not await settings_repo.is_worker_enabled(state.db, "transcript"):
                 if lease_enabled and lease_held:
-                    await repository.release_transcript_worker_lease(state.db, lease_owner_id)
+                    await transcripts_repo.release_transcript_worker_lease(state.db, lease_owner_id)
                     lease_held = False
                 await asyncio.sleep(idle_sleep_seconds)
                 continue
@@ -299,7 +300,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
             if lease_enabled:
                 now_mono = time.monotonic()
                 if not lease_held:
-                    lease_held = await repository.acquire_transcript_worker_lease(
+                    lease_held = await transcripts_repo.acquire_transcript_worker_lease(
                         state.db,
                         owner_id=lease_owner_id,
                         ttl_seconds=lease_ttl_seconds,
@@ -314,7 +315,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         extra={"event": "transcript.lease_acquired", "worker": "transcript"},
                     )
                 elif now_mono >= next_lease_renew_monotonic_at:
-                    renewed = await repository.renew_transcript_worker_lease(
+                    renewed = await transcripts_repo.renew_transcript_worker_lease(
                         state.db,
                         owner_id=lease_owner_id,
                         ttl_seconds=lease_ttl_seconds,
@@ -358,7 +359,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     remaining_channel_wait = remaining
 
             try:
-                pending = await repository.pop_pending_transcript_videos(
+                pending = await transcripts_repo.pop_pending_transcript_videos(
                     state.db,
                     limit=fetch_batch_size,
                     lookahead=channel_pick_lookahead,
@@ -377,7 +378,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     continue
 
                 for video in pending:
-                    if not await repository.is_worker_enabled(state.db, "transcript"):
+                    if not await settings_repo.is_worker_enabled(state.db, "transcript"):
                         break
                     if lease_enabled and not lease_held:
                         break
@@ -399,7 +400,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         guard.last_channel_id = channel_id or guard.last_channel_id
                         guard.last_channel_attempt_at = datetime.now(timezone.utc)
                         await _save_guard_state(state, guard)
-                        marked = await repository.mark_transcript_processing(state.db, video_id)
+                        marked = await transcripts_repo.mark_transcript_processing(state.db, video_id)
                         if marked == 0:
                             continue
 
@@ -421,7 +422,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         if not raw_text.strip():
                             raise ValueError("Transcript payload is empty")
 
-                        await repository.save_transcript(
+                        await transcripts_repo.save_transcript(
                             state.db,
                             video_id=video_id,
                             raw_text=raw_text,
@@ -456,7 +457,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         next_retry_count = current_retry_count + 1
 
                         if error_category == TranscriptErrorCategory.NO_SUBTITLE:
-                            await repository.mark_no_subtitle(state.db, video_id)
+                            await transcripts_repo.mark_no_subtitle(state.db, video_id)
                             guard.consecutive_successes += 1
                             guard.consecutive_hard_errors = 0
                             if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
@@ -501,7 +502,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             await _save_guard_state(state, guard)
 
                             if channel_id:
-                                await repository.defer_channel_transcript_retries(
+                                await transcripts_repo.defer_channel_transcript_retries(
                                     state.db,
                                     channel_id=channel_id,
                                     delay_seconds=channel_hard_cooldown_seconds,
@@ -509,7 +510,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 )
 
                             if next_retry_count > retry_max_attempts:
-                                await repository.mark_transcript_failed(
+                                await transcripts_repo.mark_transcript_failed(
                                     state.db,
                                     video_id=video_id,
                                     retry_count=next_retry_count,
@@ -528,7 +529,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                     },
                                 )
                             else:
-                                await repository.schedule_transcript_retry(
+                                await transcripts_repo.schedule_transcript_retry(
                                     state.db,
                                     video_id=video_id,
                                     delay_seconds=next_delay_seconds,
@@ -565,7 +566,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         await _save_guard_state(state, guard)
 
                         if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:
-                            await repository.mark_transcript_failed(
+                            await transcripts_repo.mark_transcript_failed(
                                 state.db,
                                 video_id=video_id,
                                 retry_count=next_retry_count,
@@ -586,7 +587,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             current_retry_count,
                         )
                         if next_retry_count > retry_max_attempts:
-                            await repository.mark_transcript_failed(
+                            await transcripts_repo.mark_transcript_failed(
                                 state.db,
                                 video_id=video_id,
                                 retry_count=next_retry_count,
@@ -600,7 +601,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 error_message,
                             )
                         else:
-                            await repository.schedule_transcript_retry(
+                            await transcripts_repo.schedule_transcript_retry(
                                 state.db,
                                 video_id=video_id,
                                 delay_seconds=next_delay_seconds,
@@ -625,7 +626,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
     finally:
         if lease_enabled and lease_held:
             try:
-                await repository.release_transcript_worker_lease(state.db, lease_owner_id)
+                await transcripts_repo.release_transcript_worker_lease(state.db, lease_owner_id)
             except Exception:
                 logger.exception(
                     "event=transcript.lease_release_failed worker=transcript owner=%s",

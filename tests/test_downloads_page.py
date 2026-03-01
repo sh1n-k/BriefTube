@@ -71,7 +71,7 @@ def test_downloads_page_renders_failed_status_with_retry(
 ) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_download_jobs(db_path)
-    monkeypatch.setattr("app.routers.pages.is_ffmpeg_available", lambda: False)
+    monkeypatch.setattr("app.routers.pages_downloads.is_ffmpeg_available", lambda: False)
 
     response = client.get("/downloads?status=failed")
 
