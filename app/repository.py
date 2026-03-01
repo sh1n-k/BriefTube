@@ -89,6 +89,8 @@ MANUAL_ARTICLE_JOB_STATUS_OPTIONS = {
     MANUAL_ARTICLE_JOB_STATUS_SKIPPED,
 }
 MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES = {
+    "auto_paused",
+    "transcript_done",
     "transcript_failed",
     "no_subtitle",
     "llm_failed",
@@ -116,8 +118,10 @@ TRANSCRIPT_WORKER_LEASE_OWNER_KEY = "transcript_worker_lease_owner"
 TRANSCRIPT_WORKER_LEASE_UNTIL_KEY = "transcript_worker_lease_until"
 TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY = "transcript_request_headers_overrides_json"
 PIPELINE_STATUS_KEYS: tuple[str, ...] = (
+    "auto_paused",
     "transcript_pending",
     "transcript_processing",
+    "transcript_done",
     "transcript_failed",
     "no_subtitle",
     "llm_pending",
@@ -131,6 +135,14 @@ LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_rev
 logger = logging.getLogger(__name__)
 
 DEFAULT_CATEGORY_NAME = "미분류"
+CATEGORY_PROCESSING_STAGE_OFF = "off"
+CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY = "transcript_only"
+CATEGORY_PROCESSING_STAGE_FULL = "full"
+CATEGORY_PROCESSING_STAGE_OPTIONS = {
+    CATEGORY_PROCESSING_STAGE_OFF,
+    CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY,
+    CATEGORY_PROCESSING_STAGE_FULL,
+}
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -183,6 +195,32 @@ def _parse_float_setting(value: str | None, default: float, min_value: float, ma
     except (TypeError, ValueError):
         parsed = default
     return max(min_value, min(max_value, parsed))
+
+
+def normalize_category_processing_stage(value: str | None, *, default: str = CATEGORY_PROCESSING_STAGE_OFF) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CATEGORY_PROCESSING_STAGE_OPTIONS:
+        return normalized
+    if default in CATEGORY_PROCESSING_STAGE_OPTIONS:
+        return default
+    return CATEGORY_PROCESSING_STAGE_OFF
+
+
+def parse_category_processing_stage(value: object | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CATEGORY_PROCESSING_STAGE_OPTIONS:
+        return normalized
+    allowed = ", ".join(sorted(CATEGORY_PROCESSING_STAGE_OPTIONS))
+    raise ValueError(f"processing_stage must be one of: {allowed}")
+
+
+def next_category_processing_stage(current: str | None) -> str:
+    normalized = normalize_category_processing_stage(current)
+    if normalized == CATEGORY_PROCESSING_STAGE_OFF:
+        return CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY
+    if normalized == CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY:
+        return CATEGORY_PROCESSING_STAGE_FULL
+    return CATEGORY_PROCESSING_STAGE_OFF
 
 
 def _validate_llm_provider_setting(value: str | None, *, allow_none: bool = False) -> str:
@@ -261,7 +299,7 @@ async def get_default_category_id(db: aiosqlite.Connection) -> int:
 async def list_categories(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """
-        SELECT c.id, c.name, c.sort_order, c.llm_enabled, c.is_default, c.created_at,
+        SELECT c.id, c.name, c.sort_order, c.processing_stage, c.is_default, c.created_at,
                COUNT(ch.channel_id) AS channel_count
         FROM categories c
         LEFT JOIN channels ch ON ch.category_id = c.id
@@ -284,14 +322,14 @@ async def create_category(db: aiosqlite.Connection, name: str) -> dict[str, Any]
     next_order = int(row["next_order"]) if row else 0
     try:
         await db.execute(
-            "INSERT INTO categories (name, sort_order) VALUES (?, ?)",
-            (name, next_order),
+            "INSERT INTO categories (name, sort_order, processing_stage) VALUES (?, ?, ?)",
+            (name, next_order, CATEGORY_PROCESSING_STAGE_OFF),
         )
     except (aiosqlite.IntegrityError, sqlite3.IntegrityError):
         raise ValueError(f"category name already exists: {name}")
     await db.commit()
     cat_cursor = await db.execute(
-        "SELECT id, name, sort_order, llm_enabled, is_default, created_at FROM categories WHERE name = ?",
+        "SELECT id, name, sort_order, processing_stage, is_default, created_at FROM categories WHERE name = ?",
         (name,),
     )
     cat_row = await cat_cursor.fetchone()
@@ -334,13 +372,32 @@ async def delete_category(db: aiosqlite.Connection, category_id: int) -> dict[st
     return {"deleted": 1, "channels_moved": channels_moved}
 
 
-async def update_category_llm_enabled(db: aiosqlite.Connection, category_id: int, llm_enabled: bool) -> int:
+async def update_category_processing_stage(db: aiosqlite.Connection, category_id: int, processing_stage: str) -> int:
+    safe_stage = normalize_category_processing_stage(processing_stage)
     cursor = await db.execute(
-        "UPDATE categories SET llm_enabled = ? WHERE id = ?",
-        (1 if llm_enabled else 0, category_id),
+        "UPDATE categories SET processing_stage = ? WHERE id = ?",
+        (safe_stage, category_id),
     )
     await db.commit()
     return int(cursor.rowcount or 0)
+
+
+async def cycle_category_processing_stage(db: aiosqlite.Connection, category_id: int) -> str | None:
+    cursor = await db.execute(
+        "SELECT processing_stage FROM categories WHERE id = ?",
+        (category_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    current_stage = normalize_category_processing_stage(str(row["processing_stage"] or ""))
+    next_stage = next_category_processing_stage(current_stage)
+    await db.execute(
+        "UPDATE categories SET processing_stage = ? WHERE id = ?",
+        (next_stage, category_id),
+    )
+    await db.commit()
+    return next_stage
 
 
 async def reorder_categories(db: aiosqlite.Connection, ordered_ids: list[int]) -> int:
@@ -582,11 +639,36 @@ async def insert_video_if_absent(
 ) -> bool:
     cursor = await db.execute(
         """
-        INSERT INTO videos (video_id, channel_id, title, upload_time)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO videos (
+            video_id,
+            channel_id,
+            title,
+            upload_time,
+            pipeline_status,
+            processing_stage_snapshot
+        )
+        SELECT
+            ?,
+            ?,
+            ?,
+            ?,
+            CASE
+                WHEN lower(trim(coalesce(cat.processing_stage, ''))) = 'off'
+                THEN 'auto_paused'
+                ELSE 'transcript_pending'
+            END,
+            CASE lower(trim(coalesce(cat.processing_stage, '')))
+                WHEN 'off' THEN 'off'
+                WHEN 'transcript_only' THEN 'transcript_only'
+                WHEN 'full' THEN 'full'
+                ELSE 'full'
+            END
+        FROM channels ch
+        LEFT JOIN categories cat ON cat.id = ch.category_id
+        WHERE ch.channel_id = ?
         ON CONFLICT(video_id) DO NOTHING
         """,
-        (video_id, channel_id, title, upload_time),
+        (video_id, channel_id, title, upload_time, channel_id),
     )
     await db.commit()
     return cursor.rowcount > 0
@@ -989,6 +1071,8 @@ async def save_transcript(
     language: str | None,
     source_type: str,
     thumbnail_path: str | None,
+    *,
+    force_llm_pending: bool = False,
 ) -> None:
     await db.execute(
         """
@@ -1004,7 +1088,17 @@ async def save_transcript(
     await db.execute(
         """
         UPDATE videos
-        SET pipeline_status = 'llm_pending',
+        SET pipeline_status = CASE
+                WHEN ? = 1 THEN 'llm_pending'
+                WHEN processing_stage_snapshot = 'full' THEN 'llm_pending'
+                ELSE 'transcript_done'
+            END,
+            processing_stage_snapshot = CASE lower(trim(coalesce(processing_stage_snapshot, '')))
+                WHEN 'off' THEN 'off'
+                WHEN 'transcript_only' THEN 'transcript_only'
+                WHEN 'full' THEN 'full'
+                ELSE 'full'
+            END,
             transcript_retry_count = 0,
             transcript_next_attempt_at = NULL,
             transcript_target_language = COALESCE(?, transcript_target_language),
@@ -1013,7 +1107,7 @@ async def save_transcript(
             thumbnail_path = COALESCE(?, thumbnail_path)
         WHERE video_id = ?
         """,
-        (language, thumbnail_path, video_id),
+        (1 if force_llm_pending else 0, language, thumbnail_path, video_id),
     )
     await db.commit()
 
@@ -1166,11 +1260,8 @@ async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> d
             t.raw_text
         FROM videos v
         JOIN transcripts t ON t.video_id = v.video_id
-        LEFT JOIN channels ch ON ch.channel_id = v.channel_id
-        LEFT JOIN categories cat ON cat.id = ch.category_id
         WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
           AND v.retry_count < ?
-          AND COALESCE(cat.llm_enabled, 1) = 1
         ORDER BY v.created_at ASC
         LIMIT 1
         """,
@@ -1370,10 +1461,7 @@ async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
         """
         SELECT COUNT(1) AS cnt
         FROM videos v
-        LEFT JOIN channels ch ON ch.channel_id = v.channel_id
-        LEFT JOIN categories cat ON cat.id = ch.category_id
         WHERE v.pipeline_status = 'llm_pending'
-          AND COALESCE(cat.llm_enabled, 1) = 1
         """
     )
     row = await cursor.fetchone()

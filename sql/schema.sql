@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS categories (
     name        TEXT NOT NULL UNIQUE,
     sort_order  INTEGER NOT NULL DEFAULT 0,
     llm_enabled INTEGER NOT NULL DEFAULT 1,
+    processing_stage TEXT NOT NULL DEFAULT 'off',
     is_default  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS videos (
     upload_time         TEXT NOT NULL,
     thumbnail_path      TEXT,
     pipeline_status     TEXT NOT NULL DEFAULT 'transcript_pending',
+    processing_stage_snapshot TEXT NOT NULL DEFAULT 'full',
     transcript_retry_count INTEGER NOT NULL DEFAULT 0,
     transcript_next_attempt_at TEXT,
     transcript_target_language TEXT,

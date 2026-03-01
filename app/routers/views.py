@@ -347,17 +347,11 @@ async def create_category_fragment(request: Request):
     )
 
 
-@router.put("/categories/{category_id}/toggle-llm")
-async def toggle_category_llm_fragment(category_id: int, request: Request):
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        payload = await request.json()
-        llm_enabled = payload.get("llm_enabled", True)
-    else:
-        form = await request.form()
-        raw = str(form.get("llm_enabled", "true")).strip().lower()
-        llm_enabled = raw not in ("false", "0", "no")
-    await repository.update_category_llm_enabled(request.app.state.runtime.db, category_id, llm_enabled)
+@router.put("/categories/{category_id}/cycle-processing-stage")
+async def cycle_category_processing_stage_fragment(category_id: int, request: Request):
+    next_stage = await repository.cycle_category_processing_stage(request.app.state.runtime.db, category_id)
+    if next_stage is None:
+        raise HTTPException(status_code=404, detail="category not found")
     status = request.query_params.get("status", repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
     raw_cat = request.query_params.get("category_id")
     selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None

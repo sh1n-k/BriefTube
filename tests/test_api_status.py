@@ -12,8 +12,10 @@ def test_queue_status_keys_and_defaults(client: TestClient) -> None:
 
     payload = response.json()
     for key in (
+        "auto_paused",
         "transcript_pending",
         "transcript_processing",
+        "transcript_done",
         "transcript_failed",
         "no_subtitle",
         "llm_pending",
@@ -28,6 +30,8 @@ def test_queue_status_keys_and_defaults(client: TestClient) -> None:
 
     assert payload["transcript_pending"] == 0
     assert payload["transcript_processing"] == 0
+    assert payload["auto_paused"] == 0
+    assert payload["transcript_done"] == 0
     assert payload["transcript_failed"] == 0
     assert payload["no_subtitle"] == 0
     assert payload["llm_pending"] == 0

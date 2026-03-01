@@ -7,8 +7,10 @@ import aiosqlite
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 VALID_PIPELINE_STATUSES: tuple[str, ...] = (
+    "auto_paused",
     "transcript_pending",
     "transcript_processing",
+    "transcript_done",
     "transcript_failed",
     "no_subtitle",
     "llm_pending",
@@ -94,6 +96,45 @@ async def _ensure_video_columns(db: aiosqlite.Connection) -> None:
     if "viewed_at" not in columns:
         await db.execute("ALTER TABLE videos ADD COLUMN viewed_at TEXT")
 
+    added_processing_stage_snapshot = False
+    if "processing_stage_snapshot" not in columns:
+        await db.execute(
+            "ALTER TABLE videos ADD COLUMN processing_stage_snapshot TEXT NOT NULL DEFAULT 'full'"
+        )
+        added_processing_stage_snapshot = True
+
+    if added_processing_stage_snapshot:
+        has_channel_category = await _column_exists(db, "channels", "category_id")
+        has_category_stage = await _column_exists(db, "categories", "processing_stage")
+        if has_channel_category and has_category_stage:
+            await db.execute(
+                """
+                UPDATE videos
+                SET processing_stage_snapshot = COALESCE(
+                    (
+                        SELECT CASE lower(trim(coalesce(cat.processing_stage, '')))
+                            WHEN 'off' THEN 'off'
+                            WHEN 'transcript_only' THEN 'transcript_only'
+                            WHEN 'full' THEN 'full'
+                            ELSE 'full'
+                        END
+                        FROM channels ch
+                        LEFT JOIN categories cat ON cat.id = ch.category_id
+                        WHERE ch.channel_id = videos.channel_id
+                    ),
+                    'full'
+                )
+                """
+            )
+
+    normalized_stage = await _normalize_processing_stage_snapshot_values(db)
+    if normalized_stage > 0:
+        logger.warning(
+            "event=db.processing_stage_snapshot_normalized normalized=%s",
+            normalized_stage,
+            extra={"event": "db.processing_stage_snapshot_normalized"},
+        )
+
     normalized = await _normalize_pipeline_status_values(db)
     if normalized > 0:
         logger.warning(
@@ -113,8 +154,10 @@ def _pipeline_status_expr(columns: set[str]) -> str:
             CASE lower(trim(coalesce(pipeline_status, '')))
                 WHEN 'transcript_pending' THEN 'transcript_pending'
                 WHEN 'transcript_processing' THEN 'transcript_processing'
+                WHEN 'transcript_done' THEN 'transcript_done'
                 WHEN 'transcript_failed' THEN 'transcript_failed'
                 WHEN 'no_subtitle' THEN 'no_subtitle'
+                WHEN 'auto_paused' THEN 'auto_paused'
                 WHEN 'llm_pending' THEN 'llm_pending'
                 WHEN 'llm_processing' THEN 'llm_processing'
                 WHEN 'llm_failed' THEN 'llm_failed'
@@ -159,6 +202,22 @@ async def _normalize_pipeline_status_values(db: aiosqlite.Connection) -> int:
     return int(cursor.rowcount or 0)
 
 
+async def _normalize_processing_stage_snapshot_values(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET processing_stage_snapshot = CASE lower(trim(coalesce(processing_stage_snapshot, '')))
+            WHEN 'off' THEN 'off'
+            WHEN 'transcript_only' THEN 'transcript_only'
+            WHEN 'full' THEN 'full'
+            ELSE 'full'
+        END
+        WHERE lower(trim(coalesce(processing_stage_snapshot, ''))) NOT IN ('off', 'transcript_only', 'full')
+        """
+    )
+    return int(cursor.rowcount or 0)
+
+
 async def _rebuild_videos_table_with_pipeline_status(
     db: aiosqlite.Connection,
     columns: set[str],
@@ -172,6 +231,7 @@ async def _rebuild_videos_table_with_pipeline_status(
     retry_count_expr = _source_column_expr(columns, "retry_count", "0")
     created_at_expr = _source_column_expr(columns, "created_at", "datetime('now')")
     viewed_at_expr = _source_column_expr(columns, "viewed_at", "NULL")
+    processing_stage_snapshot_expr = _source_column_expr(columns, "processing_stage_snapshot", "'full'")
 
     pragma_cursor = await db.execute("PRAGMA foreign_keys")
     pragma_row = await pragma_cursor.fetchone()
@@ -193,6 +253,7 @@ async def _rebuild_videos_table_with_pipeline_status(
                 upload_time             TEXT NOT NULL,
                 thumbnail_path          TEXT,
                 pipeline_status         TEXT NOT NULL DEFAULT 'transcript_pending',
+                processing_stage_snapshot TEXT NOT NULL DEFAULT 'full',
                 transcript_retry_count  INTEGER NOT NULL DEFAULT 0,
                 transcript_next_attempt_at TEXT,
                 transcript_target_language TEXT,
@@ -213,6 +274,7 @@ async def _rebuild_videos_table_with_pipeline_status(
                 upload_time,
                 thumbnail_path,
                 pipeline_status,
+                processing_stage_snapshot,
                 transcript_retry_count,
                 transcript_next_attempt_at,
                 transcript_target_language,
@@ -229,6 +291,12 @@ async def _rebuild_videos_table_with_pipeline_status(
                 upload_time,
                 thumbnail_path,
                 {pipeline_expr},
+                CASE lower(trim(coalesce({processing_stage_snapshot_expr}, '')))
+                    WHEN 'off' THEN 'off'
+                    WHEN 'transcript_only' THEN 'transcript_only'
+                    WHEN 'full' THEN 'full'
+                    ELSE 'full'
+                END,
                 {transcript_retry_expr},
                 {transcript_next_expr},
                 {transcript_lang_expr},
@@ -291,6 +359,7 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
             name        TEXT NOT NULL UNIQUE,
             sort_order  INTEGER NOT NULL DEFAULT 0,
             llm_enabled INTEGER NOT NULL DEFAULT 1,
+            processing_stage TEXT NOT NULL DEFAULT 'off',
             is_default  INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT (datetime('now'))
         )
@@ -299,13 +368,40 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_categories_sort ON categories(sort_order ASC, id ASC)"
     )
+    has_processing_stage = await _column_exists(db, "categories", "processing_stage")
+    if not has_processing_stage:
+        await db.execute(
+            "ALTER TABLE categories ADD COLUMN processing_stage TEXT NOT NULL DEFAULT 'off'"
+        )
+        await db.execute(
+            """
+            UPDATE categories
+            SET processing_stage = CASE
+                WHEN llm_enabled = 1 THEN 'full'
+                ELSE 'transcript_only'
+            END
+            """
+        )
+    await db.execute(
+        """
+        UPDATE categories
+        SET processing_stage = CASE lower(trim(coalesce(processing_stage, '')))
+            WHEN 'off' THEN 'off'
+            WHEN 'transcript_only' THEN 'transcript_only'
+            WHEN 'full' THEN 'full'
+            ELSE CASE WHEN llm_enabled = 1 THEN 'full' ELSE 'transcript_only' END
+        END
+        WHERE lower(trim(coalesce(processing_stage, ''))) NOT IN ('off', 'transcript_only', 'full')
+        """
+    )
+
     cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1")
     row = await cursor.fetchone()
     if row is None:
         await db.execute(
             """
-            INSERT INTO categories (name, sort_order, llm_enabled, is_default)
-            VALUES ('미분류', 0, 1, 1)
+            INSERT INTO categories (name, sort_order, llm_enabled, processing_stage, is_default)
+            VALUES ('미분류', 0, 1, 'off', 1)
             """
         )
         logger.info(
