@@ -2675,7 +2675,13 @@
         }
         const target = event.target instanceof Element ? event.target : null;
         if (target?.hasAttribute("data-skip-save-toast")) return;
-        const source = target?.closest("[data-save-toast]");
+        let source = null;
+        if (requestElt instanceof Element) {
+          source = requestElt.closest("[data-save-toast]");
+        }
+        if (!source && target instanceof Element) {
+          source = target.closest("[data-save-toast]");
+        }
         const baseMessage = source?.getAttribute("data-save-toast");
         if (baseMessage) {
           const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
