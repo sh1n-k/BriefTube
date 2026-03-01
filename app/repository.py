@@ -143,6 +143,24 @@ CATEGORY_PROCESSING_STAGE_OPTIONS = {
     CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY,
     CATEGORY_PROCESSING_STAGE_FULL,
 }
+CHANNEL_METADATA_STATUS_NEVER = "never"
+CHANNEL_METADATA_STATUS_PENDING = "pending"
+CHANNEL_METADATA_STATUS_RUNNING = "running"
+CHANNEL_METADATA_STATUS_SUCCESS = "success"
+CHANNEL_METADATA_STATUS_FAILED = "failed"
+CHANNEL_METADATA_STATUS_RATE_LIMITED = "rate_limited"
+CHANNEL_METADATA_STATUS_OPTIONS = {
+    CHANNEL_METADATA_STATUS_NEVER,
+    CHANNEL_METADATA_STATUS_PENDING,
+    CHANNEL_METADATA_STATUS_RUNNING,
+    CHANNEL_METADATA_STATUS_SUCCESS,
+    CHANNEL_METADATA_STATUS_FAILED,
+    CHANNEL_METADATA_STATUS_RATE_LIMITED,
+}
+CHANNEL_METADATA_REFRESH_INTERVAL_DAYS_DEFAULT = 30
+CHANNEL_METADATA_RATE_LIMIT_BACKOFF_MINUTES = (360, 720, 1440)
+CHANNEL_METADATA_FAILURE_BACKOFF_MINUTES = (15, 30, 60, 180)
+CHANNEL_METADATA_MAX_RETRY_COUNT = 12
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -286,6 +304,47 @@ def _normalize_error_message(value: str | None) -> str:
     if len(trimmed) <= TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH:
         return trimmed
     return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
+
+
+def normalize_channel_metadata_status(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CHANNEL_METADATA_STATUS_OPTIONS:
+        return normalized
+    return CHANNEL_METADATA_STATUS_NEVER
+
+
+def _normalize_optional_text(value: object | None, *, max_length: int) -> str | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if len(raw) > max_length:
+        return raw[:max_length]
+    return raw
+
+
+def _normalize_optional_int(value: object | None) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _next_metadata_backoff_minutes(
+    *,
+    retry_count: int,
+    is_rate_limited: bool,
+) -> int:
+    schedule = (
+        CHANNEL_METADATA_RATE_LIMIT_BACKOFF_MINUTES
+        if is_rate_limited
+        else CHANNEL_METADATA_FAILURE_BACKOFF_MINUTES
+    )
+    idx = max(0, min(len(schedule) - 1, retry_count))
+    return int(schedule[idx])
 
 
 async def get_default_category_id(db: aiosqlite.Connection) -> int:
@@ -443,7 +502,24 @@ async def move_channels_to_category(
 async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """
-        SELECT channel_id, channel_name, rss_url, is_active, last_seen_published_at, created_at
+        SELECT
+            channel_id,
+            channel_name,
+            rss_url,
+            is_active,
+            last_seen_published_at,
+            channel_handle,
+            channel_url_canonical,
+            channel_thumbnail_url,
+            channel_description,
+            channel_language_hint,
+            metadata_fetched_at,
+            metadata_fetch_status,
+            metadata_fetch_error,
+            metadata_retry_count,
+            metadata_next_fetch_at,
+            metadata_last_http_status,
+            created_at
         FROM channels
         ORDER BY created_at DESC
         """
@@ -480,6 +556,17 @@ async def list_channels_for_management(
             c.is_active,
             c.last_seen_published_at,
             c.category_id,
+            c.channel_handle,
+            c.channel_url_canonical,
+            c.channel_thumbnail_url,
+            c.channel_description,
+            c.channel_language_hint,
+            c.metadata_fetched_at,
+            c.metadata_fetch_status,
+            c.metadata_fetch_error,
+            c.metadata_retry_count,
+            c.metadata_next_fetch_at,
+            c.metadata_last_http_status,
             c.created_at,
             cat.name AS category_name,
             COALESCE(cat.is_default, 0) AS category_is_default,
@@ -549,26 +636,141 @@ async def add_channel(
     channel_id: str,
     channel_name: str,
     category_id: int | None = None,
+    *,
+    channel_handle: str | None = None,
+    channel_url_canonical: str | None = None,
+    channel_thumbnail_url: str | None = None,
+    channel_description: str | None = None,
+    channel_language_hint: str | None = None,
+    metadata_fetch_status: str | None = None,
+    metadata_fetch_error: str | None = None,
+    metadata_retry_count: int | None = None,
+    metadata_next_fetch_at: str | None = None,
+    metadata_last_http_status: int | None = None,
+    metadata_fetched_at: str | None = None,
 ) -> dict[str, Any]:
     rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     if category_id is None:
         category_id = await get_default_category_id(db)
+    safe_handle = _normalize_optional_text(channel_handle, max_length=128)
+    safe_canonical_url = _normalize_optional_text(channel_url_canonical, max_length=512)
+    safe_thumbnail_url = _normalize_optional_text(channel_thumbnail_url, max_length=512)
+    safe_description = _normalize_optional_text(channel_description, max_length=4000)
+    safe_language_hint = _normalize_optional_text(channel_language_hint, max_length=32)
+    safe_fetch_status = (
+        normalize_channel_metadata_status(metadata_fetch_status)
+        if metadata_fetch_status is not None
+        else None
+    )
+    safe_fetch_error = _normalize_optional_text(metadata_fetch_error, max_length=512)
+    safe_retry_count = _normalize_optional_int(metadata_retry_count)
+    safe_next_fetch_at = _normalize_optional_text(metadata_next_fetch_at, max_length=64)
+    safe_last_http_status = _normalize_optional_int(metadata_last_http_status)
+    safe_fetched_at = _normalize_optional_text(metadata_fetched_at, max_length=64)
     await db.execute(
         """
-        INSERT INTO channels (channel_id, channel_name, rss_url, is_active, category_id)
-        VALUES (?, ?, ?, 1, ?)
+        INSERT INTO channels (
+            channel_id,
+            channel_name,
+            rss_url,
+            is_active,
+            category_id,
+            created_at
+        )
+        VALUES (?, ?, ?, 1, ?, datetime('now'))
         ON CONFLICT(channel_id) DO UPDATE SET
             channel_name=excluded.channel_name,
             rss_url=excluded.rss_url,
-            is_active=1
+            is_active=1,
+            created_at=COALESCE(channels.created_at, datetime('now'))
         """,
-        (channel_id, channel_name, rss_url, category_id),
+        (
+            channel_id,
+            channel_name,
+            rss_url,
+            category_id,
+        ),
     )
+    await db.execute(
+        """
+        UPDATE channels
+        SET created_at = datetime('now')
+        WHERE channel_id = ?
+          AND (created_at IS NULL OR trim(created_at) = '')
+        """,
+        (channel_id,),
+    )
+    if any(
+        value is not None
+        for value in (
+            safe_handle,
+            safe_canonical_url,
+            safe_thumbnail_url,
+            safe_description,
+            safe_language_hint,
+            safe_fetch_status,
+            safe_fetch_error,
+            safe_retry_count,
+            safe_next_fetch_at,
+            safe_last_http_status,
+            safe_fetched_at,
+        )
+    ):
+        await db.execute(
+            """
+            UPDATE channels
+            SET
+                channel_handle=COALESCE(?, channel_handle),
+                channel_url_canonical=COALESCE(?, channel_url_canonical),
+                channel_thumbnail_url=COALESCE(?, channel_thumbnail_url),
+                channel_description=COALESCE(?, channel_description),
+                channel_language_hint=COALESCE(?, channel_language_hint),
+                metadata_fetched_at=COALESCE(?, metadata_fetched_at),
+                metadata_fetch_status=COALESCE(?, metadata_fetch_status),
+                metadata_fetch_error=COALESCE(?, metadata_fetch_error),
+                metadata_retry_count=COALESCE(?, metadata_retry_count),
+                metadata_next_fetch_at=COALESCE(?, metadata_next_fetch_at),
+                metadata_last_http_status=COALESCE(?, metadata_last_http_status)
+            WHERE channel_id = ?
+            """,
+            (
+                safe_handle,
+                safe_canonical_url,
+                safe_thumbnail_url,
+                safe_description,
+                safe_language_hint,
+                safe_fetched_at,
+                safe_fetch_status,
+                safe_fetch_error,
+                safe_retry_count,
+                safe_next_fetch_at,
+                safe_last_http_status,
+                channel_id,
+            ),
+        )
     await db.commit()
 
     cursor = await db.execute(
         """
-        SELECT channel_id, channel_name, rss_url, is_active, last_seen_published_at, category_id, created_at
+        SELECT
+            channel_id,
+            channel_name,
+            rss_url,
+            is_active,
+            last_seen_published_at,
+            category_id,
+            channel_handle,
+            channel_url_canonical,
+            channel_thumbnail_url,
+            channel_description,
+            channel_language_hint,
+            metadata_fetched_at,
+            metadata_fetch_status,
+            metadata_fetch_error,
+            metadata_retry_count,
+            metadata_next_fetch_at,
+            metadata_last_http_status,
+            created_at
         FROM channels
         WHERE channel_id = ?
         """,
@@ -576,6 +778,317 @@ async def add_channel(
     )
     row = await cursor.fetchone()
     return _row_to_dict(row) or {}
+
+
+async def get_channel_by_id(db: aiosqlite.Connection, channel_id: str) -> dict[str, Any] | None:
+    normalized_channel_id = str(channel_id or "").strip()
+    if not normalized_channel_id:
+        return None
+    cursor = await db.execute(
+        """
+        SELECT
+            channel_id,
+            channel_name,
+            rss_url,
+            is_active,
+            last_seen_published_at,
+            category_id,
+            channel_handle,
+            channel_url_canonical,
+            channel_thumbnail_url,
+            channel_description,
+            channel_language_hint,
+            metadata_fetched_at,
+            metadata_fetch_status,
+            metadata_fetch_error,
+            metadata_retry_count,
+            metadata_next_fetch_at,
+            metadata_last_http_status,
+            created_at
+        FROM channels
+        WHERE channel_id = ?
+        LIMIT 1
+        """,
+        (normalized_channel_id,),
+    )
+    return _row_to_dict(await cursor.fetchone())
+
+
+async def enqueue_channel_metadata_refresh(
+    db: aiosqlite.Connection,
+    *,
+    channel_id: str,
+) -> int:
+    normalized_channel_id = str(channel_id or "").strip()
+    if not normalized_channel_id:
+        return 0
+    cursor = await db.execute(
+        """
+        UPDATE channels
+        SET
+            metadata_fetch_status = ?,
+            metadata_fetch_error = NULL,
+            metadata_next_fetch_at = datetime('now')
+        WHERE channel_id = ?
+        """,
+        (CHANNEL_METADATA_STATUS_PENDING, normalized_channel_id),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def schedule_channel_metadata_backfill(
+    db: aiosqlite.Connection,
+    *,
+    stale_days: int = CHANNEL_METADATA_REFRESH_INTERVAL_DAYS_DEFAULT,
+) -> int:
+    safe_stale_days = max(1, int(stale_days))
+    cursor = await db.execute(
+        """
+        UPDATE channels
+        SET
+            metadata_fetch_status = ?,
+            metadata_fetch_error = NULL,
+            metadata_next_fetch_at = datetime('now')
+        WHERE metadata_fetch_status != ?
+          AND (
+            metadata_fetched_at IS NULL
+            OR metadata_next_fetch_at IS NULL
+            OR metadata_next_fetch_at <= datetime('now')
+            OR metadata_fetch_status IN (?, ?, ?)
+            OR (julianday('now') - julianday(metadata_fetched_at)) >= ?
+          )
+        """,
+        (
+            CHANNEL_METADATA_STATUS_PENDING,
+            CHANNEL_METADATA_STATUS_RUNNING,
+            CHANNEL_METADATA_STATUS_NEVER,
+            CHANNEL_METADATA_STATUS_FAILED,
+            CHANNEL_METADATA_STATUS_RATE_LIMITED,
+            safe_stale_days,
+        ),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def claim_next_channel_metadata_target(db: aiosqlite.Connection) -> dict[str, Any] | None:
+    cursor = await db.execute(
+        """
+        SELECT channel_id
+        FROM channels
+        WHERE metadata_fetch_status = ?
+          AND (
+            metadata_next_fetch_at IS NULL
+            OR metadata_next_fetch_at <= datetime('now')
+          )
+        ORDER BY COALESCE(metadata_next_fetch_at, datetime('now')) ASC, created_at ASC
+        LIMIT 1
+        """,
+        (CHANNEL_METADATA_STATUS_PENDING,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    channel_id = str(row["channel_id"])
+    updated = await db.execute(
+        """
+        UPDATE channels
+        SET
+            metadata_fetch_status = ?,
+            metadata_fetch_error = NULL
+        WHERE channel_id = ?
+          AND metadata_fetch_status = ?
+        """,
+        (
+            CHANNEL_METADATA_STATUS_RUNNING,
+            channel_id,
+            CHANNEL_METADATA_STATUS_PENDING,
+        ),
+    )
+    if int(updated.rowcount or 0) == 0:
+        return None
+    await db.commit()
+    detail_cursor = await db.execute(
+        """
+        SELECT
+            channel_id,
+            channel_name,
+            metadata_retry_count,
+            metadata_next_fetch_at
+        FROM channels
+        WHERE channel_id = ?
+        LIMIT 1
+        """,
+        (channel_id,),
+    )
+    return _row_to_dict(await detail_cursor.fetchone())
+
+
+async def mark_channel_metadata_succeeded(
+    db: aiosqlite.Connection,
+    *,
+    channel_id: str,
+    channel_name: str | None,
+    channel_handle: str | None,
+    channel_url_canonical: str | None,
+    channel_thumbnail_url: str | None,
+    channel_description: str | None,
+    channel_language_hint: str | None,
+    http_status: int | None = None,
+    refresh_interval_days: int = CHANNEL_METADATA_REFRESH_INTERVAL_DAYS_DEFAULT,
+) -> int:
+    safe_channel_name = _normalize_optional_text(channel_name, max_length=255)
+    safe_handle = _normalize_optional_text(channel_handle, max_length=128)
+    safe_canonical_url = _normalize_optional_text(channel_url_canonical, max_length=512)
+    safe_thumbnail_url = _normalize_optional_text(channel_thumbnail_url, max_length=512)
+    safe_description = _normalize_optional_text(channel_description, max_length=4000)
+    safe_language_hint = _normalize_optional_text(channel_language_hint, max_length=32)
+    safe_http_status = _normalize_optional_int(http_status)
+    safe_interval_days = max(1, int(refresh_interval_days))
+    cursor = await db.execute(
+        """
+        UPDATE channels
+        SET
+            channel_name = COALESCE(?, channel_name),
+            channel_handle = ?,
+            channel_url_canonical = ?,
+            channel_thumbnail_url = ?,
+            channel_description = ?,
+            channel_language_hint = ?,
+            metadata_fetched_at = datetime('now'),
+            metadata_fetch_status = ?,
+            metadata_fetch_error = NULL,
+            metadata_retry_count = 0,
+            metadata_next_fetch_at = datetime('now', '+' || ? || ' days'),
+            metadata_last_http_status = ?
+        WHERE channel_id = ?
+        """,
+        (
+            safe_channel_name,
+            safe_handle,
+            safe_canonical_url,
+            safe_thumbnail_url,
+            safe_description,
+            safe_language_hint,
+            CHANNEL_METADATA_STATUS_SUCCESS,
+            safe_interval_days,
+            safe_http_status,
+            channel_id,
+        ),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def mark_channel_metadata_failed(
+    db: aiosqlite.Connection,
+    *,
+    channel_id: str,
+    error_message: str,
+    http_status: int | None = None,
+    is_rate_limited: bool = False,
+) -> int:
+    row_cursor = await db.execute(
+        """
+        SELECT metadata_retry_count
+        FROM channels
+        WHERE channel_id = ?
+        LIMIT 1
+        """,
+        (channel_id,),
+    )
+    row = await row_cursor.fetchone()
+    if row is None:
+        return 0
+    previous_retry_count = int(row["metadata_retry_count"] or 0)
+    retry_count = min(CHANNEL_METADATA_MAX_RETRY_COUNT, max(0, previous_retry_count + 1))
+    backoff_minutes = _next_metadata_backoff_minutes(
+        retry_count=retry_count - 1,
+        is_rate_limited=is_rate_limited,
+    )
+    safe_http_status = _normalize_optional_int(http_status)
+    status = (
+        CHANNEL_METADATA_STATUS_RATE_LIMITED
+        if is_rate_limited
+        else CHANNEL_METADATA_STATUS_FAILED
+    )
+    cursor = await db.execute(
+        """
+        UPDATE channels
+        SET
+            metadata_fetch_status = ?,
+            metadata_fetch_error = ?,
+            metadata_retry_count = ?,
+            metadata_next_fetch_at = datetime('now', '+' || ? || ' minutes'),
+            metadata_last_http_status = ?
+        WHERE channel_id = ?
+        """,
+        (
+            status,
+            _normalize_optional_text(error_message, max_length=512),
+            retry_count,
+            backoff_minutes,
+            safe_http_status,
+            channel_id,
+        ),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def enqueue_failed_channel_metadata(
+    db: aiosqlite.Connection,
+    *,
+    status: str | None = None,
+    category_id: int | None = None,
+) -> int:
+    where_clauses = ["metadata_fetch_status IN (?, ?)"]
+    params: list[Any] = [
+        CHANNEL_METADATA_STATUS_PENDING,
+        CHANNEL_METADATA_STATUS_FAILED,
+        CHANNEL_METADATA_STATUS_RATE_LIMITED,
+    ]
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status in CHANNEL_MANAGEMENT_STATUS_OPTIONS:
+        where_clauses.append("is_active = ?")
+        params.append(1 if normalized_status == CHANNEL_MANAGEMENT_STATUS_ACTIVE else 0)
+    if category_id is not None:
+        where_clauses.append("category_id = ?")
+        params.append(int(category_id))
+    where_sql = " AND ".join(where_clauses)
+    cursor = await db.execute(
+        f"""
+        UPDATE channels
+        SET
+            metadata_fetch_status = ?,
+            metadata_fetch_error = NULL,
+            metadata_next_fetch_at = datetime('now')
+        WHERE {where_sql}
+        """,
+        tuple(params),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def recover_stuck_channel_metadata_running(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE channels
+        SET
+            metadata_fetch_status = ?,
+            metadata_fetch_error = COALESCE(metadata_fetch_error, 'metadata worker interrupted'),
+            metadata_next_fetch_at = datetime('now', '+15 minutes')
+        WHERE metadata_fetch_status = ?
+        """,
+        (
+            CHANNEL_METADATA_STATUS_FAILED,
+            CHANNEL_METADATA_STATUS_RUNNING,
+        ),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def deactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
@@ -612,7 +1125,16 @@ async def reactivate_channels(db: aiosqlite.Connection, channel_ids: list[str]) 
 async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """
-        SELECT channel_id, channel_name, rss_url, is_active, last_seen_published_at, created_at
+        SELECT
+            channel_id,
+            channel_name,
+            rss_url,
+            is_active,
+            last_seen_published_at,
+            metadata_fetched_at,
+            metadata_fetch_status,
+            metadata_next_fetch_at,
+            created_at
         FROM channels
         WHERE is_active = 1
         ORDER BY created_at ASC

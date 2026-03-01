@@ -16,6 +16,17 @@ CREATE TABLE IF NOT EXISTS channels (
     is_active               INTEGER NOT NULL DEFAULT 1,
     last_seen_published_at  TEXT,
     category_id             INTEGER REFERENCES categories(id),
+    channel_handle          TEXT,
+    channel_url_canonical   TEXT,
+    channel_thumbnail_url   TEXT,
+    channel_description     TEXT,
+    channel_language_hint   TEXT,
+    metadata_fetched_at     TEXT,
+    metadata_fetch_status   TEXT NOT NULL DEFAULT 'never',
+    metadata_fetch_error    TEXT,
+    metadata_retry_count    INTEGER NOT NULL DEFAULT 0,
+    metadata_next_fetch_at  TEXT,
+    metadata_last_http_status INTEGER,
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

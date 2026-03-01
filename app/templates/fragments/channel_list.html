@@ -1,4 +1,5 @@
 {% set current_status = channel_status if channel_status is defined else "active" %}
+{% set selected_cat_id = selected_category_id if selected_category_id is defined else None %}
 {% set counts = channel_counts if channel_counts is defined else {} %}
 {% set active_count = counts.get("active", 0) %}
 {% set inactive_count = counts.get("inactive", 0) %}
@@ -63,12 +64,25 @@
       {% if current_status == 'active' %}data-save-toast="{{ txt.channel_delete_success }}"{% endif %}
     >
       <input type="hidden" name="status" value="{{ current_status }}" />
+      {% if selected_cat_id is not none %}
+      <input type="hidden" name="category_id" value="{{ selected_cat_id }}" />
+      {% endif %}
       <div class="flex items-center justify-between border-b border-slate-100 px-3 py-2">
         <label class="inline-flex items-center gap-2 text-xs text-slate-600">
           <input type="checkbox" data-channel-select-all class="h-4 w-4" />
           {{ txt.channel_select_all }}
         </label>
         <div class="flex items-center gap-2">
+          <button
+            type="button"
+            hx-post="/views/channels/metadata/retry-failed?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
+            hx-target="#channel-list-wrap"
+            hx-swap="innerHTML"
+            data-skip-save-toast="1"
+            class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            {{ txt.channel_metadata_retry_button }}
+          </button>
           {# ── Category move dropdown ── #}
           {% set all_categories = categories if categories is defined else [] %}
           {% if all_categories and current_status == "active" %}
@@ -145,6 +159,14 @@
                   <div class="truncate text-sm font-medium text-slate-900">{{ channel.channel_name }}</div>
                   <div class="flex items-center gap-2 text-xs text-slate-500">
                     <span class="truncate font-mono">{{ channel.channel_id }}</span>
+                    {% if channel.channel_description %}
+                    <span
+                      class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] font-semibold text-slate-500"
+                      title="{{ channel.channel_description }}"
+                    >
+                      i
+                    </span>
+                    {% endif %}
                     {% if channel.category_name is defined and channel.category_name %}
                     <span class="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
                       {{ txt.category_default_name if channel.category_is_default else channel.category_name }}
@@ -160,6 +182,16 @@
                 </div>
               </div>
               <div class="flex shrink-0 items-center gap-2">
+                {% set meta_status = (channel.metadata_fetch_status or "never")|lower %}
+                {% if meta_status not in ["never", "pending", "running", "success", "failed", "rate_limited"] %}
+                {% set meta_status = "never" %}
+                {% endif %}
+                <span
+                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if meta_status == 'success' %}bg-emerald-100 text-emerald-700 ring-emerald-300{% elif meta_status == 'failed' %}bg-rose-100 text-rose-700 ring-rose-300{% elif meta_status == 'rate_limited' %}bg-amber-100 text-amber-700 ring-amber-300{% elif meta_status == 'running' %}bg-sky-100 text-sky-700 ring-sky-300{% elif meta_status == 'pending' %}bg-indigo-100 text-indigo-700 ring-indigo-300{% else %}bg-slate-100 text-slate-600 ring-slate-300{% endif %}"
+                  title="{{ txt.channel_metadata_badge_title }}: {{ txt['channel_metadata_status_' ~ meta_status] }}{% if channel.metadata_fetched_at %} · {{ channel.metadata_fetched_at }}{% endif %}{% if channel.metadata_fetch_error %} · {{ channel.metadata_fetch_error }}{% endif %}"
+                >
+                  {{ txt['channel_metadata_status_' ~ meta_status] }}
+                </span>
                 {% if channel.is_active == 1 %}
                   <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-300">{{ txt.channel_status_active }}</span>
                 {% else %}

@@ -30,5 +30,6 @@ class AppState:
     llm_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
     download_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
     manual_article_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
+    channel_metadata_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
     notification_queue: asyncio.Queue[dict[str, str]] = field(default_factory=asyncio.Queue)
     rss_cache: dict[str, dict[str, str]] = field(default_factory=dict)
