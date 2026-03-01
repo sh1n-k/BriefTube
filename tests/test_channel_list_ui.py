@@ -55,6 +55,32 @@ def test_channel_list_move_dropdown_selects_current_category(client: TestClient)
     )
 
 
+def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestClient) -> None:
+    created = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UCmetaaccordion12345678901",
+            "channel_name": "Meta Accordion",
+            "channel_handle": "@metaaccordion",
+            "channel_thumbnail_url": "https://i.ytimg.com/vi/test/hqdefault.jpg",
+            "channel_language_hint": "ko",
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.get("/views/channel-list?status=active")
+    assert response.status_code == 200
+    html = response.text
+    assert 'data-channel-meta-root' in html
+    assert 'data-channel-meta-item' in html
+    assert 'data-channel-meta-toggle' in html
+    assert 'data-channel-meta-panel' in html
+    assert 'data-channel-avatar-img' in html
+    assert '@metaaccordion' in html
+    assert '업데이트' in html
+    assert '자세히' in html
+
+
 def test_index_poll_button_disables_swap(client: TestClient) -> None:
     response = client.get('/')
     assert response.status_code == 200

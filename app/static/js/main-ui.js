@@ -290,6 +290,86 @@
         root.querySelectorAll("[data-channel-manage-form]").forEach(initChannelManageForm);
       }
 
+      function applyChannelMetaToggleState(toggle, panel, isOpen) {
+        if (!(toggle instanceof HTMLButtonElement) || !(panel instanceof HTMLElement)) return;
+        const openLabel = toggle.dataset.labelOpen || "Details";
+        const closeLabel = toggle.dataset.labelClose || "Collapse";
+        toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        toggle.textContent = isOpen ? closeLabel : openLabel;
+        panel.classList.toggle("hidden", !isOpen);
+      }
+
+      function initChannelMetaAccordion(root) {
+        if (!(root instanceof HTMLElement)) return;
+        if (root.dataset.channelMetaAccordionBound === "1") return;
+        root.dataset.channelMetaAccordionBound = "1";
+
+        root.querySelectorAll("[data-channel-meta-item]").forEach((item) => {
+          const toggle = item.querySelector("[data-channel-meta-toggle]");
+          const panel = item.querySelector("[data-channel-meta-panel]");
+          applyChannelMetaToggleState(toggle, panel, false);
+        });
+
+        root.addEventListener("click", (event) => {
+          const target = event.target;
+          if (!(target instanceof Element)) return;
+          const toggle = target.closest("[data-channel-meta-toggle]");
+          if (!(toggle instanceof HTMLButtonElement)) return;
+          if (!root.contains(toggle)) return;
+          event.preventDefault();
+
+          const item = toggle.closest("[data-channel-meta-item]");
+          if (!(item instanceof HTMLElement)) return;
+          const panel = item.querySelector("[data-channel-meta-panel]");
+          if (!(panel instanceof HTMLElement)) return;
+          const shouldOpen = toggle.getAttribute("aria-expanded") !== "true";
+
+          root.querySelectorAll("[data-channel-meta-item]").forEach((node) => {
+            const rowToggle = node.querySelector("[data-channel-meta-toggle]");
+            const rowPanel = node.querySelector("[data-channel-meta-panel]");
+            applyChannelMetaToggleState(rowToggle, rowPanel, false);
+          });
+
+          if (shouldOpen) {
+            applyChannelMetaToggleState(toggle, panel, true);
+          }
+        });
+      }
+
+      function bindChannelMetaAccordion(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-channel-meta-root]").forEach((node) => {
+          initChannelMetaAccordion(node);
+        });
+      }
+
+      function initChannelAvatarImage(img) {
+        if (!(img instanceof HTMLImageElement)) return;
+        if (img.dataset.avatarBound === "1") return;
+        img.dataset.avatarBound = "1";
+        const fallback = img.parentElement?.querySelector("[data-channel-avatar-fallback]");
+        if (!(fallback instanceof HTMLElement)) return;
+        const revealFallback = () => {
+          img.classList.add("hidden");
+          fallback.classList.remove("hidden");
+          fallback.classList.add("flex");
+        };
+        if (!img.complete) {
+          img.addEventListener("error", revealFallback);
+          return;
+        }
+        if (img.naturalWidth <= 0) {
+          revealFallback();
+        }
+      }
+
+      function bindChannelAvatars(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-channel-avatar-img]").forEach((img) => {
+          initChannelAvatarImage(img);
+        });
+      }
+
       function clearComposeResults(root) {
         root.querySelectorAll("#channel-add-result, #bulk-resolve-result").forEach((node) => {
           node.innerHTML = "";
@@ -2643,6 +2723,8 @@
         bindChannelComposeForms(document);
         bindChannelSearch(document);
         bindChannelManageForms(document);
+        bindChannelMetaAccordion(document);
+        bindChannelAvatars(document);
         bindChannelReactivateBulkForms(document);
         bindVideoManageForms(document);
         bindThumbPreviews(document);
@@ -2734,6 +2816,8 @@
         bindChannelComposeForms(event.target);
         bindChannelSearch(event.target);
         bindChannelManageForms(event.target);
+        bindChannelMetaAccordion(event.target);
+        bindChannelAvatars(event.target);
         bindChannelReactivateBulkForms(event.target);
         bindVideoManageForms(event.target);
         bindThumbPreviews(event.target);
