@@ -46,6 +46,34 @@ tail -f logs/dev/brieftube-dev.log | rg "channels.reactivate"
 - 설정 페이지/저장 토스트: `app/templates/settings.html`, `app/routers/template_context.py`, `tests/test_settings_views.py`
 - RSS 동작/비활성화 정책: `app/workers/poller.py`, `app/services/rss.py`, `app/repository.py`
 
+## LLM CLI 안전정책 (Codex/ClaudeCode 공통)
+- 목적: 요약/메타 생성 워커에서 **프롬프트 오염, 파싱 실패, 무한 재시도**를 줄인다.
+- 출력 계약:
+  - 자유 텍스트 파싱 금지. 스키마 검증 통과 JSON만 저장/후속 처리한다.
+  - 스키마 불일치/빈 결과/파싱 오류는 즉시 실패로 간주하고 보정 파싱을 시도하지 않는다.
+  - Codex: `--output-schema` + `--output-last-message`
+  - Claude Code: `--output-format json` + `--json-schema` (가능하면 `structured_output` 우선)
+- 입력 경계:
+  - 지시문(Instruction)과 원문 데이터(Transcript/Title)를 분리하고, 원문은 경계 블록 또는 파일 입력으로만 전달한다.
+  - 원문 내부의 지시문/링크/코드는 실행 지시로 해석하지 않는다.
+- 실패 처리:
+  - 거부/차단 응답(prompt injection 감지, policy refusal 등)은 1회만 재시도한다.
+  - 재시도 후에도 실패하면 `llm_provider_refused`로 종료하고 다음 큐로 진행한다.
+  - Provider fallback은 동일 스키마/동일 타임아웃에서만 허용한다(예: 1순위 Codex, 2순위 Claude).
+- 실행 안정성:
+  - Claude 호출에는 `--no-session-persistence`를 기본 적용한다.
+  - 요청별 타임아웃과 최대 재시도(기본 1회)를 고정하고, 예외 케이스에서만 상향한다.
+  - 최소 헬스체크 실패 시 LLM 워커를 시작하지 않는다.
+```bash
+codex login status
+codex exec --skip-git-repo-check "Respond with exactly: OK"
+claude auth status
+claude -p "Respond with exactly: OK" --output-format text --no-session-persistence
+```
+- 로그/개인정보:
+  - 원문 전문과 모델 원응답 전문은 로그에 남기지 않는다.
+  - 권장 메타: `provider`, `exit_code`, `schema_valid`, `retry_count`, `refusal_detected`, `latency_ms`
+
 ## 테스트 최소 기준
 - 채널 관리/재활성화를 건드렸다면 최소:
 ```bash
