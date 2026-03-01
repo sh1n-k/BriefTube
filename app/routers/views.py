@@ -926,6 +926,8 @@ async def download_selected_videos(request: Request):
 @router.get("/video-detail/{video_id}")
 async def video_detail(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
+    if detail:
+        await repository.mark_video_viewed(request.app.state.runtime.db, video_id)
     download_defaults = await repository.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,

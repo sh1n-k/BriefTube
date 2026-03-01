@@ -399,7 +399,8 @@ async def list_videos(
                 v.thumbnail_path,
                 v.pipeline_status,
                 v.retry_count,
-                v.created_at
+                v.created_at,
+                v.viewed_at
             FROM videos v
             LEFT JOIN channels c ON c.channel_id = v.channel_id
             WHERE v.channel_id = ?
@@ -420,7 +421,8 @@ async def list_videos(
                 v.thumbnail_path,
                 v.pipeline_status,
                 v.retry_count,
-                v.created_at
+                v.created_at,
+                v.viewed_at
             FROM videos v
             LEFT JOIN channels c ON c.channel_id = v.channel_id
             ORDER BY v.{sort_column} {order_sql}
@@ -503,6 +505,15 @@ async def list_videos_by_ids(
     )
     rows = await cursor.fetchall()
     return [_with_thumbnail_url(item) for item in _rows_to_dicts(rows)]
+
+
+async def mark_video_viewed(db: aiosqlite.Connection, video_id: str) -> bool:
+    cursor = await db.execute(
+        "UPDATE videos SET viewed_at = datetime('now') WHERE video_id = ? AND viewed_at IS NULL",
+        (video_id,),
+    )
+    await db.commit()
+    return (cursor.rowcount or 0) > 0
 
 
 async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:

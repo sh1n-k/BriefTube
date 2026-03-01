@@ -90,6 +90,9 @@ async def _ensure_video_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE videos ADD COLUMN created_at TEXT")
         await db.execute("UPDATE videos SET created_at = COALESCE(created_at, datetime('now'))")
 
+    if "viewed_at" not in columns:
+        await db.execute("ALTER TABLE videos ADD COLUMN viewed_at TEXT")
+
     normalized = await _normalize_pipeline_status_values(db)
     if normalized > 0:
         logger.warning(
@@ -167,6 +170,7 @@ async def _rebuild_videos_table_with_pipeline_status(
     transcript_error_at_expr = _source_column_expr(columns, "transcript_last_error_at", "NULL")
     retry_count_expr = _source_column_expr(columns, "retry_count", "0")
     created_at_expr = _source_column_expr(columns, "created_at", "datetime('now')")
+    viewed_at_expr = _source_column_expr(columns, "viewed_at", "NULL")
 
     pragma_cursor = await db.execute("PRAGMA foreign_keys")
     pragma_row = await pragma_cursor.fetchone()
@@ -194,7 +198,8 @@ async def _rebuild_videos_table_with_pipeline_status(
                 transcript_last_error   TEXT,
                 transcript_last_error_at TEXT,
                 retry_count             INTEGER NOT NULL DEFAULT 0,
-                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+                viewed_at               TEXT
             )
             """
         )
@@ -213,7 +218,8 @@ async def _rebuild_videos_table_with_pipeline_status(
                 transcript_last_error,
                 transcript_last_error_at,
                 retry_count,
-                created_at
+                created_at,
+                viewed_at
             )
             SELECT
                 video_id,
@@ -228,7 +234,8 @@ async def _rebuild_videos_table_with_pipeline_status(
                 {transcript_error_expr},
                 {transcript_error_at_expr},
                 {retry_count_expr},
-                {created_at_expr}
+                {created_at_expr},
+                {viewed_at_expr}
             FROM videos
             """
         )

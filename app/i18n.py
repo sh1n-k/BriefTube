@@ -327,6 +327,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "theme_toggle_label": "테마 전환",
         "theme_toggle_to_light": "라이트",
         "theme_toggle_to_dark": "다크",
+        "video_viewed_indicator": "읽음",
     },
     "en": {
         "brand": "BriefTube",
@@ -649,6 +650,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "theme_toggle_label": "Toggle theme",
         "theme_toggle_to_light": "Light",
         "theme_toggle_to_dark": "Dark",
+        "video_viewed_indicator": "Viewed",
     },
 }
 

@@ -68,6 +68,8 @@ async def home(
 @router.get("/videos/{video_id}")
 async def video_page(video_id: str, request: Request):
     detail = await repository.get_video_detail(request.app.state.runtime.db, video_id)
+    if detail:
+        await repository.mark_video_viewed(request.app.state.runtime.db, video_id)
     transcript_retry_done = request.query_params.get("transcript_retry") == "1"
     download_defaults = await repository.get_download_default_settings(
         request.app.state.runtime.db,
