@@ -36,6 +36,7 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await _ensure_video_columns(db)
     await _ensure_video_indexes(db)
     await _ensure_download_columns(db)
+    await _ensure_category_tables(db)
     await db.commit()
 
 
@@ -280,6 +281,47 @@ async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:
         ON videos(pipeline_status)
         """
     )
+
+
+async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS categories (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL UNIQUE,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            llm_enabled INTEGER NOT NULL DEFAULT 1,
+            is_default  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_categories_sort ON categories(sort_order ASC, id ASC)"
+    )
+    cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1")
+    row = await cursor.fetchone()
+    if row is None:
+        await db.execute(
+            """
+            INSERT INTO categories (name, sort_order, llm_enabled, is_default)
+            VALUES ('미분류', 0, 1, 1)
+            """
+        )
+        logger.info(
+            "event=db.default_category_created",
+            extra={"event": "db.default_category_created"},
+        )
+    if not await _column_exists(db, "channels", "category_id"):
+        await db.execute("ALTER TABLE channels ADD COLUMN category_id INTEGER REFERENCES categories(id)")
+    default_cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1")
+    default_row = await default_cursor.fetchone()
+    if default_row is not None:
+        default_id = int(default_row["id"])
+        await db.execute(
+            "UPDATE channels SET category_id = ? WHERE category_id IS NULL",
+            (default_id,),
+        )
 
 
 async def _ensure_download_columns(db: aiosqlite.Connection) -> None:

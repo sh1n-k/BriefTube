@@ -1,0 +1,162 @@
+{% set all_categories = categories if categories is defined else [] %}
+{% set sel_cat_id = selected_category_id if selected_category_id is defined else None %}
+{% set current_status = channel_status if channel_status is defined else "active" %}
+{% set total_channel_count = all_categories|sum(attribute='channel_count') %}
+{% set default_categories = all_categories|selectattr('is_default')|list %}
+{% set custom_categories = all_categories|rejectattr('is_default')|list %}
+
+<div class="rounded-lg border border-slate-200 bg-white shadow-sm" id="category-sidebar">
+  <div class="border-b border-slate-200 px-3 py-2">
+    <h3 class="text-sm font-semibold text-slate-700">{{ txt.category_sidebar_title }}</h3>
+  </div>
+
+  {# ── "All" fixed item ── #}
+  <div class="border-b border-slate-100">
+    <a
+      href="/channels?status={{ current_status }}"
+      hx-get="/views/channel-list?status={{ current_status }}"
+      hx-target="#channel-list-wrap"
+      hx-swap="innerHTML"
+      class="flex items-center justify-between px-3 py-2 text-sm transition-colors {{ 'bg-indigo-50 text-indigo-700 font-medium' if sel_cat_id is none else 'text-slate-600 hover:bg-slate-50' }}"
+    >
+      <span>{{ txt.category_all }}</span>
+      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{{ total_channel_count }}</span>
+    </a>
+  </div>
+
+  {# ── Default category (fixed, outside sortable) ── #}
+  {% for cat in default_categories %}
+  <div class="border-b border-slate-100">
+    <div
+      class="group flex items-center justify-between px-3 py-2 text-sm transition-colors {{ 'bg-indigo-50' if sel_cat_id == cat.id else 'hover:bg-slate-50' }}"
+    >
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="w-4"></span>
+        <a
+          href="/channels?status={{ current_status }}&category_id={{ cat.id }}"
+          hx-get="/views/channel-list?status={{ current_status }}&category_id={{ cat.id }}"
+          hx-target="#channel-list-wrap"
+          hx-swap="innerHTML"
+          class="truncate {{ 'text-indigo-700 font-medium' if sel_cat_id == cat.id else 'text-slate-700' }}"
+        >
+          {{ cat.name }}
+        </a>
+        <span class="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{{ cat.channel_count }}</span>
+      </div>
+
+      <div class="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          title="{{ txt.category_llm_enabled if cat.llm_enabled else txt.category_llm_disabled }}"
+          hx-put="/views/categories/{{ cat.id }}/toggle-llm?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
+          hx-vals='{"llm_enabled": {{ "false" if cat.llm_enabled else "true" }}}'
+          hx-target="#category-sidebar"
+          hx-swap="outerHTML"
+          hx-headers='{"Content-Type": "application/json"}'
+          data-save-toast="{{ txt.category_llm_toggle_success }}"
+          class="rounded p-1 {{ 'text-emerald-600 hover:bg-emerald-50' if cat.llm_enabled else 'text-slate-400 hover:bg-slate-100' }}"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            {% if cat.llm_enabled %}
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+            {% else %}
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+            {% endif %}
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {# ── Sortable custom category list ── #}
+  <ul class="max-h-[400px] overflow-y-auto divide-y divide-slate-100" data-category-list>
+    {% for cat in custom_categories %}
+    <li
+      class="group flex items-center justify-between px-3 py-2 text-sm transition-colors {{ 'bg-indigo-50' if sel_cat_id == cat.id else 'hover:bg-slate-50' }}"
+      data-category-id="{{ cat.id }}"
+    >
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="cursor-grab text-slate-300 hover:text-slate-500" data-drag-handle title="Drag to reorder">⠿</span>
+        <a
+          href="/channels?status={{ current_status }}&category_id={{ cat.id }}"
+          hx-get="/views/channel-list?status={{ current_status }}&category_id={{ cat.id }}"
+          hx-target="#channel-list-wrap"
+          hx-swap="innerHTML"
+          class="truncate {{ 'text-indigo-700 font-medium' if sel_cat_id == cat.id else 'text-slate-700' }}"
+        >
+          {{ cat.name }}
+        </a>
+        <span class="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{{ cat.channel_count }}</span>
+      </div>
+
+      <div class="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {# LLM toggle #}
+        <button
+          type="button"
+          title="{{ txt.category_llm_enabled if cat.llm_enabled else txt.category_llm_disabled }}"
+          hx-put="/views/categories/{{ cat.id }}/toggle-llm?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
+          hx-vals='{"llm_enabled": {{ "false" if cat.llm_enabled else "true" }}}'
+          hx-target="#category-sidebar"
+          hx-swap="outerHTML"
+          hx-headers='{"Content-Type": "application/json"}'
+          data-save-toast="{{ txt.category_llm_toggle_success }}"
+          class="rounded p-1 {{ 'text-emerald-600 hover:bg-emerald-50' if cat.llm_enabled else 'text-slate-400 hover:bg-slate-100' }}"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            {% if cat.llm_enabled %}
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+            {% else %}
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+            {% endif %}
+          </svg>
+        </button>
+
+        {# Delete #}
+        <button
+          type="button"
+          title="{{ txt.category_delete_confirm }}"
+          hx-delete="/views/categories/{{ cat.id }}?status={{ current_status }}"
+          hx-target="#category-sidebar"
+          hx-swap="outerHTML"
+          hx-confirm="{{ txt.category_delete_confirm }}"
+          data-save-toast="{{ txt.category_delete_success }}"
+          class="rounded p-1 text-rose-400 hover:bg-rose-50 hover:text-rose-600"
+        >
+          <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 1 .7.8l-.5 5.5a.75.75 0 0 1-1.495-.137l.5-5.5a.75.75 0 0 1 .795-.662Zm2.84 0a.75.75 0 0 1 .795.662l.5 5.5a.75.75 0 1 1-1.495.136l-.5-5.5a.75.75 0 0 1 .7-.798Z" clip-rule="evenodd" />
+          </svg>
+        </button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+
+  {# ── Add category form ── #}
+  <div class="border-t border-slate-200 px-3 py-2">
+    <form
+      class="flex items-center gap-2"
+      hx-post="/views/categories"
+      hx-target="#category-sidebar"
+      hx-swap="outerHTML"
+      data-save-toast="{{ txt.category_add_success }}"
+    >
+      <input type="hidden" name="status" value="{{ current_status }}" />
+      {% if sel_cat_id is not none %}
+      <input type="hidden" name="category_id" value="{{ sel_cat_id }}" />
+      {% endif %}
+      <input
+        type="text"
+        name="name"
+        placeholder="{{ txt.category_add_placeholder }}"
+        class="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200"
+      />
+      <button
+        type="submit"
+        class="shrink-0 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+      >
+        {{ txt.category_add_submit }}
+      </button>
+    </form>
+  </div>
+</div>

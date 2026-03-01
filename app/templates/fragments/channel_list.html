@@ -69,6 +69,25 @@
           {{ txt.channel_select_all }}
         </label>
         <div class="flex items-center gap-2">
+          {# ── Category move dropdown ── #}
+          {% set all_categories = categories if categories is defined else [] %}
+          {% if all_categories and current_status == "active" %}
+          <div class="flex items-center gap-1" data-channel-move-category>
+            <select name="move_category_id" data-channel-move-target class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
+              {% for cat in all_categories %}
+              <option value="{{ cat.id }}">{{ cat.name }}</option>
+              {% endfor %}
+            </select>
+            <button
+              type="button"
+              data-channel-move-submit
+              class="rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {{ txt.category_move_submit }}
+            </button>
+          </div>
+          {% endif %}
+
           {% if current_status == "inactive" %}
             <button
               type="submit"
@@ -117,7 +136,12 @@
                 />
                 <div class="min-w-0">
                   <div class="truncate text-sm font-medium text-slate-900">{{ channel.channel_name }}</div>
-                  <div class="truncate text-xs font-mono text-slate-500">{{ channel.channel_id }}</div>
+                  <div class="flex items-center gap-2 text-xs text-slate-500">
+                    <span class="truncate font-mono">{{ channel.channel_id }}</span>
+                    {% if channel.category_name is defined and channel.category_name %}
+                    <span class="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{{ channel.category_name }}</span>
+                    {% endif %}
+                  </div>
                   {% if current_status == "inactive" %}
                     <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                       <span>{{ txt.channel_inactive_reason_label }}: {{ channel.inactive_reason or txt.channel_inactive_unknown }}</span>

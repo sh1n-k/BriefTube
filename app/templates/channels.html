@@ -88,10 +88,18 @@
     </div>
   </section>
 
-  <div>
-    <h2 class="mb-2 text-sm font-semibold text-slate-700">{{ txt.channel_all_channels }}</h2>
-    <div id="channel-list-wrap">
-      {% include "fragments/channel_list.html" %}
+  <div class="grid gap-4 lg:grid-cols-[240px_1fr]">
+    {# ── Category sidebar ── #}
+    <div>
+      {% include "fragments/category_sidebar.html" %}
+    </div>
+
+    {# ── Channel list ── #}
+    <div>
+      <h2 class="mb-2 text-sm font-semibold text-slate-700">{{ txt.channel_all_channels }}</h2>
+      <div id="channel-list-wrap">
+        {% include "fragments/channel_list.html" %}
+      </div>
     </div>
   </div>
 </div>

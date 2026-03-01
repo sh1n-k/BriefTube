@@ -27,6 +27,7 @@ DOWNLOAD_PAGE_LIMIT = 50
 async def home(
     request: Request,
     channel_id: str | None = Query(default=None),
+    category_id: int | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
@@ -36,7 +37,10 @@ async def home(
         limit = await repository.get_videos_per_page_setting(request.app.state.runtime.db)
 
     channels = await repository.list_channels(request.app.state.runtime.db)
-    total = await repository.count_videos(request.app.state.runtime.db, channel_id=channel_id)
+    categories = await repository.list_categories(request.app.state.runtime.db)
+    total = await repository.count_videos(
+        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
+    )
     total_pages = max(1, (total + limit - 1) // limit)
     current_page = min(max(1, page), total_pages)
     videos = await repository.list_videos(
@@ -46,18 +50,21 @@ async def home(
         order=order,
         page=current_page,
         limit=limit,
+        category_id=category_id,
     )
 
     context = await build_template_context(
         request,
         channels=channels,
         videos=videos,
+        categories_for_filter=categories,
         pagination={
             "page": current_page,
             "limit": limit,
             "total": total,
             "total_pages": total_pages,
             "channel_id": channel_id or "",
+            "category_id": category_id if category_id is not None else "",
             "sort": sort,
             "order": order,
         },
@@ -89,18 +96,23 @@ async def video_page(video_id: str, request: Request):
 async def channel_page(
     request: Request,
     status: str = Query(default=repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    category_id: int | None = Query(default=None),
 ):
     channel_status = repository.normalize_channel_management_status(status)
     channels = await repository.list_channels_for_management(
         request.app.state.runtime.db,
         status=channel_status,
+        category_id=category_id,
     )
     channel_counts = await repository.count_channels_by_status(request.app.state.runtime.db)
+    categories = await repository.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        categories=categories,
+        selected_category_id=category_id,
         reactivate_batch_limit=REACTIVATE_BATCH_LIMIT,
         reactivate_probe_timeout_seconds=max(
             1,
