@@ -230,25 +230,55 @@ async def get_channels(request: Request):
 async def create_channel(request: Request):
     channel_id = ""
     channel_name = ""
+    channel_handle: str | None = None
+    channel_url_canonical: str | None = None
+    channel_thumbnail_url: str | None = None
+    channel_description: str | None = None
+    channel_language_hint: str | None = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         payload = await request.json()
         channel_id = str(payload.get("channel_id", "")).strip()
         channel_name = str(payload.get("channel_name", "")).strip()
+        channel_handle = str(payload.get("channel_handle", "")).strip() or None
+        channel_url_canonical = str(payload.get("channel_url_canonical", "")).strip() or None
+        channel_thumbnail_url = str(payload.get("channel_thumbnail_url", "")).strip() or None
+        channel_description = str(payload.get("channel_description", "")).strip() or None
+        channel_language_hint = str(payload.get("channel_language_hint", "")).strip() or None
     else:
         body = (await request.body()).decode("utf-8")
         parsed = parse_qs(body)
         channel_id = str((parsed.get("channel_id") or [""])[0]).strip()
         channel_name = str((parsed.get("channel_name") or [""])[0]).strip()
+        channel_handle = str((parsed.get("channel_handle") or [""])[0]).strip() or None
+        channel_url_canonical = str((parsed.get("channel_url_canonical") or [""])[0]).strip() or None
+        channel_thumbnail_url = str((parsed.get("channel_thumbnail_url") or [""])[0]).strip() or None
+        channel_description = str((parsed.get("channel_description") or [""])[0]).strip() or None
+        channel_language_hint = str((parsed.get("channel_language_hint") or [""])[0]).strip() or None
 
     if not channel_id or not channel_name:
         raise HTTPException(status_code=400, detail="channel_id and channel_name are required")
 
-    return await repository.add_channel(
+    created = await repository.add_channel(
         request.app.state.runtime.db,
         channel_id=channel_id,
         channel_name=channel_name,
+        channel_handle=channel_handle,
+        channel_url_canonical=channel_url_canonical,
+        channel_thumbnail_url=channel_thumbnail_url,
+        channel_description=channel_description,
+        channel_language_hint=channel_language_hint,
     )
+    await repository.enqueue_channel_metadata_refresh(
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+    )
+    request.app.state.runtime.channel_metadata_wake_event.set()
+    refreshed = await repository.get_channel_by_id(
+        request.app.state.runtime.db,
+        channel_id,
+    )
+    return refreshed or created
 
 
 @router.post("/channels/bulk/resolve")
@@ -345,7 +375,13 @@ async def commit_bulk_channels(request: Request):
             channel_id=channel_id,
             channel_name=channel_name,
         )
+        await repository.enqueue_channel_metadata_refresh(
+            request.app.state.runtime.db,
+            channel_id=channel_id,
+        )
         saved += 1
+    if saved > 0:
+        request.app.state.runtime.channel_metadata_wake_event.set()
     return {"ok": True, "saved": saved}
 
 

@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Query
@@ -28,11 +29,23 @@ from app.state import AppState
 from app.workers.llm_worker import run_llm_queue_worker
 from app.workers.notifier_worker import run_telegram_notifier
 from app.workers.poller import run_rss_poller
+from app.workers.channel_metadata_worker import run_channel_metadata_worker
 from app.workers.download_worker import run_download_worker
 from app.workers.manual_article_worker import run_manual_article_worker
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
+
+
+def _is_channel_metadata_worker_enabled() -> bool:
+    disabled = str(os.getenv("BRIEFTUBE_DISABLE_CHANNEL_METADATA_WORKER", "")).strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        return False
+    in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
+    allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_METADATA_WORKER_IN_TESTS", "")).strip().lower()
+    if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
+        return False
+    return True
 
 
 def _build_templates() -> Jinja2Templates:
@@ -71,12 +84,21 @@ async def lifespan(app: FastAPI):
     orphan_repaired = await repository.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
     recovered_manual_article_jobs = await repository.recover_stuck_manual_article_jobs(db)
+    metadata_worker_enabled = _is_channel_metadata_worker_enabled()
+    recovered_metadata_running = 0
+    scheduled_metadata_targets = 0
+    if metadata_worker_enabled:
+        recovered_metadata_running = await repository.recover_stuck_channel_metadata_running(db)
+        scheduled_metadata_targets = await repository.schedule_channel_metadata_backfill(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s",
+        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
         recovered,
         orphan_repaired,
         recovered_download_jobs,
         recovered_manual_article_jobs,
+        recovered_metadata_running,
+        scheduled_metadata_targets,
+        metadata_worker_enabled,
         extra={"event": "app.recovered_stuck_jobs"},
     )
 
@@ -106,6 +128,8 @@ async def lifespan(app: FastAPI):
 
     app.state.runtime = runtime
     app.state.templates = _build_templates()
+    if metadata_worker_enabled and scheduled_metadata_targets > 0:
+        runtime.channel_metadata_wake_event.set()
 
     tasks = [
         asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
@@ -115,6 +139,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"),
         asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),
     ]
+    if metadata_worker_enabled:
+        tasks.insert(1, asyncio.create_task(run_channel_metadata_worker(runtime), name="channel_metadata_worker"))
 
     try:
         yield

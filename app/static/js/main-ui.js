@@ -704,6 +704,22 @@
         });
       }
 
+      function bindChannelMetadataToasts() {
+        const root = document.body;
+        if (!root || root.dataset.channelMetadataToastBound === "1") return;
+        root.dataset.channelMetadataToastBound = "1";
+        root.addEventListener("channel-metadata-toast", (event) => {
+          const detail = event.detail;
+          const message = typeof detail === "string" ? detail : detail?.message;
+          const tone = detail && typeof detail === "object" && detail.tone === "error"
+            ? "error"
+            : detail && typeof detail === "object" && detail.tone === "info"
+              ? "info"
+              : "success";
+          showUiToast(message, tone);
+        });
+      }
+
       function bindVideoDownloadBulkToasts() {
         const root = document.body;
         if (!root || root.dataset.videoDownloadBulkToastBound === "1") return;
@@ -2637,6 +2653,7 @@
         bindCopyButtons(document);
         bindCollapsibles(document);
         bindChannelReactivateToasts();
+        bindChannelMetadataToasts();
         bindVideoDownloadBulkToasts();
         bindVideoArticleRequestToasts();
         bindLlmRuntimeToasts();

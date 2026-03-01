@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
+
 from fastapi.testclient import TestClient
+
+
+class _NoopWakeEvent:
+    def set(self) -> None:
+        return
 
 
 def test_create_channel_json_and_list(client: TestClient) -> None:
@@ -43,3 +50,49 @@ def test_create_channel_form_and_list(client: TestClient) -> None:
     assert list_response.status_code == 200
     channels = list_response.json()
     assert any(channel["channel_id"] == "UCform001" for channel in channels)
+
+
+def test_create_channel_json_accepts_metadata_fields(client: TestClient) -> None:
+    client.app.state.runtime.channel_metadata_wake_event = _NoopWakeEvent()
+    response = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UCmEtA123456789012345678",
+            "channel_name": "Meta Channel",
+            "channel_handle": "@meta",
+            "channel_url_canonical": "https://www.youtube.com/@meta",
+            "channel_thumbnail_url": "https://i.ytimg.com/vi/meta/hqdefault.jpg",
+            "channel_description": "channel description",
+            "channel_language_hint": "ko",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["channel_id"] == "UCmEtA123456789012345678"
+    assert payload["channel_handle"] == "@meta"
+    assert payload["channel_url_canonical"] == "https://www.youtube.com/@meta"
+    assert payload["channel_language_hint"] == "ko"
+    assert payload["metadata_fetch_status"] == "pending"
+
+    with sqlite3.connect(client.app.state.runtime.config.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT
+                channel_handle,
+                channel_url_canonical,
+                channel_thumbnail_url,
+                channel_description,
+                channel_language_hint,
+                metadata_fetch_status
+            FROM channels
+            WHERE channel_id = 'UCmEtA123456789012345678'
+            """
+        ).fetchone()
+    assert row is not None
+    assert str(row["channel_handle"]) == "@meta"
+    assert str(row["channel_url_canonical"]) == "https://www.youtube.com/@meta"
+    assert str(row["channel_thumbnail_url"]).startswith("https://i.ytimg.com/")
+    assert str(row["channel_description"]) == "channel description"
+    assert str(row["channel_language_hint"]) == "ko"
+    assert str(row["metadata_fetch_status"]) == "pending"

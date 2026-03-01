@@ -39,6 +39,7 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await _ensure_video_indexes(db)
     await _ensure_download_columns(db)
     await _ensure_category_tables(db)
+    await _ensure_channel_metadata_columns(db)
     await db.commit()
 
 
@@ -423,6 +424,83 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
 async def _ensure_download_columns(db: aiosqlite.Connection) -> None:
     if not await _column_exists(db, "download_jobs", "target_dir"):
         await db.execute("ALTER TABLE download_jobs ADD COLUMN target_dir TEXT")
+
+
+async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
+    if not await _column_exists(db, "channels", "last_seen_published_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN last_seen_published_at TEXT")
+    if not await _column_exists(db, "channels", "created_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN created_at TEXT")
+    await db.execute(
+        """
+        UPDATE channels
+        SET created_at = datetime('now')
+        WHERE created_at IS NULL OR trim(created_at) = ''
+        """
+    )
+    if not await _column_exists(db, "channels", "channel_handle"):
+        await db.execute("ALTER TABLE channels ADD COLUMN channel_handle TEXT")
+    if not await _column_exists(db, "channels", "channel_url_canonical"):
+        await db.execute("ALTER TABLE channels ADD COLUMN channel_url_canonical TEXT")
+    if not await _column_exists(db, "channels", "channel_thumbnail_url"):
+        await db.execute("ALTER TABLE channels ADD COLUMN channel_thumbnail_url TEXT")
+    if not await _column_exists(db, "channels", "channel_description"):
+        await db.execute("ALTER TABLE channels ADD COLUMN channel_description TEXT")
+    if not await _column_exists(db, "channels", "channel_language_hint"):
+        await db.execute("ALTER TABLE channels ADD COLUMN channel_language_hint TEXT")
+    if not await _column_exists(db, "channels", "metadata_fetched_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN metadata_fetched_at TEXT")
+    if not await _column_exists(db, "channels", "metadata_fetch_status"):
+        await db.execute("ALTER TABLE channels ADD COLUMN metadata_fetch_status TEXT")
+    if not await _column_exists(db, "channels", "metadata_fetch_error"):
+        await db.execute("ALTER TABLE channels ADD COLUMN metadata_fetch_error TEXT")
+    if not await _column_exists(db, "channels", "metadata_retry_count"):
+        await db.execute("ALTER TABLE channels ADD COLUMN metadata_retry_count INTEGER")
+    if not await _column_exists(db, "channels", "metadata_next_fetch_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN metadata_next_fetch_at TEXT")
+    if not await _column_exists(db, "channels", "metadata_last_http_status"):
+        await db.execute("ALTER TABLE channels ADD COLUMN metadata_last_http_status INTEGER")
+
+    await db.execute(
+        """
+        UPDATE channels
+        SET metadata_fetch_status = 'never'
+        WHERE metadata_fetch_status IS NULL OR trim(metadata_fetch_status) = ''
+        """
+    )
+    await db.execute(
+        """
+        UPDATE channels
+        SET metadata_fetch_status = CASE lower(trim(coalesce(metadata_fetch_status, '')))
+            WHEN 'never' THEN 'never'
+            WHEN 'pending' THEN 'pending'
+            WHEN 'running' THEN 'running'
+            WHEN 'success' THEN 'success'
+            WHEN 'failed' THEN 'failed'
+            WHEN 'rate_limited' THEN 'rate_limited'
+            ELSE 'never'
+        END
+        """
+    )
+    await db.execute(
+        """
+        UPDATE channels
+        SET metadata_retry_count = 0
+        WHERE metadata_retry_count IS NULL OR metadata_retry_count < 0
+        """
+    )
+    await db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_channels_metadata_next_fetch
+        ON channels(metadata_next_fetch_at, metadata_fetch_status)
+        """
+    )
+    await db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_channels_metadata_status
+        ON channels(metadata_fetch_status)
+        """
+    )
 
 
 async def recover_stuck_jobs(db: aiosqlite.Connection) -> int:
