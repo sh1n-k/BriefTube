@@ -415,6 +415,41 @@ async def trigger_poll(request: Request):
     return {"ok": True, "triggered": True}
 
 
+@router.get("/queue/poll")
+async def queue_poll(request: Request):
+    db = request.app.state.runtime.db
+    transcript_items = await repository.list_queue_items(
+        db, repository.TRANSCRIPT_QUEUE_STATUSES,
+    )
+    llm_items = await repository.list_queue_items(
+        db, repository.LLM_QUEUE_STATUSES,
+    )
+    counts = await repository.queue_status(db)
+    workers = await repository.get_worker_settings(db)
+    guard = await repository.get_transcript_guard_state(db)
+    badge_count = (
+        counts.get("transcript_pending", 0)
+        + counts.get("transcript_processing", 0)
+        + counts.get("llm_pending", 0)
+        + counts.get("llm_processing", 0)
+    )
+    return {
+        "transcript_items": transcript_items,
+        "llm_items": llm_items,
+        "counts": counts,
+        "badge_count": badge_count,
+        "workers": {
+            "transcript": workers.get("transcript", True),
+            "llm": workers.get("llm", True),
+        },
+        "transcript_guard": {
+            "breaker_state": guard.get("breaker_state", "closed"),
+            "cooldown_until": guard.get("cooldown_until"),
+            "adaptive_factor": guard.get("adaptive_factor", 1.0),
+        },
+    }
+
+
 @router.get("/status")
 async def status(request: Request):
     return await repository.queue_status(request.app.state.runtime.db)

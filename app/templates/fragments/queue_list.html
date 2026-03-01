@@ -1,0 +1,85 @@
+{% set t_counts = queue_counts or {} %}
+{% set t_count = (t_counts.get('transcript_pending', 0) + t_counts.get('transcript_processing', 0) + t_counts.get('transcript_failed', 0) + t_counts.get('no_subtitle', 0)) %}
+{% set l_count = (t_counts.get('llm_pending', 0) + t_counts.get('llm_processing', 0) + t_counts.get('llm_failed', 0) + t_counts.get('manual_review', 0)) %}
+
+<section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="mb-3 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-slate-900">{{ txt.queue_transcript_title }}</h2>
+    <span data-queue-transcript-count class="text-sm text-slate-500">{{ t_count }}</span>
+  </div>
+  <div data-queue-transcript-list>
+    {% if transcript_items %}
+      <div class="divide-y divide-slate-100">
+        {% for item in transcript_items %}
+        <div class="flex items-center gap-3 py-3">
+          <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
+            {% if item.thumbnail_url %}
+            <img src="{{ item.thumbnail_url }}" alt="" class="h-full w-full object-cover" loading="lazy">
+            {% else %}
+            <div class="flex h-full w-full items-center justify-center bg-slate-100 text-xs text-slate-400">No img</div>
+            {% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600">{{ item.title or item.video_id }}</a>
+            <p class="truncate text-xs text-slate-500">{{ item.channel_name or item.channel_id or '' }}</p>
+          </div>
+          <div class="flex-shrink-0">
+            {% set status = item.pipeline_status %}
+            {% include "fragments/status_badge.html" %}
+          </div>
+          {% if item.pipeline_status in ('transcript_failed', 'no_subtitle') %}
+          <button type="button"
+                  data-queue-retry-transcript="{{ item.video_id }}"
+                  class="flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+            {{ txt.queue_retry_button }}
+          </button>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="py-6 text-center text-sm text-slate-400">{{ txt.queue_transcript_empty }}</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="mb-3 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-slate-900">{{ txt.queue_llm_title }}</h2>
+    <span data-queue-llm-count class="text-sm text-slate-500">{{ l_count }}</span>
+  </div>
+  <div data-queue-llm-list>
+    {% if llm_items %}
+      <div class="divide-y divide-slate-100">
+        {% for item in llm_items %}
+        <div class="flex items-center gap-3 py-3">
+          <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
+            {% if item.thumbnail_url %}
+            <img src="{{ item.thumbnail_url }}" alt="" class="h-full w-full object-cover" loading="lazy">
+            {% else %}
+            <div class="flex h-full w-full items-center justify-center bg-slate-100 text-xs text-slate-400">No img</div>
+            {% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600">{{ item.title or item.video_id }}</a>
+            <p class="truncate text-xs text-slate-500">{{ item.channel_name or item.channel_id or '' }}</p>
+          </div>
+          <div class="flex-shrink-0">
+            {% set status = item.pipeline_status %}
+            {% include "fragments/status_badge.html" %}
+          </div>
+          {% if item.pipeline_status in ('llm_failed', 'manual_review') %}
+          <button type="button"
+                  data-queue-retry-llm="{{ item.video_id }}"
+                  class="flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+            {{ txt.queue_retry_button }}
+          </button>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="py-6 text-center text-sm text-slate-400">{{ txt.queue_llm_empty }}</p>
+    {% endif %}
+  </div>
+</section>
