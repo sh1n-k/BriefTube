@@ -70,13 +70,18 @@
         </button>
         {% set stage = cat.processing_stage if cat.processing_stage in ['off', 'transcript_only', 'full'] else 'off' %}
         {% set stage_label = txt['category_processing_stage_' ~ stage] %}
+        {% set next_stage = 'transcript_only' if stage == 'off' else 'full' if stage == 'transcript_only' else 'off' %}
+        {% set next_stage_label = txt['category_processing_stage_' ~ next_stage] %}
+        {% set stage_toast = txt.category_processing_stage_cycle_success_detail
+            | replace('{name}', txt.category_default_name)
+            | replace('{stage}', next_stage_label) %}
         <button
           type="button"
           title="{{ stage_label }}"
           hx-put="/views/categories/{{ cat.id }}/cycle-processing-stage?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
           hx-target="#category-sidebar"
           hx-swap="outerHTML"
-          data-save-toast="{{ txt.category_processing_stage_cycle_success }}"
+          data-save-toast="{{ stage_toast }}"
           class="rounded p-1 {% if stage == 'full' %}text-emerald-600 hover:bg-emerald-50{% elif stage == 'transcript_only' %}text-sky-600 hover:bg-sky-50{% else %}text-slate-500 hover:bg-slate-100{% endif %}"
         >
           <span class="sr-only">{{ stage_label }}</span>
@@ -133,6 +138,11 @@
         </button>
         {% set stage = cat.processing_stage if cat.processing_stage in ['off', 'transcript_only', 'full'] else 'off' %}
         {% set stage_label = txt['category_processing_stage_' ~ stage] %}
+        {% set next_stage = 'transcript_only' if stage == 'off' else 'full' if stage == 'transcript_only' else 'off' %}
+        {% set next_stage_label = txt['category_processing_stage_' ~ next_stage] %}
+        {% set stage_toast = txt.category_processing_stage_cycle_success_detail
+            | replace('{name}', cat.name)
+            | replace('{stage}', next_stage_label) %}
         {# Processing stage cycle #}
         <button
           type="button"
@@ -140,7 +150,7 @@
           hx-put="/views/categories/{{ cat.id }}/cycle-processing-stage?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
           hx-target="#category-sidebar"
           hx-swap="outerHTML"
-          data-save-toast="{{ txt.category_processing_stage_cycle_success }}"
+          data-save-toast="{{ stage_toast }}"
           class="rounded p-1 {% if stage == 'full' %}text-emerald-600 hover:bg-emerald-50{% elif stage == 'transcript_only' %}text-sky-600 hover:bg-sky-50{% else %}text-slate-500 hover:bg-slate-100{% endif %}"
         >
           <span class="sr-only">{{ stage_label }}</span>
