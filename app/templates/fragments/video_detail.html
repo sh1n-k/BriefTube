@@ -234,7 +234,13 @@
             </svg>
             {{ txt.detail_key_facts }}
           </h4>
-          <div class="text-sm text-amber-900 whitespace-pre-wrap">{{ video.fact_box }}</div>
+          <div class="text-sm text-amber-900 whitespace-pre-wrap">
+            {% if article_fact_box_html %}
+            {{ article_fact_box_html | safe }}
+            {% else %}
+            {{ video.fact_box }}
+            {% endif %}
+          </div>
         </div>
         {% endif %}
         {% if video.timestamps and video.timestamps not in ['[]', ''] %}

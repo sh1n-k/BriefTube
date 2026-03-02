@@ -1199,9 +1199,13 @@ async def video_detail(video_id: str, request: Request):
         await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
     article_body_html = ""
     article_lead_html = ""
+    article_fact_box_html = ""
     if detail and str(detail.get("article_title") or "").strip():
         article_lead_html = render_markdown_to_safe_html(str(detail.get("lead") or ""))
         article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
+        fact_box = str(detail.get("fact_box") or "")
+        if fact_box and fact_box not in {"{}", ""}:
+            article_fact_box_html = render_markdown_to_safe_html(fact_box)
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
@@ -1211,6 +1215,7 @@ async def video_detail(video_id: str, request: Request):
         video=detail,
         article_lead_html=article_lead_html,
         article_body_html=article_body_html,
+        article_fact_box_html=article_fact_box_html,
         download_defaults=download_defaults,
         ffmpeg_available=is_ffmpeg_available(),
     )
