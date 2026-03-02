@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0.0",
+  "pytest-playwright>=0.6.0",
 ]
 
 [tool.uvicorn]
@@ -28,6 +29,9 @@ port = 8000
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+markers = ["e2e: Playwright browser-based end-to-end tests"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
