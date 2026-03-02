@@ -33,6 +33,14 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
         "provider_primary": "codex",
         "provider_fallback": "claude",
         "prompt_template": "",
+        "llm_model": {
+            "codex": "gpt-5.3-codex",
+            "claude": "",
+        },
+        "llm_reasoning_effort": {
+            "codex": "",
+            "claude": "",
+        },
     }
     assert initial.json()["videos_per_page"] == 8
     assert initial.json()["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
@@ -239,17 +247,41 @@ def test_settings_llm_update(client: TestClient) -> None:
             "provider_primary": "claude",
             "provider_fallback": "none",
             "prompt_template": "Title={source_title}\\nBody={transcript_text}",
+            "llm_model": {
+                "codex": "ignored-model",
+                "claude": "sonnet",
+            },
+            "llm_reasoning_effort": {
+                "codex": "high",
+                "claude": "medium",
+            },
         },
     )
     assert response.status_code == 200
     assert response.json()["llm_settings"]["provider_primary"] == "claude"
     assert response.json()["llm_settings"]["provider_fallback"] == "none"
     assert response.json()["llm_settings"]["prompt_template"] == "Title={source_title}\\nBody={transcript_text}"
+    assert response.json()["llm_settings"]["llm_model"] == {
+        "codex": "gpt-5.3-codex",
+        "claude": "sonnet",
+    }
+    assert response.json()["llm_settings"]["llm_reasoning_effort"] == {
+        "codex": "high",
+        "claude": "medium",
+    }
 
     after = client.get("/api/settings")
     assert after.status_code == 200
     assert after.json()["llm_settings"]["provider_primary"] == "claude"
     assert after.json()["llm_settings"]["provider_fallback"] == "none"
+    assert after.json()["llm_settings"]["llm_model"] == {
+        "codex": "gpt-5.3-codex",
+        "claude": "sonnet",
+    }
+    assert after.json()["llm_settings"]["llm_reasoning_effort"] == {
+        "codex": "high",
+        "claude": "medium",
+    }
 
 
 def test_settings_llm_rejects_same_primary_and_fallback(client: TestClient) -> None:
@@ -290,6 +322,82 @@ def test_settings_llm_rejects_non_object_json_payload(client: TestClient) -> Non
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "llm payload must be object"
+
+
+def test_settings_llm_rejects_non_object_llm_model(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_model": "invalid",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "llm_model must be object"
+
+
+def test_settings_llm_rejects_invalid_reasoning_effort_value(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_reasoning_effort": {
+                "claude": "ultra",
+            }
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "reasoning_effort must be one of: high, low, medium"
+
+
+def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(client: TestClient) -> None:
+    first = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_reasoning_effort": {
+                "codex": "high",
+                "claude": "low",
+            }
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_reasoning_effort": {
+                "claude": "medium",
+            }
+        },
+    )
+    assert second.status_code == 200
+    assert second.json()["llm_settings"]["llm_reasoning_effort"] == {
+        "codex": "high",
+        "claude": "medium",
+    }
+
+
+def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        data={
+            "llm_provider_primary": "codex",
+            "llm_provider_fallback": "claude",
+            "llm_prompt_template": "Body={transcript_text}",
+            "llm_model_codex": "custom-codex-model",
+            "llm_model_claude": "sonnet",
+            "llm_reasoning_effort_codex": "medium",
+            "llm_reasoning_effort_claude": "high",
+        },
+    )
+    assert response.status_code == 200
+    llm_settings = response.json()["llm_settings"]
+    assert llm_settings["llm_model"] == {
+        "codex": "gpt-5.3-codex",
+        "claude": "sonnet",
+    }
+    assert llm_settings["llm_reasoning_effort"] == {
+        "codex": "medium",
+        "claude": "high",
+    }
 
 
 def test_settings_llm_runtime_status_reports_prompt_missing(client: TestClient) -> None:
