@@ -28,6 +28,9 @@ class AuthRequiredClient:
 
 
 class SchemaInvalidClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def resolve_runtime_plan(self, settings):
         return LlmRuntimePlan(
             providers_to_try=["codex"],
@@ -36,6 +39,7 @@ class SchemaInvalidClient:
         )
 
     async def restructure(self, source_title: str, transcript_text: str, settings):
+        self.calls += 1
         raise LlmClientError(
             "llm_provider_schema_invalid_codex",
             "invalid_json_schema",
@@ -122,7 +126,7 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
 def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
     db_path = tmp_path / "worker-runtime-schema.db"
 
-    async def _run() -> tuple[str, int, int, str | None, dict[str, str]]:
+    async def _run() -> tuple[str, int, int, str | None, dict[str, str], int]:
         db = await open_database(str(db_path))
         await init_database(db)
         await db.execute(
@@ -148,10 +152,11 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
         )
         await db.commit()
 
+        client = SchemaInvalidClient()
         state = SimpleNamespace(
             db=db,
             config=AppConfig(max_retry_count=3),
-            llm_client=SchemaInvalidClient(),
+            llm_client=client,
             notification_queue=asyncio.Queue(),
         )
 
@@ -168,6 +173,14 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
                 if alert_count > 0:
                     break
                 await asyncio.sleep(0.05)
+            await asyncio.sleep(0.25)
+
+            cursor = await db.execute(
+                "SELECT COUNT(1) AS cnt FROM system_alerts WHERE alert_type = ?",
+                (repository.ALERT_TYPE_LLM_SCHEMA_INVALID,),
+            )
+            row = await cursor.fetchone()
+            alert_count = int(row["cnt"] or 0)
 
             cursor = await db.execute(
                 "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
@@ -180,15 +193,23 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
                 default=None,
             )
             runtime_issue = await repository.get_llm_runtime_issue(db)
-            return str(video["pipeline_status"]), int(video["retry_count"]), alert_count, sent_key, runtime_issue
+            return (
+                str(video["pipeline_status"]),
+                int(video["retry_count"]),
+                alert_count,
+                sent_key,
+                runtime_issue,
+                client.calls,
+            )
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await db.close()
 
-    status, retry_count, alert_count, sent_key, runtime_issue = asyncio.run(_run())
+    status, retry_count, alert_count, sent_key, runtime_issue, call_count = asyncio.run(_run())
     assert status == "llm_pending"
     assert retry_count == 1
-    assert alert_count >= 1
+    assert alert_count == 1
     assert sent_key == "1"
     assert runtime_issue["code"] == "llm_provider_schema_invalid_codex"
+    assert call_count == 1

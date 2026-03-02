@@ -751,27 +751,21 @@ async def set_llm_settings(request: Request):
 
     try:
         current = await settings_repo.get_llm_settings(request.app.state.runtime.db)
-        saved = await settings_repo.set_llm_settings(
+        candidate = await settings_repo.set_llm_settings(
             request.app.state.runtime.db,
             provider_primary=provider_primary,
             provider_fallback=provider_fallback,
             prompt_template=prompt_template,
             llm_model=llm_model,
             llm_reasoning_effort=llm_reasoning_effort,
+            persist=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    runtime_plan = request.app.state.runtime.llm_client.resolve_runtime_plan(saved)
+    runtime_plan = request.app.state.runtime.llm_client.resolve_runtime_plan(candidate)
     runtime_reason = str(runtime_plan.blocking_reason or "").strip().lower()
     if runtime_reason.startswith("llm_provider_schema_invalid_"):
-        # Revert settings to keep save-time behavior deterministic for users.
-        await settings_repo.set_llm_settings(
-            request.app.state.runtime.db,
-            provider_primary=str(current.get("provider_primary") or ""),
-            provider_fallback=str(current.get("provider_fallback") or ""),
-            prompt_template=str(current.get("prompt_template") or ""),
-        )
         await llm_repo.set_llm_runtime_issue(
             request.app.state.runtime.db,
             code=runtime_reason,
@@ -799,6 +793,15 @@ async def set_llm_settings(request: Request):
             },
             headers=_build_llm_runtime_toast_header(message, "error"),
         )
+
+    saved = await settings_repo.set_llm_settings(
+        request.app.state.runtime.db,
+        provider_primary=provider_primary,
+        provider_fallback=provider_fallback,
+        prompt_template=prompt_template,
+        llm_model=llm_model,
+        llm_reasoning_effort=llm_reasoning_effort,
+    )
 
     runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
     runtime_issue_code = str(runtime_issue.get("code") or "").strip().lower()

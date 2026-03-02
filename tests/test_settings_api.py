@@ -419,6 +419,13 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
             "provider_primary": "claude",
             "provider_fallback": "none",
             "prompt_template": "Body={transcript_text}",
+            "llm_model": {
+                "claude": "claude-sonnet-4-20250514",
+            },
+            "llm_reasoning_effort": {
+                "codex": "high",
+                "claude": "medium",
+            },
         },
     )
     assert response.status_code == 409

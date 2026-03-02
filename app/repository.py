@@ -2009,6 +2009,21 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
     if str(sent_raw or "0").strip() == "1":
         return False
 
+    cursor = await db.execute(
+        """
+        SELECT 1
+        FROM system_alerts
+        WHERE alert_type = ?
+          AND acknowledged_at IS NULL
+        LIMIT 1
+        """,
+        (ALERT_TYPE_LLM_SCHEMA_INVALID,),
+    )
+    existing = await cursor.fetchone()
+    if existing is not None:
+        await set_setting(db, key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY, value="1")
+        return False
+
     await create_system_alert(
         db,
         alert_type=ALERT_TYPE_LLM_SCHEMA_INVALID,
@@ -2559,6 +2574,7 @@ async def set_llm_settings(
     prompt_template: str | None = None,
     llm_model: Mapping[str, Any] | None = None,
     llm_reasoning_effort: Mapping[str, Any] | None = None,
+    persist: bool = True,
 ) -> dict[str, Any]:
     current = await get_llm_settings(db)
     next_primary = str(current["provider_primary"])
@@ -2608,13 +2624,29 @@ async def set_llm_settings(
         next_reasoning_effort_codex = validated_effort["codex"]
         next_reasoning_effort_claude = validated_effort["claude"]
 
+    next_settings: dict[str, Any] = {
+        "provider_primary": next_primary,
+        "provider_fallback": next_fallback,
+        "prompt_template": next_prompt,
+        "llm_model": {
+            "codex": LLM_CODEX_MODEL_FIXED,
+            "claude": next_model_claude,
+        },
+        "llm_reasoning_effort": {
+            "codex": next_reasoning_effort_codex,
+            "claude": next_reasoning_effort_claude,
+        },
+    }
+    if not persist:
+        return next_settings
+
     await set_setting(db, key=LLM_PROVIDER_PRIMARY_KEY, value=next_primary)
     await set_setting(db, key=LLM_PROVIDER_FALLBACK_KEY, value=next_fallback)
     await set_setting(db, key=LLM_PROMPT_TEMPLATE_KEY, value=next_prompt)
     await set_setting(db, key=LLM_MODEL_CLAUDE_KEY, value=next_model_claude)
     await set_setting(db, key=LLM_REASONING_EFFORT_CODEX_KEY, value=next_reasoning_effort_codex)
     await set_setting(db, key=LLM_REASONING_EFFORT_CLAUDE_KEY, value=next_reasoning_effort_claude)
-    return await get_llm_settings(db)
+    return next_settings
 
 
 async def create_system_alert(
