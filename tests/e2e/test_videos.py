@@ -375,7 +375,7 @@ def test_video_detail_transcript_section(e2e_page: Page, seeded_server: dict) ->
 
 @pytest.mark.e2e
 def test_video_detail_article_section(e2e_page: Page, seeded_server: dict) -> None:
-    """A done video with article shows article title, lead, and body."""
+    """기사 카드 raw 본문과 문서 보기 모달 렌더링을 함께 확인한다."""
     page = e2e_page
     video_id = "ALPHA_DONE_02"
     page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
@@ -383,15 +383,21 @@ def test_video_detail_article_section(e2e_page: Page, seeded_server: dict) -> No
 
     article_card = page.locator("[data-detail-article-card]")
     expect(article_card).to_be_visible()
+    article_body = article_card.locator("[data-collapsible-body]")
+    if not article_body.is_visible():
+        article_card.locator("[data-collapsible-toggle]").click()
+    expect(article_body).to_be_visible()
 
-    # Article title
     expect(article_card.locator("h3")).to_contain_text(f"Article Title for {video_id}")
-
-    # Lead paragraph
     expect(article_card.locator("blockquote")).to_contain_text(f"Lead paragraph for {video_id}")
+    expect(article_card.locator("pre")).to_contain_text(f"Full article body for {video_id}")
 
-    # Body
-    expect(article_card.locator(".prose")).to_contain_text(f"Full article body for {video_id}")
+    article_card.locator("[data-article-preview-open]").click()
+    modal = page.locator("#article-preview-modal")
+    expect(modal).to_be_visible()
+    expect(modal.locator("[data-article-preview-content].article-rendered")).to_contain_text(
+        f"Full article body for {video_id}"
+    )
 
 
 @pytest.mark.e2e
