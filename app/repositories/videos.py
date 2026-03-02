@@ -13,6 +13,7 @@ get_transcript = legacy.get_transcript
 get_article = legacy.get_article
 search_documents = legacy.search_documents
 mark_video_retry = legacy.mark_video_retry
+requeue_done_video_for_manual_article_retry = legacy.requeue_done_video_for_manual_article_retry
 update_video_thumbnail = legacy.update_video_thumbnail
 
 delete_videos_by_ids = legacy.delete_videos_by_ids

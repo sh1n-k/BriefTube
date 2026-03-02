@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
@@ -21,6 +22,10 @@ def _seed_video(
     body: str | None = "Article body text",
     fact_box: str | None = '{"key": "value"}',
     timestamps: str | None = '[{"t": 0, "text": "start"}]',
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    llm_reasoning_effort: str | None = None,
+    llm_generated_at: str | None = None,
 ) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -47,8 +52,32 @@ def _seed_video(
             )
         if article_title is not None:
             conn.execute(
-                "INSERT INTO articles(video_id, title, lead, body, fact_box, timestamps) VALUES (?, ?, ?, ?, ?, ?)",
-                (video_id, article_title, lead, body, fact_box, timestamps),
+                """
+                INSERT INTO articles(
+                    video_id,
+                    title,
+                    lead,
+                    body,
+                    fact_box,
+                    timestamps,
+                    llm_provider,
+                    llm_model,
+                    llm_reasoning_effort,
+                    llm_generated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    video_id,
+                    article_title,
+                    lead,
+                    body,
+                    fact_box,
+                    timestamps,
+                    llm_provider or "unknown",
+                    llm_model or "",
+                    llm_reasoning_effort or "",
+                    llm_generated_at or "2026-02-10T00:00:00+00:00",
+                ),
             )
         conn.commit()
 
@@ -164,3 +193,71 @@ def test_detail_article_request_button_contract(client: TestClient) -> None:
     assert 'data-video-id="vid-001"' in html
     assert "/views/videos/vid-001/article-request" in html
     assert 'hx-swap="none"' in html
+
+
+def test_detail_page_shows_llm_article_metadata(client: TestClient) -> None:
+    _seed_video(
+        llm_provider="codex",
+        llm_model="gpt-5.3-codex",
+        llm_reasoning_effort="low",
+        llm_generated_at="2026-03-02T09:30:00+00:00",
+    )
+    response = client.get("/videos/vid-001")
+    html = response.text
+    assert "LLM 생성 정보" in html or "LLM Metadata" in html
+    assert "codex" in html
+    assert "gpt-5.3-codex" in html
+    assert "low" in html
+
+
+def test_detail_article_request_requeues_done_video_to_llm_pending(client: TestClient) -> None:
+    _seed_video(video_id="vid-requeue-001", pipeline_status="done")
+    response = client.post("/views/videos/vid-requeue-001/article-request")
+    assert response.status_code == 200
+
+    trigger_header = response.headers.get("HX-Trigger", "")
+    payload = json.loads(trigger_header)
+    toast = payload.get("video-article-request-toast", {})
+    message = str(toast.get("message") or "")
+    assert "재시도 1건" in message or "retry 1" in message
+
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+            ("vid-requeue-001",),
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "llm_pending"
+        assert row[1] == 0
+        article_row = conn.execute(
+            "SELECT COUNT(1) FROM articles WHERE video_id = ?",
+            ("vid-requeue-001",),
+        ).fetchone()
+        assert article_row is not None
+        assert int(article_row[0] or 0) == 1
+
+
+def test_video_api_includes_llm_article_metadata(client: TestClient) -> None:
+    _seed_video(
+        llm_provider="claude",
+        llm_model="sonnet",
+        llm_reasoning_effort="high",
+        llm_generated_at="2026-03-02T11:00:00+00:00",
+    )
+
+    detail_response = client.get("/api/videos/vid-001")
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["llm_provider"] == "claude"
+    assert detail_payload["llm_model"] == "sonnet"
+    assert detail_payload["llm_reasoning_effort"] == "high"
+    assert detail_payload["llm_generated_at"] == "2026-03-02T11:00:00+00:00"
+
+    article_response = client.get("/api/videos/vid-001/article")
+    assert article_response.status_code == 200
+    article_payload = article_response.json()
+    assert article_payload["llm_provider"] == "claude"
+    assert article_payload["llm_model"] == "sonnet"
+    assert article_payload["llm_reasoning_effort"] == "high"
+    assert article_payload["llm_generated_at"] == "2026-03-02T11:00:00+00:00"

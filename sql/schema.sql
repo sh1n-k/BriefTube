@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS articles (
     body        TEXT NOT NULL,
     fact_box    TEXT,
     timestamps  TEXT,
+    llm_provider TEXT NOT NULL DEFAULT 'unknown',
+    llm_model   TEXT NOT NULL DEFAULT '',
+    llm_reasoning_effort TEXT NOT NULL DEFAULT '',
+    llm_generated_at TEXT NOT NULL DEFAULT (datetime('now')),
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

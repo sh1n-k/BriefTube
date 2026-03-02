@@ -36,6 +36,7 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await db.executescript(schema_sql)
     await _ensure_app_settings_table(db)
     await _ensure_video_columns(db)
+    await _ensure_article_columns(db)
     await _ensure_video_indexes(db)
     await _ensure_download_columns(db)
     await _ensure_category_tables(db)
@@ -348,6 +349,46 @@ async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_videos_pipeline
         ON videos(pipeline_status)
+        """
+    )
+
+
+async def _ensure_article_columns(db: aiosqlite.Connection) -> None:
+    if not await _column_exists(db, "articles", "llm_provider"):
+        await db.execute("ALTER TABLE articles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'unknown'")
+    if not await _column_exists(db, "articles", "llm_model"):
+        await db.execute("ALTER TABLE articles ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
+    if not await _column_exists(db, "articles", "llm_reasoning_effort"):
+        await db.execute("ALTER TABLE articles ADD COLUMN llm_reasoning_effort TEXT NOT NULL DEFAULT ''")
+    if not await _column_exists(db, "articles", "llm_generated_at"):
+        await db.execute("ALTER TABLE articles ADD COLUMN llm_generated_at TEXT")
+
+    await db.execute(
+        """
+        UPDATE articles
+        SET llm_provider = 'unknown'
+        WHERE llm_provider IS NULL OR trim(llm_provider) = ''
+        """
+    )
+    await db.execute(
+        """
+        UPDATE articles
+        SET llm_model = ''
+        WHERE llm_model IS NULL
+        """
+    )
+    await db.execute(
+        """
+        UPDATE articles
+        SET llm_reasoning_effort = ''
+        WHERE llm_reasoning_effort IS NULL
+        """
+    )
+    await db.execute(
+        """
+        UPDATE articles
+        SET llm_generated_at = COALESCE(NULLIF(trim(llm_generated_at), ''), created_at, datetime('now'))
+        WHERE llm_generated_at IS NULL OR trim(llm_generated_at) = ''
         """
     )
 
