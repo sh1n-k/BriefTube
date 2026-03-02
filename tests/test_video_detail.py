@@ -62,6 +62,7 @@ def test_detail_page_renders(client: TestClient) -> None:
     assert "Channel A" in html
     assert "Test Video" in html
     assert "Test Article" in html
+    assert "문서 보기" in html or "View document" in html
 
 
 def test_detail_youtube_link(client: TestClient) -> None:
@@ -134,6 +135,34 @@ def test_detail_collapsible_attrs(client: TestClient) -> None:
     assert "data-collapsible-toggle" in html
     assert "data-collapsible-body" in html
     assert "data-collapsible-icon" in html
+
+
+def test_detail_article_card_starts_collapsed_without_open_flag(client: TestClient) -> None:
+    _seed_video()
+    response = client.get("/videos/vid-001")
+    html = response.text
+    card_idx = html.index("data-detail-article-card")
+    segment = html[card_idx: card_idx + 220]
+    assert "data-collapsible-open" not in segment
+
+
+def test_detail_article_ready_badge_visible_when_article_exists(client: TestClient) -> None:
+    _seed_video()
+    response = client.get("/videos/vid-001")
+    html = response.text
+    assert "완성" in html or "Ready" in html
+
+
+def test_detail_article_modal_contract_and_no_inline_body(client: TestClient) -> None:
+    _seed_video(body="# Heading\n\nThis is **markdown** body.")
+    response = client.get("/videos/vid-001")
+    html = response.text
+    assert 'data-article-preview-open' in html
+    assert 'data-article-preview-modal' in html
+    assert 'data-article-preview-content' in html
+    assert "<h1>Heading</h1>" in html
+    assert "<strong>markdown</strong>" in html
+    assert "prose prose-sm max-w-none text-slate-700 whitespace-pre-wrap" not in html
 
 
 def test_detail_copy_button_attrs(client: TestClient) -> None:

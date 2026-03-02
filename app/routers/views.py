@@ -26,6 +26,7 @@ from app.services.bulk_channels import (
 )
 from app.services.downloads import is_ffmpeg_available
 from app.services.llm_runtime import LlmRuntimeStatus, is_runtime_ready_for_resume
+from app.services.markdown_render import render_markdown_to_safe_html
 
 router = APIRouter(prefix="/views", tags=["views"])
 router.include_router(views_downloads.router)
@@ -1196,6 +1197,9 @@ async def video_detail(video_id: str, request: Request):
     detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
     if detail:
         await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
+    article_body_html = ""
+    if detail and str(detail.get("article_title") or "").strip():
+        article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
@@ -1203,6 +1207,7 @@ async def video_detail(video_id: str, request: Request):
     context = await build_template_context(
         request,
         video=detail,
+        article_body_html=article_body_html,
         download_defaults=download_defaults,
         ffmpeg_available=is_ffmpeg_available(),
     )
