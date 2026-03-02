@@ -269,3 +269,84 @@ def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_erro
     except LlmClientError as exc:
         assert exc.code == "llm_provider_schema_invalid_codex"
         assert exc.retryable is False
+
+
+def test_restructure_parses_claude_result_string_with_embedded_article_json() -> None:
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        assert args[0] == "claude"
+        payload = {
+            "type": "result",
+            "is_error": False,
+            "result": json.dumps(
+                {
+                    "title": "From nested string",
+                    "lead": "Lead text",
+                    "body": "Body text",
+                    "fact_box": "{}",
+                    "timestamps": "[]",
+                }
+            ),
+        }
+        return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "claude",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+            },
+        )
+    )
+
+    assert article["title"] == "From nested string"
+    assert article["body"] == "Body text"
+
+
+def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
+    calls: list[str] = []
+
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        calls.append(args[0])
+        if args[0] == "claude":
+            refused = {
+                "type": "result",
+                "subtype": "refusal",
+                "is_error": True,
+                "result": "잠재적인 프롬프트 인젝션 시도를 감지했습니다.",
+            }
+            return CommandExecutionResult(exit_code=0, stdout=json.dumps(refused), stderr="")
+
+        output_path = Path(args[args.index("--output-last-message") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "title": "Codex fallback title",
+                    "lead": "Codex fallback lead",
+                    "body": "Codex fallback body",
+                    "fact_box": "{}",
+                    "timestamps": "[]",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "claude",
+                "provider_fallback": "codex",
+                "prompt_template": "{source_title}\n{transcript_text}",
+            },
+        )
+    )
+
+    assert article["title"] == "Codex fallback title"
+    assert calls[:3] == ["claude", "claude", "codex"]
