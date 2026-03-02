@@ -11,7 +11,14 @@ from app.config import AppConfig
 
 DEFAULT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
 DEV_ENV_NAMES = {"dev", "local", "development"}
-DEPENDENCY_LOGGERS = ("httpx", "httpcore", "aiosqlite", "uvicorn.access")
+DEPENDENCY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "aiosqlite",
+    "uvicorn.access",
+    "python_multipart",
+    "python_multipart.multipart",
+)
 
 
 class NoiseGateFilter(logging.Filter):
