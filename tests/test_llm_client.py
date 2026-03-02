@@ -40,6 +40,8 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
     async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
         assert args[0] == "codex"
         assert args[-1] == "-"
+        assert args[args.index("-m") + 1] == "gpt-5.3-codex"
+        assert "-c" not in args
         assert stdin_text == "Title=Source\nBody=Transcript"
 
         schema_path = Path(args[args.index("--output-schema") + 1])
@@ -115,6 +117,73 @@ def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
 
     assert article["title"] == "Claude title"
     assert calls[:3] == ["codex", "codex", "claude"]
+
+
+def test_restructure_applies_reasoning_effort_for_codex() -> None:
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        assert args[0] == "codex"
+        assert "-c" in args
+        assert args[args.index("-c") + 1] == 'model_reasoning_effort="low"'
+        output_path = Path(args[args.index("--output-last-message") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "title": "Codex title",
+                    "lead": "Codex lead",
+                    "body": "Codex body",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "codex",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+                "llm_reasoning_effort": {"codex": "low"},
+            },
+        )
+    )
+    assert article["title"] == "Codex title"
+
+
+def test_restructure_applies_model_and_effort_for_claude() -> None:
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        assert args[0] == "claude"
+        assert args[args.index("--model") + 1] == "sonnet"
+        assert args[args.index("--effort") + 1] == "high"
+        payload = {
+            "type": "result",
+            "is_error": False,
+            "structured_output": {
+                "title": "Claude title",
+                "lead": "Claude lead",
+                "body": "Claude body",
+            },
+        }
+        return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "claude",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+                "llm_model": {"claude": "sonnet"},
+                "llm_reasoning_effort": {"claude": "high"},
+            },
+        )
+    )
+    assert article["title"] == "Claude title"
 
 
 def test_restructure_raises_auth_required_when_provider_not_logged_in() -> None:

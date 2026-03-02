@@ -5,17 +5,19 @@ import json
 import logging
 from pathlib import Path
 import sqlite3
-from typing import Any
+from typing import Any, Mapping
 
 import aiosqlite
 from app.services.downloads import validate_download_output_dir
 from app.services.llm import (
+    LLM_CODEX_MODEL_FIXED,
     LLM_PROMPT_TEMPLATE_MAX_LENGTH,
     LLM_PROVIDER_CLAUDE,
     LLM_PROVIDER_CODEX,
     LLM_PROVIDER_FALLBACK_OPTIONS,
     LLM_PROVIDER_NONE,
     LLM_PROVIDER_OPTIONS,
+    LLM_REASONING_EFFORT_OPTIONS,
     normalize_llm_provider,
 )
 
@@ -45,11 +47,15 @@ LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
 LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
 LLM_PROVIDER_FALLBACK_KEY = "llm_provider_fallback"
 LLM_PROMPT_TEMPLATE_KEY = "llm_prompt_template"
+LLM_MODEL_CLAUDE_KEY = "llm_model_claude"
+LLM_REASONING_EFFORT_CODEX_KEY = "llm_reasoning_effort_codex"
+LLM_REASONING_EFFORT_CLAUDE_KEY = "llm_reasoning_effort_claude"
 LLM_RUNTIME_LAST_CODE_KEY = "llm_runtime_last_code"
 LLM_RUNTIME_LAST_MESSAGE_KEY = "llm_runtime_last_message"
 LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
 LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
 LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_CLAUDE
+LLM_MODEL_CLAUDE_MAX_LENGTH = 200
 
 RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY = "rss_bootstrap_lookback_days"
 RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT = 60
@@ -257,6 +263,34 @@ def _validate_llm_prompt_template(value: str | None) -> str:
     if prompt.strip() and "{transcript_text}" not in prompt:
         raise ValueError("prompt_template must include {transcript_text}")
     return prompt
+
+
+def _validate_llm_model_settings(value: Mapping[str, Any]) -> dict[str, str]:
+    raw_claude = value.get("claude")
+    claude_model = str(raw_claude or "").strip()
+    if len(claude_model) > LLM_MODEL_CLAUDE_MAX_LENGTH:
+        raise ValueError(f"llm_model.claude is too long (max {LLM_MODEL_CLAUDE_MAX_LENGTH})")
+    return {
+        "codex": LLM_CODEX_MODEL_FIXED,
+        "claude": claude_model,
+    }
+
+
+def _normalize_reasoning_effort(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    if normalized not in LLM_REASONING_EFFORT_OPTIONS:
+        allowed = ", ".join(sorted(LLM_REASONING_EFFORT_OPTIONS))
+        raise ValueError(f"reasoning_effort must be one of: {allowed}")
+    return normalized
+
+
+def _validate_llm_reasoning_effort_settings(value: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "codex": _normalize_reasoning_effort(value.get("codex")),
+        "claude": _normalize_reasoning_effort(value.get("claude")),
+    }
 
 
 def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
@@ -2396,7 +2430,7 @@ async def set_videos_per_page_setting(db: aiosqlite.Connection, value: int) -> i
     return normalized
 
 
-async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, str]:
+async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     primary_raw = await get_setting(
         db,
         key=LLM_PROVIDER_PRIMARY_KEY,
@@ -2412,6 +2446,21 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, str]:
         key=LLM_PROMPT_TEMPLATE_KEY,
         default="",
     )
+    model_claude_raw = await get_setting(
+        db,
+        key=LLM_MODEL_CLAUDE_KEY,
+        default="",
+    )
+    reasoning_effort_codex_raw = await get_setting(
+        db,
+        key=LLM_REASONING_EFFORT_CODEX_KEY,
+        default="",
+    )
+    reasoning_effort_claude_raw = await get_setting(
+        db,
+        key=LLM_REASONING_EFFORT_CLAUDE_KEY,
+        default="",
+    )
 
     primary = normalize_llm_provider(primary_raw, allow_none=False)
     fallback = normalize_llm_provider(fallback_raw, allow_none=True)
@@ -2423,11 +2472,32 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, str]:
         prompt_template = _validate_llm_prompt_template(prompt_template)
     except ValueError:
         prompt_template = ""
+    try:
+        model = _validate_llm_model_settings({"claude": model_claude_raw})
+    except ValueError:
+        model = {
+            "codex": LLM_CODEX_MODEL_FIXED,
+            "claude": "",
+        }
+    try:
+        reasoning_effort_codex = _normalize_reasoning_effort(reasoning_effort_codex_raw)
+    except ValueError:
+        reasoning_effort_codex = ""
+    try:
+        reasoning_effort_claude = _normalize_reasoning_effort(reasoning_effort_claude_raw)
+    except ValueError:
+        reasoning_effort_claude = ""
+    reasoning_effort = {
+        "codex": reasoning_effort_codex,
+        "claude": reasoning_effort_claude,
+    }
 
     return {
         "provider_primary": primary,
         "provider_fallback": fallback,
         "prompt_template": prompt_template,
+        "llm_model": model,
+        "llm_reasoning_effort": reasoning_effort,
     }
 
 
@@ -2437,11 +2507,18 @@ async def set_llm_settings(
     provider_primary: str | None = None,
     provider_fallback: str | None = None,
     prompt_template: str | None = None,
-) -> dict[str, str]:
+    llm_model: Mapping[str, Any] | None = None,
+    llm_reasoning_effort: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     current = await get_llm_settings(db)
     next_primary = str(current["provider_primary"])
     next_fallback = str(current["provider_fallback"])
     next_prompt = str(current["prompt_template"])
+    current_model = current.get("llm_model", {})
+    current_reasoning_effort = current.get("llm_reasoning_effort", {})
+    next_model_claude = str(current_model.get("claude", ""))
+    next_reasoning_effort_codex = str(current_reasoning_effort.get("codex", ""))
+    next_reasoning_effort_claude = str(current_reasoning_effort.get("claude", ""))
 
     if provider_primary is not None:
         next_primary = _validate_llm_provider_setting(provider_primary, allow_none=False)
@@ -2451,10 +2528,42 @@ async def set_llm_settings(
         raise ValueError("provider_fallback must be different from provider_primary")
     if prompt_template is not None:
         next_prompt = _validate_llm_prompt_template(prompt_template)
+    if llm_model is not None:
+        next_model_payload = {
+            "codex": LLM_CODEX_MODEL_FIXED,
+            "claude": next_model_claude,
+        }
+        next_model_payload.update(
+            {
+                key: value
+                for key, value in llm_model.items()
+                if key in {"codex", "claude"}
+            }
+        )
+        validated_model = _validate_llm_model_settings(next_model_payload)
+        next_model_claude = validated_model["claude"]
+    if llm_reasoning_effort is not None:
+        next_effort_payload = {
+            "codex": next_reasoning_effort_codex,
+            "claude": next_reasoning_effort_claude,
+        }
+        next_effort_payload.update(
+            {
+                key: value
+                for key, value in llm_reasoning_effort.items()
+                if key in {"codex", "claude"}
+            }
+        )
+        validated_effort = _validate_llm_reasoning_effort_settings(next_effort_payload)
+        next_reasoning_effort_codex = validated_effort["codex"]
+        next_reasoning_effort_claude = validated_effort["claude"]
 
     await set_setting(db, key=LLM_PROVIDER_PRIMARY_KEY, value=next_primary)
     await set_setting(db, key=LLM_PROVIDER_FALLBACK_KEY, value=next_fallback)
     await set_setting(db, key=LLM_PROMPT_TEMPLATE_KEY, value=next_prompt)
+    await set_setting(db, key=LLM_MODEL_CLAUDE_KEY, value=next_model_claude)
+    await set_setting(db, key=LLM_REASONING_EFFORT_CODEX_KEY, value=next_reasoning_effort_codex)
+    await set_setting(db, key=LLM_REASONING_EFFORT_CLAUDE_KEY, value=next_reasoning_effort_claude)
     return await get_llm_settings(db)
 
 

@@ -15,6 +15,8 @@ LLM_PROVIDER_NONE = "none"
 LLM_PROVIDER_OPTIONS = {LLM_PROVIDER_CODEX, LLM_PROVIDER_CLAUDE}
 LLM_PROVIDER_FALLBACK_OPTIONS = {LLM_PROVIDER_NONE, *LLM_PROVIDER_OPTIONS}
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = 20_000
+LLM_CODEX_MODEL_FIXED = "gpt-5.3-codex"
+LLM_REASONING_EFFORT_OPTIONS = {"low", "medium", "high"}
 
 ARTICLE_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -55,6 +57,8 @@ class LlmSettings:
     provider_primary: str
     provider_fallback: str
     prompt_template: str
+    llm_model: dict[str, str]
+    llm_reasoning_effort: dict[str, str]
 
 
 @dataclass(slots=True)
@@ -105,11 +109,45 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
     if fallback == primary:
         fallback = LLM_PROVIDER_NONE
     prompt_template = str(payload.get("prompt_template") or "")
+    model_payload = payload.get("llm_model")
+    if isinstance(model_payload, Mapping):
+        claude_model_raw = model_payload.get("claude", "")
+    else:
+        claude_model_raw = payload.get("llm_model_claude", "")
+    claude_model = str(claude_model_raw or "").strip()
+
+    effort_payload = payload.get("llm_reasoning_effort")
+    if isinstance(effort_payload, Mapping):
+        codex_effort_raw = effort_payload.get("codex", "")
+        claude_effort_raw = effort_payload.get("claude", "")
+    else:
+        codex_effort_raw = payload.get("llm_reasoning_effort_codex", "")
+        claude_effort_raw = payload.get("llm_reasoning_effort_claude", "")
+    codex_effort = _normalize_reasoning_effort(codex_effort_raw)
+    claude_effort = _normalize_reasoning_effort(claude_effort_raw)
+
     return LlmSettings(
         provider_primary=primary,
         provider_fallback=fallback,
         prompt_template=prompt_template,
+        llm_model={
+            "codex": LLM_CODEX_MODEL_FIXED,
+            "claude": claude_model,
+        },
+        llm_reasoning_effort={
+            "codex": codex_effort,
+            "claude": claude_effort,
+        },
     )
+
+
+def _normalize_reasoning_effort(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    if normalized in LLM_REASONING_EFFORT_OPTIONS:
+        return normalized
+    return ""
 
 
 async def _default_command_runner(
@@ -231,7 +269,7 @@ class UnifiedLlmClient:
             refused_once = False
             while True:
                 try:
-                    return await self._invoke_provider(provider, prompt)
+                    return await self._invoke_provider(provider, prompt, normalized)
                 except LlmClientError as exc:
                     last_error = exc
                     if exc.code == "llm_provider_refused" and not refused_once:
@@ -255,11 +293,19 @@ class UnifiedLlmClient:
         rendered = rendered.replace("{transcript_text}", transcript_text)
         return rendered
 
-    async def _invoke_provider(self, provider: str, prompt: str) -> dict[str, str]:
+    async def _invoke_provider(self, provider: str, prompt: str, settings: LlmSettings) -> dict[str, str]:
         if provider == LLM_PROVIDER_CODEX:
-            return await self._invoke_codex(prompt)
+            return await self._invoke_codex(
+                prompt,
+                model=settings.llm_model.get("codex", LLM_CODEX_MODEL_FIXED),
+                reasoning_effort=settings.llm_reasoning_effort.get("codex", ""),
+            )
         if provider == LLM_PROVIDER_CLAUDE:
-            return await self._invoke_claude(prompt)
+            return await self._invoke_claude(
+                prompt,
+                model=settings.llm_model.get("claude", ""),
+                reasoning_effort=settings.llm_reasoning_effort.get("claude", ""),
+            )
         raise LlmClientError(
             "llm_provider_invalid",
             f"Unsupported provider: {provider}",
@@ -267,7 +313,13 @@ class UnifiedLlmClient:
             retryable=False,
         )
 
-    async def _invoke_codex(self, prompt: str) -> dict[str, str]:
+    async def _invoke_codex(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        reasoning_effort: str,
+    ) -> dict[str, str]:
         if not self._command_exists("codex"):
             raise LlmClientError(
                 "llm_provider_unavailable_codex",
@@ -285,12 +337,16 @@ class UnifiedLlmClient:
                 "codex",
                 "exec",
                 "--skip-git-repo-check",
+                "-m",
+                model or LLM_CODEX_MODEL_FIXED,
                 "--output-schema",
                 str(schema_file),
                 "--output-last-message",
                 str(output_file),
                 "-",
             ]
+            if reasoning_effort:
+                args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
             result = await self._runner(args, self.timeout_seconds, prompt)
             if result.exit_code != 0:
                 raise self._classify_command_failure(
@@ -308,7 +364,13 @@ class UnifiedLlmClient:
 
         return self._parse_provider_output(LLM_PROVIDER_CODEX, raw_output)
 
-    async def _invoke_claude(self, prompt: str) -> dict[str, str]:
+    async def _invoke_claude(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        reasoning_effort: str,
+    ) -> dict[str, str]:
         if not self._command_exists("claude"):
             raise LlmClientError(
                 "llm_provider_unavailable_claude",
@@ -326,6 +388,10 @@ class UnifiedLlmClient:
             ARTICLE_JSON_SCHEMA_COMPACT,
             "--no-session-persistence",
         ]
+        if model:
+            args.extend(["--model", model])
+        if reasoning_effort:
+            args.extend(["--effort", reasoning_effort])
         result = await self._runner(args, self.timeout_seconds, prompt)
         if result.exit_code != 0:
             raise self._classify_command_failure(

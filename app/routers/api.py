@@ -688,6 +688,8 @@ async def set_llm_settings(request: Request):
     provider_primary: str | None = None
     provider_fallback: str | None = None
     prompt_template: str | None = None
+    llm_model: dict[str, str] | None = None
+    llm_reasoning_effort: dict[str, str] | None = None
 
     if "application/json" in content_type:
         payload = await request.json()
@@ -699,6 +701,22 @@ async def set_llm_settings(request: Request):
             provider_fallback = str(payload.get("provider_fallback", "")).strip().lower()
         if "prompt_template" in payload:
             prompt_template = str(payload.get("prompt_template", ""))
+        if "llm_model" in payload:
+            llm_model_payload = payload.get("llm_model")
+            if not isinstance(llm_model_payload, dict):
+                raise HTTPException(status_code=400, detail="llm_model must be object")
+            llm_model = {
+                key: str(value or "")
+                for key, value in llm_model_payload.items()
+            }
+        if "llm_reasoning_effort" in payload:
+            llm_reasoning_effort_payload = payload.get("llm_reasoning_effort")
+            if not isinstance(llm_reasoning_effort_payload, dict):
+                raise HTTPException(status_code=400, detail="llm_reasoning_effort must be object")
+            llm_reasoning_effort = {
+                key: str(value or "")
+                for key, value in llm_reasoning_effort_payload.items()
+            }
     else:
         form = await request.form()
         if "llm_provider_primary" in form:
@@ -707,8 +725,28 @@ async def set_llm_settings(request: Request):
             provider_fallback = str(form.get("llm_provider_fallback", "")).strip().lower()
         if "llm_prompt_template" in form:
             prompt_template = str(form.get("llm_prompt_template", ""))
+        model_keys = ("llm_model_codex", "llm_model_claude")
+        if any(key in form for key in model_keys):
+            llm_model = {}
+            if "llm_model_codex" in form:
+                llm_model["codex"] = str(form.get("llm_model_codex", ""))
+            if "llm_model_claude" in form:
+                llm_model["claude"] = str(form.get("llm_model_claude", ""))
+        reasoning_keys = ("llm_reasoning_effort_codex", "llm_reasoning_effort_claude")
+        if any(key in form for key in reasoning_keys):
+            llm_reasoning_effort = {}
+            if "llm_reasoning_effort_codex" in form:
+                llm_reasoning_effort["codex"] = str(form.get("llm_reasoning_effort_codex", ""))
+            if "llm_reasoning_effort_claude" in form:
+                llm_reasoning_effort["claude"] = str(form.get("llm_reasoning_effort_claude", ""))
 
-    if provider_primary is None and provider_fallback is None and prompt_template is None:
+    if (
+        provider_primary is None
+        and provider_fallback is None
+        and prompt_template is None
+        and llm_model is None
+        and llm_reasoning_effort is None
+    ):
         raise HTTPException(status_code=400, detail="empty llm settings payload")
 
     try:
@@ -717,6 +755,8 @@ async def set_llm_settings(request: Request):
             provider_primary=provider_primary,
             provider_fallback=provider_fallback,
             prompt_template=prompt_template,
+            llm_model=llm_model,
+            llm_reasoning_effort=llm_reasoning_effort,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
