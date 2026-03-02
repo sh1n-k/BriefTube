@@ -399,6 +399,50 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
         "claude": "high",
     }
 
+def test_settings_llm_update_blocks_when_schema_preflight_fails(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        client.app.state.runtime.llm_client,
+        "resolve_runtime_plan",
+        lambda _settings: LlmRuntimePlan(
+            providers_to_try=[],
+            blocking_reason="llm_provider_schema_invalid_codex",
+            warnings=[],
+        ),
+    )
+
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "claude",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+        },
+    )
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["code"] == "llm_provider_schema_invalid_codex"
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "llm-runtime-toast" in trigger
+
+    after = client.get("/api/settings")
+    assert after.status_code == 200
+    assert after.json()["llm_settings"] == {
+        "provider_primary": "codex",
+        "provider_fallback": "claude",
+        "prompt_template": "",
+        "llm_model": {
+            "codex": "gpt-5.3-codex",
+            "claude": "",
+        },
+        "llm_reasoning_effort": {
+            "codex": "",
+            "claude": "",
+        },
+    }
 
 def test_settings_llm_runtime_status_reports_prompt_missing(client: TestClient) -> None:
     response = client.get("/api/settings/llm/runtime-status")
@@ -457,6 +501,26 @@ def test_settings_llm_runtime_status_prefers_auth_issue_when_pending(
 
 
 def test_settings_llm_resume_returns_409_when_runtime_not_ready(client: TestClient) -> None:
+    response = client.post("/api/settings/llm/resume")
+    assert response.status_code == 409
+    assert response.json()["ok"] is False
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "llm-runtime-toast" in trigger
+
+
+def test_settings_llm_resume_returns_409_when_schema_is_invalid(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        client.app.state.runtime.llm_client,
+        "resolve_runtime_plan",
+        lambda _settings: LlmRuntimePlan(
+            providers_to_try=[],
+            blocking_reason="llm_provider_schema_invalid_codex",
+            warnings=[],
+        ),
+    )
     response = client.post("/api/settings/llm/resume")
     assert response.status_code == 409
     assert response.json()["ok"] is False

@@ -11,6 +11,10 @@ from app.state import AppState
 logger = logging.getLogger(__name__)
 
 
+def _is_schema_invalid_issue(code: str) -> bool:
+    return str(code or "").strip().lower().startswith("llm_provider_schema_invalid_")
+
+
 async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
     safe_timeout = max(0.0, float(timeout_seconds))
     wake_event = getattr(state, "llm_wake_event", None)
@@ -61,7 +65,10 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     next_runtime_warning_log_at = now + 60.0
 
             if runtime_reason is not None:
-                alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
+                if _is_schema_invalid_issue(runtime_reason):
+                    alert_created = await llm_repo.ensure_llm_schema_invalid_alert(state.db)
+                else:
+                    alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
                 await llm_repo.set_llm_runtime_issue(
                     state.db,
                     code=runtime_reason,
@@ -81,6 +88,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 continue
 
             await llm_repo.clear_llm_config_missing_alert_flag(state.db)
+            await llm_repo.clear_llm_schema_invalid_alert_flag(state.db)
             marked = await llm_repo.mark_restructure_processing(state.db, video_id)
             if marked == 0:
                 await _sleep_with_wake(state, 1)
@@ -116,12 +124,19 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 )
             except Exception as exc:
                 error_code = str(getattr(exc, "code", "unknown") or "unknown")
-                if error_code == "llm_provider_auth_required" or error_code.startswith("llm_provider_unavailable_"):
+                if (
+                    error_code == "llm_provider_auth_required"
+                    or error_code.startswith("llm_provider_unavailable_")
+                    or _is_schema_invalid_issue(error_code)
+                ):
                     requeued = await llm_repo.requeue_llm_pending_without_retry(
                         state.db,
                         video_id=video_id,
                     )
-                    alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
+                    if _is_schema_invalid_issue(error_code):
+                        alert_created = await llm_repo.ensure_llm_schema_invalid_alert(state.db)
+                    else:
+                        alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
                     await llm_repo.set_llm_runtime_issue(
                         state.db,
                         code=error_code,

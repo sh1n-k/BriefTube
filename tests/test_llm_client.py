@@ -47,6 +47,9 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
         schema_path = Path(args[args.index("--output-schema") + 1])
         output_path = Path(args[args.index("--output-last-message") + 1])
         assert schema_path.exists()
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        assert set(schema["properties"].keys()) == {"title", "lead", "body", "fact_box", "timestamps"}
+        assert set(schema["required"]) == set(schema["properties"].keys())
 
         payload = {
             "title": "Article title",
@@ -131,6 +134,8 @@ def test_restructure_applies_reasoning_effort_for_codex() -> None:
                     "title": "Codex title",
                     "lead": "Codex lead",
                     "body": "Codex body",
+                    "fact_box": "{}",
+                    "timestamps": "[]",
                 }
             ),
             encoding="utf-8",
@@ -165,6 +170,8 @@ def test_restructure_applies_model_and_effort_for_claude() -> None:
                 "title": "Claude title",
                 "lead": "Claude lead",
                 "body": "Claude body",
+                "fact_box": "{}",
+                "timestamps": "[]",
             },
         }
         return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
@@ -206,3 +213,59 @@ def test_restructure_raises_auth_required_when_provider_not_logged_in() -> None:
         assert False, "expected LlmClientError"
     except LlmClientError as exc:
         assert exc.code == "llm_provider_auth_required"
+
+
+def test_runtime_plan_blocks_when_codex_schema_contract_is_invalid() -> None:
+    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
+
+    def fake_schema(_provider: str):
+        return {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "lead": {"type": "string"},
+                "body": {"type": "string"},
+                "fact_box": {"type": "string"},
+                "timestamps": {"type": "string"},
+            },
+            "required": ["title", "lead", "body"],
+            "additionalProperties": False,
+        }
+
+    client._provider_schema = fake_schema  # type: ignore[method-assign]
+    reason = client.runtime_not_ready_reason(
+        {
+            "provider_primary": "codex",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+        }
+    )
+    assert reason == "llm_provider_schema_invalid_codex"
+
+
+def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_error() -> None:
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        assert args[0] == "codex"
+        return CommandExecutionResult(
+            exit_code=1,
+            stdout="",
+            stderr='{"error":{"code":"invalid_json_schema","param":"text.format.schema"}}',
+        )
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    try:
+        asyncio.run(
+            client.restructure(
+                source_title="Source",
+                transcript_text="Transcript",
+                settings={
+                    "provider_primary": "codex",
+                    "provider_fallback": "none",
+                    "prompt_template": "{transcript_text}",
+                },
+            )
+        )
+        assert False, "expected LlmClientError"
+    except LlmClientError as exc:
+        assert exc.code == "llm_provider_schema_invalid_codex"
+        assert exc.retryable is False

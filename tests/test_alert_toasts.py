@@ -51,6 +51,22 @@ def test_base_renders_grouped_alert_toast(client: TestClient) -> None:
     assert "data-alert-dismiss" in html
 
 
+def test_base_renders_llm_schema_invalid_alert_text(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _insert_alert(
+        db_path,
+        alert_type="llm_schema_invalid",
+        channel_id="UCallert991",
+        channel_name="LLM 스키마 채널",
+        message="LLM output schema is incompatible.",
+    )
+
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    assert "LLM 출력 스키마가 호환되지 않아 기사 재구성이 중지되었습니다" in html
+
+
 def test_alert_group_ack_requires_checkbox(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     alert_id = _insert_alert(db_path, channel_name="체크 필요 채널")
