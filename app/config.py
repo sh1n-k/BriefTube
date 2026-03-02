@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 import os
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -16,6 +19,7 @@ class AppConfig:
     thumbnail_dir: str = "./thumbnails"
     db_path: str = "./data.db"
     rss_timeout_seconds: int = 20
+    rss_inter_channel_delay_seconds: float = 2.0
     http_timeout_seconds: int = 30
     download_dir: str = "./downloads"
     download_max_concurrent: int = 2
@@ -71,6 +75,12 @@ def _parse_float(value: object, default: float) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
+        if isinstance(value, str) and value.strip():
+            _logger.warning(
+                "event=config.parse_float_fallback raw_value=%r default=%s",
+                value,
+                default,
+            )
         return default
 
 
@@ -106,6 +116,10 @@ def load_config() -> AppConfig:
         thumbnail_dir=str(file_values.get("thumbnail_dir", base.thumbnail_dir)),
         db_path=str(file_values.get("db_path", base.db_path)),
         rss_timeout_seconds=int(file_values.get("rss_timeout_seconds", base.rss_timeout_seconds)),
+        rss_inter_channel_delay_seconds=_parse_float(
+            file_values.get("rss_inter_channel_delay_seconds", base.rss_inter_channel_delay_seconds),
+            base.rss_inter_channel_delay_seconds,
+        ),
         http_timeout_seconds=int(file_values.get("http_timeout_seconds", base.http_timeout_seconds)),
         download_dir=str(file_values.get("download_dir", base.download_dir)),
         download_max_concurrent=int(file_values.get("download_max_concurrent", base.download_max_concurrent)),
@@ -240,6 +254,10 @@ def load_config() -> AppConfig:
     cfg.thumbnail_dir = os.getenv("THUMBNAIL_DIR", cfg.thumbnail_dir)
     cfg.db_path = os.getenv("DB_PATH", cfg.db_path)
     cfg.rss_timeout_seconds = int(os.getenv("RSS_TIMEOUT_SECONDS", cfg.rss_timeout_seconds))
+    cfg.rss_inter_channel_delay_seconds = _parse_float(
+        os.getenv("RSS_INTER_CHANNEL_DELAY_SECONDS", cfg.rss_inter_channel_delay_seconds),
+        cfg.rss_inter_channel_delay_seconds,
+    )
     cfg.http_timeout_seconds = int(os.getenv("HTTP_TIMEOUT_SECONDS", cfg.http_timeout_seconds))
     cfg.download_dir = os.getenv("DOWNLOAD_DIR", cfg.download_dir)
     cfg.download_max_concurrent = int(os.getenv("DOWNLOAD_MAX_CONCURRENT", cfg.download_max_concurrent))
@@ -388,6 +406,7 @@ def load_config() -> AppConfig:
     cfg.transcript_channel_hard_cooldown_seconds = max(1, cfg.transcript_channel_hard_cooldown_seconds)
     cfg.transcript_breaker_half_open_probe_count = max(1, cfg.transcript_breaker_half_open_probe_count)
     cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
+    cfg.rss_inter_channel_delay_seconds = max(0.0, min(30.0, cfg.rss_inter_channel_delay_seconds))
     cfg.download_max_concurrent = max(1, min(3, cfg.download_max_concurrent))
     cfg.download_timeout_seconds = max(30, cfg.download_timeout_seconds)
     cfg.log_file_max_bytes = max(1024, cfg.log_file_max_bytes)

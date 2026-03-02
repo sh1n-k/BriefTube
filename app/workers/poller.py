@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
+import random
 
 import httpx
 
@@ -28,7 +29,9 @@ def _parse_iso_datetime(value: str) -> datetime | None:
 
 async def run_rss_poller(state: AppState) -> None:
     interval_seconds = max(60, state.config.polling_interval_minutes * 60)
+    base_delay = max(0.0, state.config.rss_inter_channel_delay_seconds)
     check_step_seconds = 5
+    manual_trigger = False
 
     while True:
         if not await settings_repo.is_worker_enabled(state.db, "rss"):
@@ -37,8 +40,10 @@ async def run_rss_poller(state: AppState) -> None:
             await asyncio.sleep(5)
             continue
 
+        delay = base_delay * 0.25 if manual_trigger else base_delay
+
         try:
-            inserted = await poll_once(state)
+            inserted = await poll_once(state, inter_channel_delay=delay)
             if inserted:
                 logger.info(
                     "event=rss.poll_completed worker=rss inserted=%s",
@@ -47,9 +52,12 @@ async def run_rss_poller(state: AppState) -> None:
                 )
         except Exception:
             logger.exception(
-                "event=rss.poll_failed worker=rss",
+                "event=rss.poll_failed worker=rss manual_trigger=%s",
+                manual_trigger,
                 extra={"event": "rss.poll_failed", "worker": "rss"},
             )
+        else:
+            manual_trigger = False
 
         try:
             remaining = interval_seconds
@@ -62,6 +70,7 @@ async def run_rss_poller(state: AppState) -> None:
                 try:
                     await asyncio.wait_for(state.poll_now_event.wait(), timeout=step)
                     state.poll_now_event.clear()
+                    manual_trigger = True
                     logger.debug(
                         "event=rss.manual_trigger_consumed worker=rss",
                         extra={"event": "rss.manual_trigger_consumed", "worker": "rss"},
@@ -74,9 +83,10 @@ async def run_rss_poller(state: AppState) -> None:
                 "event=rss.wait_loop_failed worker=rss",
                 extra={"event": "rss.wait_loop_failed", "worker": "rss"},
             )
+            await asyncio.sleep(10)
 
 
-async def poll_once(state: AppState) -> int:
+async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int:
     channels = await channels_repo.list_active_channels(state.db)
     policy = await settings_repo.get_policy_settings(state.db)
     lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
@@ -85,7 +95,21 @@ async def poll_once(state: AppState) -> int:
     lower_bound = started_at - timedelta(days=lookback_days)
     total_inserted = 0
 
-    for channel in channels:
+    if inter_channel_delay > 0:
+        estimated_total = inter_channel_delay * max(0, len(channels) - 1)
+        logger.info(
+            "event=rss.poll_started worker=rss channels=%d inter_channel_delay=%.1f estimated_total_delay=%.0fs",
+            len(channels),
+            inter_channel_delay,
+            estimated_total,
+            extra={"event": "rss.poll_started", "worker": "rss"},
+        )
+
+    for i, channel in enumerate(channels):
+        if i > 0 and inter_channel_delay > 0:
+            jitter = inter_channel_delay * 0.3
+            delay = inter_channel_delay + random.uniform(-jitter, jitter)
+            await asyncio.sleep(max(0.0, delay))
         channel_id = channel["channel_id"]
         channel_name = channel.get("channel_name") or channel_id
         cache = state.rss_cache.get(channel_id, {})

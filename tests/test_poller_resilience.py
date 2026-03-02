@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import os
 import sqlite3
+import time
 from types import SimpleNamespace
 
 import httpx
@@ -147,3 +148,57 @@ def test_poll_once_applies_bootstrap_lookback_for_new_channels(client) -> None:
     assert inserted == 1
     assert old_exists == 0
     assert recent_exists == 1
+
+
+def test_poll_once_applies_inter_channel_delay(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        for idx in range(3):
+            cid = f"UCdelay{idx:03d}"
+            conn.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                (cid, f"Delay Channel {idx}", f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}"),
+            )
+        conn.commit()
+
+    call_times: list[float] = []
+
+    class FakeRSSService:
+        async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+            call_times.append(time.monotonic())
+            return (
+                [
+                    {
+                        "video_id": f"vid-delay-{channel_id}",
+                        "title": f"Video from {channel_id}",
+                        "published": "2026-02-25T00:00:00+00:00",
+                        "thumbnail_url": "",
+                    }
+                ],
+                None,
+                None,
+            )
+
+    async def _run() -> int:
+        db = await open_database(db_path)
+        try:
+            state = SimpleNamespace(
+                db=db,
+                rss_cache={},
+                rss_service=FakeRSSService(),
+                started_at=datetime.now(timezone.utc),
+            )
+            return await poll_once(state, inter_channel_delay=0.5)  # type: ignore[arg-type]
+        finally:
+            await db.close()
+
+    inserted = asyncio.run(_run())
+    assert inserted == 3
+
+    assert len(call_times) == 3
+    for j in range(1, len(call_times)):
+        gap = call_times[j] - call_times[j - 1]
+        assert gap >= 0.5 * 0.7, f"Channel {j} gap {gap:.3f}s < minimum 0.35s"
