@@ -16,6 +16,7 @@ from app.repositories import videos as videos_repo
 from app.routers import pages_downloads
 from app.routers.template_context import build_template_context
 from app.services.downloads import is_ffmpeg_available
+from app.services.markdown_render import render_markdown_to_safe_html
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
     TRANSCRIPT_REQUEST_HEADER_KEYS,
@@ -103,6 +104,9 @@ async def video_page(video_id: str, request: Request):
     detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
     if detail:
         await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
+    article_body_html = ""
+    if detail and str(detail.get("article_title") or "").strip():
+        article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
     transcript_retry_done = request.query_params.get("transcript_retry") == "1"
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
@@ -111,6 +115,7 @@ async def video_page(video_id: str, request: Request):
     context = await build_template_context(
         request,
         video=detail,
+        article_body_html=article_body_html,
         transcript_retry_done=transcript_retry_done,
         download_defaults=download_defaults,
         ffmpeg_available=is_ffmpeg_available(),

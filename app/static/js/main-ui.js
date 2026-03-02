@@ -2032,6 +2032,73 @@
         root.querySelectorAll("[data-video-article-request-button]").forEach(initVideoArticleRequestButton);
       }
 
+      function closeArticlePreviewModal(modal) {
+        if (!(modal instanceof HTMLElement)) return;
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+        modal.dataset.modalOpen = "0";
+      }
+
+      function openArticlePreviewModal(modal) {
+        if (!(modal instanceof HTMLElement)) return;
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+        modal.dataset.modalOpen = "1";
+      }
+
+      function ensureArticlePreviewEscapeHandler() {
+        const root = document.body;
+        if (!root || root.dataset.articlePreviewEscapeBound === "1") return;
+        root.dataset.articlePreviewEscapeBound = "1";
+        document.addEventListener("keydown", (event) => {
+          if (event.key !== "Escape") return;
+          document.querySelectorAll("[data-article-preview-modal]").forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            if (node.dataset.modalOpen === "1") {
+              closeArticlePreviewModal(node);
+            }
+          });
+        });
+      }
+
+      function initArticlePreviewButton(button) {
+        if (button.dataset.articlePreviewBound === "1") return;
+        const root = button.closest("#video-detail-fragment") || document;
+        const modalSelector = button.dataset.articlePreviewTarget || "#article-preview-modal";
+        const modal = root.querySelector(modalSelector);
+        if (!(modal instanceof HTMLElement)) return;
+        button.dataset.articlePreviewBound = "1";
+        ensureArticlePreviewEscapeHandler();
+
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openArticlePreviewModal(modal);
+        });
+
+        if (modal.dataset.articlePreviewModalBound === "1") return;
+        modal.dataset.articlePreviewModalBound = "1";
+        modal.addEventListener("click", (event) => {
+          const target = event.target;
+          if (
+            target === modal
+            || (target instanceof Element && target.hasAttribute("data-article-preview-backdrop"))
+            || (target instanceof Element && target.hasAttribute("data-article-preview-close"))
+          ) {
+            closeArticlePreviewModal(modal);
+          }
+        });
+      }
+
+      function bindArticlePreviewModals(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-article-preview-open]").forEach((node) => {
+          if (node instanceof HTMLButtonElement) {
+            initArticlePreviewButton(node);
+          }
+        });
+      }
+
       function initCopyButton(btn) {
         if (btn.dataset.copyBound === "1") return;
         btn.dataset.copyBound = "1";
@@ -2573,6 +2640,7 @@
         bindYouTubeEmbeds(document);
         bindVideoDownloadButtons(document);
         bindVideoArticleRequestButtons(document);
+        bindArticlePreviewModals(document);
         bindDownloadDetailButtons(document);
         bindDownloadRetryButtons(document);
         startDownloadProgressPolling();
@@ -2661,6 +2729,7 @@
         bindYouTubeEmbeds(event.target);
         bindVideoDownloadButtons(event.target);
         bindVideoArticleRequestButtons(event.target);
+        bindArticlePreviewModals(event.target);
         bindDownloadDetailButtons(event.target);
         bindDownloadRetryButtons(event.target);
         bindCategorySortable(event.target);
