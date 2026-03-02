@@ -1,6 +1,8 @@
 """E2E tests for navigation, theme toggle, i18n, and page transitions."""
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -60,7 +62,7 @@ def test_navigation_links(e2e_page: Page) -> None:
         link = page.locator(f'header nav a[href="{path}"]')
         link.click()
         page.wait_for_url(f"**{path}")
-        assert page.url.endswith(path) or page.url.endswith(path + "/") or path in page.url
+        assert urlparse(page.url).path == path
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +348,13 @@ def test_responsive_nav(e2e_page: Page) -> None:
     # Use the specific brand link with class "flex items-center gap-2 text-white".
     brand_link = page.locator("header > div > a[href='/']")
     expect(brand_link).to_be_visible()
+
+    # Mobile viewport에서도 실제 네비게이션 이동은 가능해야 한다.
+    channels_link = page.locator('header nav a[href="/channels"]')
+    expect(channels_link).to_be_visible()
+    channels_link.click()
+    page.wait_for_url("**/channels*")
+    assert urlparse(page.url).path == "/channels"
 
     # Restore viewport.
     page.set_viewport_size({"width": 1280, "height": 720})

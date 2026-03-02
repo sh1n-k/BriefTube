@@ -31,6 +31,7 @@ git worktree add -b feature/<topic> .worktrees/feature-<topic>
 - 변경 범위와 맞는 최소 프로파일을 실행
 - 부분 실행 시, 미실행 항목과 이유를 PR 설명에 기록
 - 가능하면 마지막에 전체 테스트 실행
+- 기본 `pytest -q`는 E2E를 제외하며, E2E는 명시 실행(`-m e2e`)으로 수행
 
 자주 쓰는 명령:
 
@@ -38,6 +39,7 @@ git worktree add -b feature/<topic> .worktrees/feature-<topic>
 .venv/bin/python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
 .venv/bin/python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_detail.py
 .venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
+.venv/bin/python -m pytest -q -m e2e tests/e2e
 .venv/bin/python -m pytest -q
 ```
 

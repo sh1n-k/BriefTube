@@ -7,6 +7,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.e2e.seed_helpers import (
+    get_db_connection,
     make_past_time,
     seed_app_setting,
     seed_channel,
@@ -66,8 +67,18 @@ def _seed_data(db_path: str) -> None:
     )
 
 
-@pytest.fixture(scope="module", autouse=True)
+def _reset_data(db_path: str) -> None:
+    conn = get_db_connection(db_path)
+    conn.execute("DELETE FROM system_alerts")
+    conn.execute("DELETE FROM videos")
+    conn.execute("DELETE FROM channels")
+    conn.commit()
+    conn.close()
+
+
+@pytest.fixture(autouse=True)
 def _seed(e2e_server: dict) -> None:
+    _reset_data(e2e_server["db_path"])
     _seed_data(e2e_server["db_path"])
 
 
@@ -191,6 +202,7 @@ def test_alert_group_members_toggle(e2e_page: Page) -> None:
 
     # The member list (<ul>) should not be visible initially (details is closed)
     member_list = details.locator("ul")
+    expect(member_list).to_have_count(1)
     expect(member_list).to_be_hidden()
 
     # Click the <summary> to open the details

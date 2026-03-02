@@ -6,6 +6,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.e2e.seed_helpers import (
+    get_db_connection,
     make_past_time,
     seed_app_setting,
     seed_channel,
@@ -217,6 +218,18 @@ def test_retention_delete_all_confirm(e2e_page: Page) -> None:
     # Since all expired videos were deleted, we should see the empty message
     empty_msg = e2e_page.locator("text=보관 만료된 영상이 없습니다.")
     expect(empty_msg).to_be_visible()
+
+    # Non-expired videos must remain after expired-only delete.
+    conn = get_db_connection(e2e_page._e2e_db_path)
+    try:
+        placeholders = ",".join("?" for _ in NON_EXPIRED_IDS)
+        row = conn.execute(
+            f"SELECT COUNT(1) AS cnt FROM videos WHERE video_id IN ({placeholders})",
+            tuple(NON_EXPIRED_IDS),
+        ).fetchone()
+        assert int(row["cnt"]) == len(NON_EXPIRED_IDS)
+    finally:
+        conn.close()
 
 
 # ---------- 7. Delete all modal dismiss ----------

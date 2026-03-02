@@ -225,8 +225,9 @@ def test_queue_retry_button(queue_page: Page):
     # Click retry and wait for the API response
     with queue_page.expect_response(
         lambda resp: "/api/videos/tf1/transcript/retry" in resp.url and resp.status == 200
-    ):
+    ) as response_info:
         retry_button.click()
+    assert response_info.value.ok
 
     # Toast should appear with success message
     toast_stack = queue_page.locator("#ui-toast-stack")
@@ -246,7 +247,7 @@ def test_queue_nav_badge(queue_page: Page):
     # badge_count = transcript_pending(2) + transcript_processing(1)
     #             + llm_pending(2) + llm_processing(1) = 6
     badge_text = nav_badge.first.inner_text()
-    assert int(badge_text) > 0, f"Expected badge count > 0, got '{badge_text}'"
+    assert int(badge_text) == 6, f"Expected badge count 6, got '{badge_text}'"
 
 
 # --------------------------------------------------------------------------- #
@@ -254,20 +255,20 @@ def test_queue_nav_badge(queue_page: Page):
 # --------------------------------------------------------------------------- #
 def test_queue_polling(queue_page: Page):
     """Queue page JS polling sends GET /api/queue/poll requests periodically."""
-    # The polling interval is 2000ms. We wait for a poll request to occur.
-    # The first poll fires on page load via startQueuePolling(), and subsequent
-    # ones every 2s. We listen for a future request.
-    with queue_page.expect_response(
-        lambda resp: "/api/queue/poll" in resp.url and resp.status == 200,
-        timeout=10_000,
-    ) as response_info:
-        pass  # Just wait for the next poll cycle
+    responses: list[dict] = []
 
-    response = response_info.value
-    assert response.status == 200
+    def on_response(resp) -> None:
+        if "/api/queue/poll" in resp.url and resp.status == 200:
+            try:
+                responses.append(resp.json())
+            except Exception:
+                responses.append({})
 
-    # Verify the response payload structure
-    payload = response.json()
+    queue_page.on("response", on_response)
+    queue_page.wait_for_timeout(4_500)
+    queue_page.remove_listener("response", on_response)
+    assert len(responses) >= 2
+    payload = responses[-1]
     assert "transcript_items" in payload
     assert "llm_items" in payload
     assert "counts" in payload

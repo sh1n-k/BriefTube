@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import shutil
 
 import pytest
 from playwright.sync_api import Page, expect
 
 from tests.e2e.seed_helpers import (
+    get_db_connection,
     seed_channel,
     seed_download_job,
     seed_video,
@@ -74,9 +76,19 @@ def _seed_downloads(db_path: str) -> dict[str, int]:
     }
 
 
-@pytest.fixture(scope="module")
+def _reset_download_seed(db_path: str) -> None:
+    conn = get_db_connection(db_path)
+    conn.execute("DELETE FROM download_jobs")
+    conn.execute("DELETE FROM videos WHERE channel_id = ?", (CHANNEL_ID,))
+    conn.execute("DELETE FROM channels WHERE channel_id = ?", (CHANNEL_ID,))
+    conn.commit()
+    conn.close()
+
+
+@pytest.fixture()
 def downloads_seeded(e2e_server: dict) -> dict[str, int]:
-    """Module-level fixture: seed download data once per server lifetime."""
+    """Seed isolated download data for each test."""
+    _reset_download_seed(e2e_server["db_path"])
     return _seed_downloads(e2e_server["db_path"])
 
 
@@ -240,14 +252,13 @@ def test_downloads_retry_button(e2e_page: Page, downloads_seeded: dict) -> None:
     job_id = retry_btn.get_attribute("data-job-id")
     assert job_id is not None
 
-    # Intercept the retry API call
-    with e2e_page.expect_request(
-        lambda req: f"/api/downloads/{job_id}/retry" in req.url and req.method == "POST"
-    ) as request_info:
+    # Intercept the retry API call and verify response.
+    with e2e_page.expect_response(
+        lambda resp: f"/api/downloads/{job_id}/retry" in resp.url and resp.request.method == "POST"
+    ) as response_info:
         retry_btn.click()
-
-    request = request_info.value
-    assert request.method == "POST"
+    response = response_info.value
+    assert response.ok
 
 
 # ---------------------------------------------------------------------------
@@ -263,16 +274,12 @@ def test_downloads_ffmpeg_warning(e2e_page: Page, downloads_seeded: dict) -> Non
     # The ffmpeg warning banner has specific classes if present
     ffmpeg_warning = e2e_page.locator("div.border-amber-300.bg-amber-50")
     count = ffmpeg_warning.count()
-
-    # The warning should either be present or absent depending on ffmpeg availability.
-    # If ffmpeg IS available on the test machine, the warning should be absent (count == 0).
-    # If ffmpeg is NOT available, the warning should be present (count == 1).
-    # We verify the structure is correct in either case.
-    if count > 0:
-        expect(ffmpeg_warning).to_contain_text("ffmpeg")
-    else:
-        # No ffmpeg warning — the server has ffmpeg installed, which is fine.
-        assert count == 0
+    ffmpeg_installed = shutil.which("ffmpeg") is not None
+    if ffmpeg_installed:
+        assert count == 0, "ffmpeg installed environment must not show warning"
+        return
+    assert count == 1, "ffmpeg missing environment must show warning"
+    expect(ffmpeg_warning).to_contain_text("ffmpeg")
 
 
 # ---------------------------------------------------------------------------
@@ -299,18 +306,17 @@ def test_downloads_badge_on_nav(e2e_page: Page, downloads_seeded: dict) -> None:
 def test_downloads_progress_polling(e2e_page: Page, downloads_seeded: dict) -> None:
     """JS polls /api/downloads/progress every 5 seconds."""
     base = e2e_page._e2e_base_url
+    progress_requests: list[str] = []
 
-    # Set up the request listener BEFORE navigating so we catch the
-    # initial poll that fires on DOMContentLoaded.
-    with e2e_page.expect_request(
-        lambda req: "/api/downloads/progress" in req.url and req.method == "GET",
-        timeout=12_000,
-    ) as request_info:
-        e2e_page.goto(f"{base}/downloads")
+    def on_request(req) -> None:
+        if "/api/downloads/progress" in req.url and req.method == "GET":
+            progress_requests.append(req.url)
 
-    request = request_info.value
-    assert "/api/downloads/progress" in request.url
-    assert request.method == "GET"
+    e2e_page.on("request", on_request)
+    e2e_page.goto(f"{base}/downloads")
+    e2e_page.wait_for_timeout(6_500)
+    e2e_page.remove_listener("request", on_request)
+    assert len(progress_requests) >= 2
 
 
 # ---------------------------------------------------------------------------

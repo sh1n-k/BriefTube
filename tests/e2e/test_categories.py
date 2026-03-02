@@ -315,25 +315,15 @@ def test_category_drag_reorder(seeded_page: Page):
 
     seeded_page.route("**/api/categories/reorder", capture_reorder)
 
-    # Simulate the reorder by directly calling the API (drag is hard to test
-    # reliably with Playwright). Instead, we invoke the JS that Sortable.onEnd
-    # would call with swapped order.
+    # Perform real drag interaction via the draggable handles.
     default_cat_id = sidebar.get_attribute("data-default-category-id")
-    seeded_page.evaluate(
-        f"""
-        (async () => {{
-            await fetch("/api/categories/reorder", {{
-                method: "PUT",
-                headers: {{ "Content-Type": "application/json" }},
-                body: JSON.stringify({{ ordered_ids: [{default_cat_id}, {second_id}, {first_id}] }}),
-            }});
-        }})()
-        """
-    )
+    source_handle = items.nth(1).locator("[data-drag-handle]")
+    target_item = items.nth(0)
+    with seeded_page.expect_request("**/api/categories/reorder"):
+        source_handle.drag_to(target_item)
 
-    # Wait for the request to be captured
-    seeded_page.wait_for_function("true", timeout=1000)
-    seeded_page.wait_for_timeout(500)
+    # Allow route hook to append captured payload
+    seeded_page.wait_for_timeout(200)
     assert len(reorder_requests) >= 1, "Expected at least one reorder request"
 
     payload = reorder_requests[0]

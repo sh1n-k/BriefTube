@@ -301,10 +301,8 @@ def test_video_list_sort_order(e2e_page: Page, seeded_server: dict) -> None:
         upload_header = page.locator(
             "#video-list-wrap th[hx-get*='order=desc']"
         )
-    upload_header.click()
-
-    # Wait for HTMX swap
-    page.wait_for_timeout(1000)
+    with page.expect_response(lambda resp: "/views/video-list" in resp.url and resp.status == 200):
+        upload_header.click()
     page.wait_for_selector("#video-list-wrap tbody tr")
 
     first_title_toggled = (
@@ -315,6 +313,17 @@ def test_video_list_sort_order(e2e_page: Page, seeded_server: dict) -> None:
 
     # After toggling, the first video should be different
     assert first_title_desc != first_title_toggled
+
+    # Toggle again and ensure we return to the original first row.
+    second_toggle = page.locator("#video-list-wrap th[hx-get*='order=']").first
+    with page.expect_response(lambda resp: "/views/video-list" in resp.url and resp.status == 200):
+        second_toggle.click()
+    first_title_restored = (
+        page.locator("#video-list-wrap tbody tr")
+        .first.locator("td a[href^='/videos/']")
+        .inner_text()
+    )
+    assert first_title_restored == first_title_desc
 
 
 @pytest.mark.e2e
@@ -447,10 +456,11 @@ def test_video_list_delete_selected(e2e_page: Page, seeded_server: dict) -> None
     initial_count = rows.count()
     assert initial_count > 0
 
-    # Get the video_id of the first item to delete
-    first_checkbox = page.locator(
-        "#video-list-wrap tbody input[data-video-select-item]"
-    ).first
+    # Get the first row target URL before delete
+    first_row = page.locator("#video-list-wrap tbody tr").first
+    target_href = first_row.locator("td a[href^='/videos/']").get_attribute("href")
+    assert target_href is not None
+    first_checkbox = first_row.locator("input[data-video-select-item]")
     first_checkbox.check()
 
     # The delete button (type="submit") should become enabled via JS
@@ -462,10 +472,9 @@ def test_video_list_delete_selected(e2e_page: Page, seeded_server: dict) -> None
         delete_btn.click()
     assert resp_info.value.ok
 
-    # After HTMX swap, verify the list updated
+    # After HTMX swap, verify the deleted target is not present on the page.
     page.wait_for_selector("#video-list-wrap tbody tr")
-    new_rows = page.locator("#video-list-wrap tbody tr")
-    assert new_rows.count() <= initial_count
+    assert page.locator(f"#video-list-wrap tbody a[href='{target_href}']").count() == 0
 
 
 @pytest.mark.e2e
@@ -496,12 +505,18 @@ def test_video_thumbnail_fallback(e2e_page: Page, seeded_server: dict) -> None:
 
     # Our seeded videos have no thumbnail_path, so _thumbnail_url falls back to
     # https://i.ytimg.com/vi/{video_id}/hqdefault.jpg
-    first_img = page.locator("#video-list-wrap tbody img[alt='thumbnail']").first
+    first_row = page.locator("#video-list-wrap tbody tr").first
+    first_link = first_row.locator("td a[href^='/videos/']").first
+    first_href = first_link.get_attribute("href")
+    assert first_href is not None and first_href.startswith("/videos/")
+    first_video_id = first_href.removeprefix("/videos/")
+    first_img = first_row.locator("img[alt='thumbnail']").first
     expect(first_img).to_be_visible()
 
     src = first_img.get_attribute("src")
     assert src is not None
     assert "i.ytimg.com" in src
+    assert f"/{first_video_id}/" in src
     assert "hqdefault.jpg" in src
 
 

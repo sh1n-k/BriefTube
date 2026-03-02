@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from playwright.sync_api import Page, expect
 
 from tests.e2e.seed_helpers import (
+    get_db_connection,
     seed_categories,
     seed_channel,
     seed_video,
@@ -30,7 +33,15 @@ INACTIVE_CHANNELS = [
 
 def _seed_all(db_path: str) -> dict[str, int]:
     """Seed 3 categories, 5 active + 2 inactive channels, and videos."""
+    conn = get_db_connection(db_path)
+    conn.execute("DELETE FROM videos")
+    conn.execute("DELETE FROM channels")
+    conn.execute("DELETE FROM categories WHERE is_default = 0")
+    conn.commit()
+    conn.close()
+
     cats = seed_categories(db_path)
+    disable_all_workers(db_path)
 
     for ch_id, ch_name, cat_name in ACTIVE_CHANNELS:
         seed_channel(
@@ -81,7 +92,7 @@ def _seed_all(db_path: str) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def seeded_server(e2e_server: dict) -> dict:
     """Seed data after the server starts, return server dict + categories."""
     cats = _seed_all(e2e_server["db_path"])
@@ -107,6 +118,12 @@ def _goto_channels(page: Page, *, status: str = "active", **params: str) -> None
         qs += f"&{k}={v}"
     page.goto(f"{page._e2e_base_url}/channels?{qs}")
     page.wait_for_load_state("networkidle")
+
+
+def _parse_search_index(text: str) -> tuple[int, int]:
+    matched = re.search(r"(\d+)\s*/\s*(\d+)", text)
+    assert matched is not None, f"invalid search count text: {text}"
+    return int(matched.group(1)), int(matched.group(2))
 
 
 # ===================================================================
@@ -170,12 +187,10 @@ def test_channel_search_filter(page: Page) -> None:
 
     # Type a search that matches only '투자' channels
     search_input.fill("투자")
-    # Small delay for JS debounce
-    page.wait_for_timeout(400)
 
     # Count indicator should appear
     count_node = page.locator("[data-channel-search-count]")
-    expect(count_node).not_to_have_text("0 / 0")
+    expect(count_node).to_have_text(re.compile(r"\d+\s*/\s*\d+"))
 
     # Verify matched rows have highlight class (uses bg-amber-50, ring-1 from main-ui.js)
     highlighted = page.locator("[data-channel-row].bg-amber-50, [data-channel-row].bg-indigo-100")
@@ -189,7 +204,6 @@ def test_channel_search_prev_next(page: Page) -> None:
 
     search_input = page.locator("[data-channel-search-input]")
     search_input.fill("채널")
-    page.wait_for_timeout(400)
 
     next_btn = page.locator("[data-channel-search-next]")
     prev_btn = page.locator("[data-channel-search-prev]")
@@ -198,20 +212,17 @@ def test_channel_search_prev_next(page: Page) -> None:
     expect(prev_btn).to_be_visible()
 
     count_node = page.locator("[data-channel-search-count]")
-    # Should show something like "1 / 5"
-    count_text_1 = count_node.inner_text()
-    assert "/" in count_text_1
+    first_index, total = _parse_search_index(count_node.inner_text())
+    assert total >= 2
 
     next_btn.click()
-    page.wait_for_timeout(200)
-    count_text_2 = count_node.inner_text()
-    # Index should advance (different from first text)
-    assert "/" in count_text_2
+    expect(count_node).not_to_have_text(f"{first_index} / {total}")
+    second_index, second_total = _parse_search_index(count_node.inner_text())
+    assert second_total == total
+    assert second_index != first_index
 
     prev_btn.click()
-    page.wait_for_timeout(200)
-    count_text_3 = count_node.inner_text()
-    assert count_text_3 == count_text_1
+    expect(count_node).to_have_text(re.compile(rf"{first_index}\s*/\s*{total}"))
 
 
 @pytest.mark.e2e
@@ -258,12 +269,8 @@ def test_channel_delete_single(page: Page) -> None:
     ).first
     first_delete.click()
 
-    # HTMX swaps #channel-list-wrap
-    page.wait_for_timeout(1000)
-    page.wait_for_load_state("networkidle")
-
-    rows_after = page.locator("[data-channel-row]").count()
-    assert rows_after == rows_before - 1
+    expected_rows = rows_before - 1
+    expect(page.locator("[data-channel-row]")).to_have_count(expected_rows)
 
 
 @pytest.mark.e2e
@@ -277,7 +284,6 @@ def test_channel_delete_bulk(page: Page) -> None:
     # Check select-all
     select_all = page.locator("[data-channel-select-all]")
     select_all.check()
-    page.wait_for_timeout(200)
 
     # Bulk delete button should be enabled
     bulk_delete_btn = page.locator(
@@ -287,20 +293,15 @@ def test_channel_delete_bulk(page: Page) -> None:
 
     bulk_delete_btn.click()
 
-    # Wait for HTMX response
-    page.wait_for_timeout(1000)
-    page.wait_for_load_state("networkidle")
-
-    rows_after = page.locator("[data-channel-row]").count()
-    assert rows_after < rows_before
+    page.wait_for_function(
+        "() => document.querySelectorAll('[data-channel-row]').length === 0",
+    )
+    assert page.locator("[data-channel-row]").count() == 0
 
 
 @pytest.mark.e2e
 def test_channel_select_all_toggle(page: Page) -> None:
     """Select-all checkbox toggles all channel checkboxes."""
-    # Re-seed channels that may have been deleted by earlier tests
-    _seed_all(page._e2e_db_path)
-
     _goto_channels(page)
 
     select_all = page.locator("[data-channel-select-all]")
@@ -308,14 +309,12 @@ def test_channel_select_all_toggle(page: Page) -> None:
 
     # Check select-all
     select_all.check()
-    page.wait_for_timeout(200)
 
     for i in range(items.count()):
         expect(items.nth(i)).to_be_checked()
 
     # Uncheck select-all
     select_all.uncheck()
-    page.wait_for_timeout(200)
 
     for i in range(items.count()):
         expect(items.nth(i)).not_to_be_checked()
@@ -388,31 +387,28 @@ def test_channel_bulk_resolve_form(page: Page) -> None:
 @pytest.mark.e2e
 def test_channel_category_sidebar_filter(page: Page) -> None:
     """Click a category in sidebar filters the channel list via HTMX."""
-    # Re-seed channels that may have been deleted by earlier tests
-    _seed_all(page._e2e_db_path)
-
     _goto_channels(page)
 
     sidebar = page.locator("#category-sidebar")
     expect(sidebar).to_be_visible()
 
-    # Get the '투자' category id from sidebar data attribute
-    invest_link = sidebar.locator("a:has-text('투자')").first
+    # Click '투자' category from the sidebar (real user flow)
+    invest_id = page._e2e_server["categories"]["투자"]
+    invest_link = sidebar.locator(f"a[href='/channels?status=active&category_id={invest_id}']").first
     expect(invest_link).to_be_visible()
+    with page.expect_response(
+        lambda res: (
+            "/views/channel-list" in res.url
+            and f"status=active&category_id={invest_id}" in res.url
+            and res.ok
+        )
+    ):
+        invest_link.click()
 
-    # Extract the category_id from the href
-    href = invest_link.get_attribute("href") or ""
-    assert "category_id=" in href
-
-    # Navigate directly to filtered URL to avoid dependency on earlier test deletions
-    base_url = page.url.split("/channels")[0]
-    page.goto(f"{base_url}{href}")
-    page.wait_for_load_state("networkidle")
-
-    # Only channels in '투자' category should be shown
     rows = page.locator("[data-channel-row]")
-    count = rows.count()
-    assert count > 0, "Expected at least one channel in 투자 category"
+    expect(rows).to_have_count(2)
+    for i in range(rows.count()):
+        expect(rows.nth(i)).to_contain_text("투자채널")
 
 
 @pytest.mark.e2e
@@ -421,25 +417,29 @@ def test_channel_category_all_restores(page: Page) -> None:
     _goto_channels(page)
 
     sidebar = page.locator("#category-sidebar")
+    invest_id = page._e2e_server["categories"]["투자"]
+    invest_link = sidebar.locator(f"a[href='/channels?status=active&category_id={invest_id}']").first
+    with page.expect_response(
+        lambda res: (
+            "/views/channel-list" in res.url
+            and f"status=active&category_id={invest_id}" in res.url
+            and res.ok
+        )
+    ):
+        invest_link.click()
+    all_link = sidebar.locator("a[href='/channels?status=active']").first
+    with page.expect_response(
+        lambda res: (
+            "/views/channel-list" in res.url
+            and "status=active" in res.url
+            and "category_id=" not in res.url
+            and res.ok
+        )
+    ):
+        all_link.click()
 
-    # First get current base URL
-    base_url = page.url.split("/channels")[0]
-
-    # Navigate to a specific category filter
-    invest_link = sidebar.locator("a:has-text('투자')").first
-    invest_href = invest_link.get_attribute("href") or ""
-    page.goto(f"{base_url}{invest_href}")
-    page.wait_for_load_state("networkidle")
-
-    filtered_count = page.locator("[data-channel-row]").count()
-
-    # Now navigate to "all channels" (no category filter)
-    page.goto(f"{base_url}/channels?status=active")
-    page.wait_for_load_state("networkidle")
-
-    # All active channels should be more than category-filtered
     rows = page.locator("[data-channel-row]")
-    assert rows.count() >= filtered_count
+    expect(rows).to_have_count(len(ACTIVE_CHANNELS))
 
 
 @pytest.mark.e2e
@@ -488,9 +488,9 @@ def test_channel_category_sidebar_add(page: Page) -> None:
     add_btn = sidebar.locator("form[hx-post='/views/categories'] button[type='submit']")
     add_btn.click()
 
-    # Wait for HTMX swap
-    page.wait_for_timeout(1000)
-    page.wait_for_load_state("networkidle")
+    page.wait_for_function(
+        "() => document.querySelector('#category-sidebar')?.textContent?.includes('E2E테스트카테고리') === true",
+    )
 
     # Sidebar should now contain the new category
     sidebar_updated = page.locator("#category-sidebar")
@@ -506,28 +506,24 @@ def test_channel_category_sidebar_delete(page: Page) -> None:
     _goto_channels(page)
 
     sidebar = page.locator("#category-sidebar")
-
-    # Look for the E2E test category we added, or any custom category
-    cat_items = sidebar.locator("[data-category-list] li")
-    if cat_items.count() == 0:
-        pytest.skip("No custom categories to delete")
-
-    # Get the last custom category's delete button
-    last_cat = cat_items.last
-    delete_btn = last_cat.locator("button[hx-delete]")
+    name_input = sidebar.locator("input[name='name']")
+    name_input.fill("삭제테스트카테고리")
+    sidebar.locator("form[hx-post='/views/categories'] button[type='submit']").click()
+    expect(sidebar).to_contain_text("삭제테스트카테고리")
+    sidebar = page.locator("#category-sidebar")
+    target_selector = "[data-category-list] li:has-text('삭제테스트카테고리')"
+    target_item = sidebar.locator(target_selector)
+    expect(target_item).to_have_count(1)
+    delete_btn = target_item.locator("button[hx-delete]")
 
     # hx-confirm will trigger a browser dialog
-    page.on("dialog", lambda dialog: dialog.accept())
+    page.once("dialog", lambda dialog: dialog.accept())
 
-    delete_btn.click(force=True)
-
-    # Wait for HTMX swap
-    page.wait_for_timeout(1000)
-    page.wait_for_load_state("networkidle")
-
-    # Sidebar should have been updated
-    sidebar_updated = page.locator("#category-sidebar")
-    expect(sidebar_updated).to_be_visible()
+    with page.expect_response(
+        lambda res: ("/views/categories/" in res.url and res.request.method == "DELETE" and res.ok)
+    ):
+        delete_btn.click(force=True)
+    expect(page.locator(target_selector)).to_have_count(0)
 
 
 @pytest.mark.e2e
@@ -542,7 +538,6 @@ def test_channel_reactivate_flow(page: Page) -> None:
     # Check the first inactive channel
     first_item = page.locator("[data-channel-select-item]").first
     first_item.check()
-    page.wait_for_timeout(200)
 
     # The reactivate button should exist on the inactive tab
     reactivate_btn = page.locator(
@@ -565,7 +560,6 @@ def test_channel_reactivate_flow(page: Page) -> None:
     # Click cancel to dismiss
     cancel_btn = confirm_modal.locator("[data-reactivate-confirm-cancel]")
     cancel_btn.click()
-    page.wait_for_timeout(500)
 
     # Modal should be hidden
     expect(confirm_modal).to_be_hidden()

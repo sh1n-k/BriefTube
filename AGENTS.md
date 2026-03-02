@@ -91,6 +91,10 @@ claude -p "Respond with exactly: OK" --output-format text --no-session-persisten
 ```bash
 .venv/bin/python -m pytest -q
 ```
+- Playwright E2E는 기본 실행에서 제외하고 명시 실행:
+```bash
+.venv/bin/python -m pytest -q -m e2e tests/e2e
+```
 전체 테스트는 환경 이슈로 간헐적 DB 오픈 오류가 나올 수 있어, 실패 시 단건 재실행으로 재현성 확인 후 보고한다.
 
 ## 테스트 프로파일 (LLM 작업용)
@@ -113,6 +117,10 @@ claude -p "Respond with exactly: OK" --output-format text --no-session-persisten
 - `profile:full` (릴리즈 전 또는 광범위 리팩터링)
 ```bash
 .venv/bin/python -m pytest -q
+```
+- `profile:e2e` (브라우저 UI 회귀)
+```bash
+.venv/bin/python -m pytest -q -m e2e tests/e2e
 ```
 - 프로파일 일부만 실행한 경우, 실행하지 않은 프로파일과 이유를 함께 기록한다.
 

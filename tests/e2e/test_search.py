@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -105,9 +107,11 @@ def _submit_search(page: Page, keyword: str) -> None:
     """Fill the search input and submit the HTMX search form."""
     search_input = page.locator("form[hx-get='/views/search-results'] input[name='q']")
     search_input.fill(keyword)
-    search_input.press("Enter")
-    # Wait for HTMX to populate #search-results
-    page.locator("#search-results").wait_for(state="attached")
+    with page.expect_response(
+        lambda resp: "/views/search-results" in resp.url and resp.status == 200
+    ):
+        search_input.press("Enter")
+    expect(page.locator("#search-results")).to_be_visible()
 
 
 # ---------- tests ----------
@@ -188,11 +192,17 @@ def test_search_preserves_query_in_url(e2e_page: Page) -> None:
 
     search_input = page.locator("input[name='q']")
     search_input.fill("기후변화")
-    search_input.press("Enter")
+    with page.expect_response(
+        lambda resp: "/views/search-results" in resp.url and resp.status == 200
+    ) as response_info:
+        search_input.press("Enter")
+    parsed = urlparse(response_info.value.url)
+    params = parse_qs(parsed.query)
+    assert params.get("q") == ["기후변화"]
 
     # Wait for HTMX search results to load
     results = page.locator("#search-results")
-    expect(results).to_be_attached(timeout=10_000)
+    expect(results).to_be_visible(timeout=10_000)
 
     # The fragment endpoint should preserve the query and return matching results
     expect(results).to_contain_text("기후변화")

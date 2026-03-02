@@ -98,6 +98,12 @@ pip install -e '.[dev]'
 pytest -q
 ```
 
+Playwright E2E (명시 실행):
+
+```bash
+pytest -q -m e2e tests/e2e
+```
+
 변경 범위별 권장:
 
 | 변경 범위 | 권장 명령 |
