@@ -234,11 +234,11 @@
             </svg>
             {{ txt.detail_key_facts }}
           </h4>
-          <div class="text-sm text-amber-900 whitespace-pre-wrap">
+          <div class="text-sm text-amber-900">
             {% if article_fact_box_html %}
-            {{ article_fact_box_html | safe }}
+            <div class="fact-box-rendered">{{ article_fact_box_html | safe }}</div>
             {% else %}
-            {{ video.fact_box }}
+            <div class="whitespace-pre-wrap break-words">{{ video.fact_box }}</div>
             {% endif %}
           </div>
         </div>

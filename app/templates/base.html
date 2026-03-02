@@ -628,6 +628,34 @@
       font-weight: 600;
     }
 
+    .fact-box-rendered {
+      line-height: 1.6;
+      word-break: break-word;
+    }
+
+    .fact-box-rendered > * + * {
+      margin-top: 0.45rem;
+    }
+
+    .fact-box-rendered p {
+      margin: 0;
+    }
+
+    .fact-box-rendered ul,
+    .fact-box-rendered ol {
+      margin: 0;
+      padding-left: 1.2rem;
+    }
+
+    .fact-box-rendered li + li {
+      margin-top: 0.25rem;
+    }
+
+    .fact-box-rendered strong {
+      font-weight: 700;
+      color: currentColor;
+    }
+
     body {
       background-color: var(--app-bg) !important;
       color: var(--text-main) !important;
