@@ -128,6 +128,28 @@ async def lifespan(app: FastAPI):
     runtime.transcript_service.apply_transcript_request_headers(
         merge_with_default_headers(transcript_header_overrides)
     )
+    llm_settings = await llm_repo.get_llm_settings(db)
+    startup_runtime_plan = runtime.llm_client.resolve_runtime_plan(llm_settings)
+    startup_runtime_reason = str(startup_runtime_plan.blocking_reason or "")
+    if startup_runtime_reason.startswith("llm_provider_schema_invalid_"):
+        alert_created = await llm_repo.ensure_llm_schema_invalid_alert(db)
+        await llm_repo.set_llm_runtime_issue(
+            db,
+            code=startup_runtime_reason,
+            message="LLM output schema is incompatible",
+        )
+        logger.warning(
+            "event=llm.runtime_unavailable_startup reason=%s alert_created=%s",
+            startup_runtime_reason,
+            alert_created,
+            extra={"event": "llm.runtime_unavailable_startup", "code": startup_runtime_reason},
+        )
+    else:
+        runtime_issue = await llm_repo.get_llm_runtime_issue(db)
+        runtime_issue_code = str(runtime_issue.get("code") or "").strip().lower()
+        if runtime_issue_code.startswith("llm_provider_schema_invalid_"):
+            await llm_repo.clear_llm_runtime_issue(db)
+        await llm_repo.clear_llm_schema_invalid_alert_flag(db)
 
     app.state.runtime = runtime
     app.state.templates = _build_templates()

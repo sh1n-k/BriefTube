@@ -15,17 +15,13 @@ LLM_PROVIDER_NONE = "none"
 LLM_PROVIDER_OPTIONS = {LLM_PROVIDER_CODEX, LLM_PROVIDER_CLAUDE}
 LLM_PROVIDER_FALLBACK_OPTIONS = {LLM_PROVIDER_NONE, *LLM_PROVIDER_OPTIONS}
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = 20_000
+ARTICLE_FIELD_KEYS: tuple[str, ...] = ("title", "lead", "body", "fact_box", "timestamps")
+ARTICLE_CORE_KEYS: tuple[str, ...] = ("title", "lead", "body")
 
 ARTICLE_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {
-        "title": {"type": "string"},
-        "lead": {"type": "string"},
-        "body": {"type": "string"},
-        "fact_box": {"type": "string"},
-        "timestamps": {"type": "string"},
-    },
-    "required": ["title", "lead", "body"],
+    "properties": {key: {"type": "string"} for key in ARTICLE_FIELD_KEYS},
+    "required": list(ARTICLE_FIELD_KEYS),
     "additionalProperties": False,
 }
 ARTICLE_JSON_SCHEMA_COMPACT = json.dumps(ARTICLE_JSON_SCHEMA, ensure_ascii=True, separators=(",", ":"))
@@ -172,6 +168,14 @@ class UnifiedLlmClient:
                 blocking_reason=f"llm_provider_unavailable_{normalized.provider_primary}",
                 warnings=[],
             )
+        try:
+            self.validate_provider_schema(normalized.provider_primary)
+        except LlmClientError as exc:
+            return LlmRuntimePlan(
+                providers_to_try=[],
+                blocking_reason=str(exc.code),
+                warnings=[],
+            )
 
         providers_to_try = [normalized.provider_primary]
         warnings: list[str] = []
@@ -179,7 +183,11 @@ class UnifiedLlmClient:
         if fallback != LLM_PROVIDER_NONE:
             fallback_command = self._provider_command(fallback)
             if self._command_exists(fallback_command):
-                providers_to_try.append(fallback)
+                try:
+                    self.validate_provider_schema(fallback)
+                    providers_to_try.append(fallback)
+                except LlmClientError as exc:
+                    warnings.append(str(exc.code))
             else:
                 warnings.append(f"llm_provider_unavailable_{fallback}")
 
@@ -279,7 +287,7 @@ class UnifiedLlmClient:
         with tempfile.TemporaryDirectory(prefix="brieftube-llm-codex-") as tmpdir:
             schema_file = Path(tmpdir) / "article.schema.json"
             output_file = Path(tmpdir) / "last_message.json"
-            schema_file.write_text(ARTICLE_JSON_SCHEMA_COMPACT, encoding="utf-8")
+            schema_file.write_text(self._provider_schema_compact(LLM_PROVIDER_CODEX), encoding="utf-8")
 
             args = [
                 "codex",
@@ -323,7 +331,7 @@ class UnifiedLlmClient:
             "--output-format",
             "json",
             "--json-schema",
-            ARTICLE_JSON_SCHEMA_COMPACT,
+            self._provider_schema_compact(LLM_PROVIDER_CLAUDE),
             "--no-session-persistence",
         ]
         result = await self._runner(args, self.timeout_seconds, prompt)
@@ -347,6 +355,13 @@ class UnifiedLlmClient:
     ) -> LlmClientError:
         combined = f"{stderr}\n{stdout}".strip()
         message = self._trim_error_message(combined or f"provider exit code={exit_code}")
+        if self._looks_like_schema_mismatch(message):
+            return LlmClientError(
+                self._schema_error_code(provider),
+                message,
+                provider=provider,
+                retryable=False,
+            )
         if self._looks_like_auth(message):
             return LlmClientError(
                 "llm_provider_auth_required",
@@ -490,7 +505,7 @@ class UnifiedLlmClient:
         )
 
     def _is_article_payload(self, payload: Mapping[str, Any]) -> bool:
-        required = {"title", "lead", "body"}
+        required = set(ARTICLE_FIELD_KEYS)
         return required.issubset(set(payload.keys()))
 
     def _coerce_article(self, payload: Mapping[str, Any], *, provider: str) -> dict[str, str]:
@@ -519,6 +534,75 @@ class UnifiedLlmClient:
     def _looks_like_auth(self, text: str) -> bool:
         lowered = text.lower()
         return any(keyword in lowered for keyword in AUTH_KEYWORDS)
+
+    def _looks_like_schema_mismatch(self, text: str) -> bool:
+        lowered = text.lower()
+        return (
+            "invalid_json_schema" in lowered
+            or "response_format" in lowered and "schema" in lowered
+            or "text.format.schema" in lowered
+        )
+
+    def _schema_error_code(self, provider: str) -> str:
+        normalized = normalize_llm_provider(provider, allow_none=False)
+        return f"llm_provider_schema_invalid_{normalized}"
+
+    def _provider_schema_compact(self, provider: str) -> str:
+        schema = self._provider_schema(provider)
+        return json.dumps(schema, ensure_ascii=True, separators=(",", ":"))
+
+    def _provider_schema(self, provider: str) -> dict[str, Any]:
+        normalized = normalize_llm_provider(provider, allow_none=False)
+        required = list(ARTICLE_FIELD_KEYS)
+        return {
+            "type": "object",
+            "properties": {key: {"type": "string"} for key in ARTICLE_FIELD_KEYS},
+            "required": required,
+            "additionalProperties": False,
+        }
+
+    def validate_provider_schema(self, provider: str) -> None:
+        normalized = normalize_llm_provider(provider, allow_none=False)
+        schema = self._provider_schema(normalized)
+        properties = schema.get("properties")
+        required = schema.get("required")
+        if not isinstance(properties, dict):
+            raise LlmClientError(
+                self._schema_error_code(normalized),
+                "LLM output schema is invalid: properties must be object",
+                provider=normalized,
+                retryable=False,
+            )
+        property_keys = {str(key) for key in properties.keys()}
+        required_keys = {str(item) for item in required} if isinstance(required, list) else set()
+        missing_core = set(ARTICLE_CORE_KEYS) - property_keys
+        if missing_core:
+            raise LlmClientError(
+                self._schema_error_code(normalized),
+                f"LLM output schema is invalid: missing core properties={sorted(missing_core)}",
+                provider=normalized,
+                retryable=False,
+            )
+        if normalized == LLM_PROVIDER_CODEX:
+            missing_required = property_keys - required_keys
+            if missing_required:
+                raise LlmClientError(
+                    self._schema_error_code(normalized),
+                    (
+                        "LLM output schema is invalid for codex: "
+                        f"required must include all properties, missing={sorted(missing_required)}"
+                    ),
+                    provider=normalized,
+                    retryable=False,
+                )
+        missing_field_keys = set(ARTICLE_FIELD_KEYS) - property_keys
+        if missing_field_keys:
+            raise LlmClientError(
+                self._schema_error_code(normalized),
+                f"LLM output schema is invalid: missing properties={sorted(missing_field_keys)}",
+                provider=normalized,
+                retryable=False,
+            )
 
     def _trim_error_message(self, text: str, limit: int = 600) -> str:
         trimmed = str(text or "").strip()

@@ -41,7 +41,9 @@ CHANNEL_MANAGEMENT_STATUS_OPTIONS = {
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
 ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
+ALERT_TYPE_LLM_SCHEMA_INVALID = "llm_schema_invalid"
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
+LLM_SCHEMA_INVALID_ALERT_SENT_KEY = "llm_schema_invalid_alert_sent"
 LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
 LLM_PROVIDER_FALLBACK_KEY = "llm_provider_fallback"
 LLM_PROMPT_TEMPLATE_KEY = "llm_prompt_template"
@@ -1943,6 +1945,54 @@ async def clear_llm_config_missing_alert_flag(db: aiosqlite.Connection) -> None:
     if str(sent_raw or "0").strip() == "0":
         return
     await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="0")
+
+
+async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
+    cursor = await db.execute(
+        """
+        SELECT COUNT(1) AS cnt
+        FROM videos
+        WHERE pipeline_status = 'llm_pending'
+        """
+    )
+    row = await cursor.fetchone()
+    pending_count = int((row["cnt"] if row is not None else 0) or 0)
+    if pending_count <= 0:
+        sent_raw = await get_setting(
+            db,
+            key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY,
+            default="0",
+        )
+        if str(sent_raw or "0").strip() != "0":
+            await set_setting(db, key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY, value="0")
+        return False
+
+    sent_raw = await get_setting(
+        db,
+        key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY,
+        default="0",
+    )
+    if str(sent_raw or "0").strip() == "1":
+        return False
+
+    await create_system_alert(
+        db,
+        alert_type=ALERT_TYPE_LLM_SCHEMA_INVALID,
+        message="LLM output schema is incompatible. llm_pending items are waiting.",
+    )
+    await set_setting(db, key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY, value="1")
+    return True
+
+
+async def clear_llm_schema_invalid_alert_flag(db: aiosqlite.Connection) -> None:
+    sent_raw = await get_setting(
+        db,
+        key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY,
+        default="0",
+    )
+    if str(sent_raw or "0").strip() == "0":
+        return
+    await set_setting(db, key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY, value="0")
 
 
 async def set_llm_runtime_issue(

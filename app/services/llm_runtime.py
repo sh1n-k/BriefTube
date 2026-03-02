@@ -65,6 +65,8 @@ def is_runtime_ready_for_resume(status: LlmRuntimeStatus) -> bool:
         return False
     if normalized.startswith("llm_provider_unavailable_"):
         return False
+    if normalized.startswith("llm_provider_schema_invalid_"):
+        return False
     return True
 
 
@@ -80,6 +82,12 @@ def runtime_reason_text_key(code: str) -> str:
         return "settings_llm_runtime_reason_claude_unavailable"
     if normalized.startswith("llm_provider_unavailable_"):
         return "settings_llm_runtime_reason_provider_unavailable"
+    if normalized == "llm_provider_schema_invalid_codex":
+        return "settings_llm_runtime_reason_schema_invalid_codex"
+    if normalized == "llm_provider_schema_invalid_claude":
+        return "settings_llm_runtime_reason_schema_invalid_claude"
+    if normalized.startswith("llm_provider_schema_invalid_"):
+        return "settings_llm_runtime_reason_schema_invalid"
     return "settings_llm_runtime_reason_generic"
 
 
@@ -88,5 +96,7 @@ def _is_runtime_blocking_issue(code: str) -> bool:
     if not normalized:
         return False
     if normalized == "llm_provider_auth_required":
+        return True
+    if normalized.startswith("llm_provider_schema_invalid_"):
         return True
     return normalized.startswith("llm_provider_unavailable_")

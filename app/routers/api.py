@@ -712,6 +712,7 @@ async def set_llm_settings(request: Request):
         raise HTTPException(status_code=400, detail="empty llm settings payload")
 
     try:
+        current = await settings_repo.get_llm_settings(request.app.state.runtime.db)
         saved = await settings_repo.set_llm_settings(
             request.app.state.runtime.db,
             provider_primary=provider_primary,
@@ -720,6 +721,50 @@ async def set_llm_settings(request: Request):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    runtime_plan = request.app.state.runtime.llm_client.resolve_runtime_plan(saved)
+    runtime_reason = str(runtime_plan.blocking_reason or "").strip().lower()
+    if runtime_reason.startswith("llm_provider_schema_invalid_"):
+        # Revert settings to keep save-time behavior deterministic for users.
+        await settings_repo.set_llm_settings(
+            request.app.state.runtime.db,
+            provider_primary=str(current.get("provider_primary") or ""),
+            provider_fallback=str(current.get("provider_fallback") or ""),
+            prompt_template=str(current.get("prompt_template") or ""),
+        )
+        await llm_repo.set_llm_runtime_issue(
+            request.app.state.runtime.db,
+            code=runtime_reason,
+            message="LLM output schema is incompatible",
+        )
+        await llm_repo.ensure_llm_schema_invalid_alert(request.app.state.runtime.db)
+        language = normalize_language(
+            await settings_repo.get_setting(
+                request.app.state.runtime.db,
+                key="language",
+                default="ko",
+            )
+        )
+        txt = get_texts(language)
+        reason_key = runtime_reason_text_key(runtime_reason)
+        reason_text = txt.get(reason_key, txt["settings_llm_runtime_reason_generic"])
+        message = txt["settings_llm_runtime_resume_blocked_toast"].format(reason=reason_text)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "detail": "llm schema preflight failed",
+                "code": runtime_reason,
+                "llm_settings": current,
+            },
+            headers=_build_llm_runtime_toast_header(message, "error"),
+        )
+
+    runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
+    runtime_issue_code = str(runtime_issue.get("code") or "").strip().lower()
+    if runtime_issue_code.startswith("llm_provider_schema_invalid_"):
+        await llm_repo.clear_llm_runtime_issue(request.app.state.runtime.db)
+    await llm_repo.clear_llm_schema_invalid_alert_flag(request.app.state.runtime.db)
 
     return {
         "ok": True,

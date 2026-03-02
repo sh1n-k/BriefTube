@@ -6,6 +6,8 @@
       {% set alert_text_key = 'alert_incident_rss_404' %}
     {% elif group.alert_type == 'llm_config_missing' %}
       {% set alert_text_key = 'alert_incident_llm_config_missing' %}
+    {% elif group.alert_type == 'llm_schema_invalid' %}
+      {% set alert_text_key = 'alert_incident_llm_schema_invalid' %}
     {% endif %}
     <form
       data-alert-toast
