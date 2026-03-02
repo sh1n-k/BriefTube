@@ -154,7 +154,7 @@ def test_detail_article_ready_badge_visible_when_article_exists(client: TestClie
 
 
 def test_detail_article_modal_contract_and_raw_body_preview(client: TestClient) -> None:
-    _seed_video(body="# Heading\n\nThis is **markdown** body.")
+    _seed_video(lead="Lead with **strong** text.", body="# Heading\n\nThis is **markdown** body.")
     response = client.get("/videos/vid-001")
     html = response.text
     assert '<pre class="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">' in html
@@ -165,6 +165,7 @@ def test_detail_article_modal_contract_and_raw_body_preview(client: TestClient) 
     assert 'class="article-rendered"' in html
     assert "<h1>Heading</h1>" in html
     assert "<strong>markdown</strong>" in html
+    assert "<strong>strong</strong>" in html
     assert "문서 보기 버튼으로 렌더링된 기사를 확인할 수 있습니다." in html or "Use the view button to read the rendered article." in html
 
 

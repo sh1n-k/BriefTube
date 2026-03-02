@@ -105,7 +105,9 @@ async def video_page(video_id: str, request: Request):
     if detail:
         await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
     article_body_html = ""
+    article_lead_html = ""
     if detail and str(detail.get("article_title") or "").strip():
+        article_lead_html = render_markdown_to_safe_html(str(detail.get("lead") or ""))
         article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
     transcript_retry_done = request.query_params.get("transcript_retry") == "1"
     download_defaults = await downloads_repo.get_download_default_settings(
@@ -115,6 +117,7 @@ async def video_page(video_id: str, request: Request):
     context = await build_template_context(
         request,
         video=detail,
+        article_lead_html=article_lead_html,
         article_body_html=article_body_html,
         transcript_retry_done=transcript_retry_done,
         download_defaults=download_defaults,

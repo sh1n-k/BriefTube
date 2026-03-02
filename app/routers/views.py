@@ -1198,7 +1198,9 @@ async def video_detail(video_id: str, request: Request):
     if detail:
         await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
     article_body_html = ""
+    article_lead_html = ""
     if detail and str(detail.get("article_title") or "").strip():
+        article_lead_html = render_markdown_to_safe_html(str(detail.get("lead") or ""))
         article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
@@ -1207,6 +1209,7 @@ async def video_detail(video_id: str, request: Request):
     context = await build_template_context(
         request,
         video=detail,
+        article_lead_html=article_lead_html,
         article_body_html=article_body_html,
         download_defaults=download_defaults,
         ffmpeg_available=is_ffmpeg_available(),
