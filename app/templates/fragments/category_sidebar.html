@@ -8,6 +8,7 @@
 <div
   class="rounded-lg border border-slate-200 bg-white shadow-sm"
   id="category-sidebar"
+  {% if category_sidebar_oob is defined and category_sidebar_oob %}hx-swap-oob="true"{% endif %}
   data-default-category-id="{{ default_categories[0].id if default_categories else '' }}"
   data-reorder-failed-toast="{{ txt.category_reorder_failed }}"
   data-current-status="{{ current_status }}"

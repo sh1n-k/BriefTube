@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
@@ -81,6 +83,33 @@ def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestCl
     assert '자세히' in html
 
 
+def test_channel_list_displays_decoded_handle_but_keeps_raw_in_db(client: TestClient) -> None:
+    raw_handle = "@%ED%95%9C%EA%B8%80"
+    created = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UChandledecode12345678901",
+            "channel_name": "Handle Decode",
+            "channel_handle": raw_handle,
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.get("/views/channel-list?status=active")
+    assert response.status_code == 200
+    html = response.text
+    assert "@한글" in html
+
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT channel_handle FROM channels WHERE channel_id = ?",
+            ("UChandledecode12345678901",),
+        ).fetchone()
+    assert row is not None
+    assert str(row[0]) == raw_handle
+
+
 def test_index_poll_button_disables_swap(client: TestClient) -> None:
     response = client.get('/')
     assert response.status_code == 200
@@ -143,6 +172,7 @@ def test_add_channel_view_saves_resolved_channel(client: TestClient, monkeypatch
     assert response.status_code == 200
     assert "채널이 저장되었습니다." in response.text
     assert 'id="channel-list-wrap" hx-swap-oob="true"' in response.text
+    assert re.search(r'<div[^>]*id="category-sidebar"[^>]*hx-swap-oob="true"|<div[^>]*hx-swap-oob="true"[^>]*id="category-sidebar"', response.text)
 
     channels = client.get("/api/channels").json()
     assert any(item["channel_id"] == "UCsingle001" for item in channels)
@@ -188,6 +218,21 @@ def test_add_channel_view_saves_selected_candidate(client: TestClient) -> None:
     )
     assert response.status_code == 200
     assert "채널이 저장되었습니다." in response.text
+    assert re.search(r'<div[^>]*id="category-sidebar"[^>]*hx-swap-oob="true"|<div[^>]*hx-swap-oob="true"[^>]*id="category-sidebar"', response.text)
 
     channels = client.get("/api/channels").json()
     assert any(item["channel_id"] == "UCpicked001" and item["channel_name"] == "Picked Channel" for item in channels)
+
+
+def test_bulk_commit_refreshes_category_sidebar_oob(client: TestClient) -> None:
+    response = client.post(
+        "/views/channels/bulk-commit",
+        data={
+            "status": "active",
+            "resolved_channel_id": ["UCbulk001"],
+            "resolved_channel_name": ["Bulk Channel One"],
+        },
+    )
+    assert response.status_code == 200
+    assert 'id="channel-list-wrap" hx-swap-oob="true"' in response.text
+    assert re.search(r'<div[^>]*id="category-sidebar"[^>]*hx-swap-oob="true"|<div[^>]*hx-swap-oob="true"[^>]*id="category-sidebar"', response.text)

@@ -6,6 +6,7 @@ from app.i18n import DEFAULT_LANGUAGE, get_languages, get_texts, normalize_langu
 from app.repositories import alerts_retention as alerts_repo
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
+from app.services.channel_handle import format_channel_handle_display
 from app.services.llm_runtime import resolve_llm_runtime_status, runtime_reason_text_key
 from app.time_utils import format_upload_time
 from app.timezone_policy import DEFAULT_TIMEZONE, get_timezone_options, normalize_timezone
@@ -84,6 +85,7 @@ async def build_template_context(
         "policy_settings": policy_settings,
         "retention_notice": retention_notice,
         "format_upload_time": format_upload_time,
+        "format_channel_handle_display": format_channel_handle_display,
     }
     if include_llm_runtime_status:
         context["llm_runtime_status"] = await _build_llm_runtime_context(

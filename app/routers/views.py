@@ -436,6 +436,9 @@ async def add_channel(request: Request):
     requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
+    requested_category_id = _parse_optional_int(
+        str(form.get("category_id") or request.query_params.get("category_id", ""))
+    )
     selected_candidate = str(form.get("selected_candidate", "")).strip()
     source = str(form.get("source", "")).strip()
     txt = await _texts(request)
@@ -450,6 +453,7 @@ async def add_channel(request: Request):
                 add_source=source,
                 add_candidates=[],
                 add_status=requested_status,
+                add_category_id=requested_category_id,
             )
             return request.app.state.templates.TemplateResponse(
                 request=request,
@@ -471,7 +475,9 @@ async def add_channel(request: Request):
         channel_status, channels, channel_counts = await _resolve_channel_management_state(
             request,
             requested_status,
+            category_id=requested_category_id,
         )
+        categories = await categories_repo.list_categories(request.app.state.runtime.db)
         context = await build_template_context(
             request,
             add_mode="success",
@@ -481,7 +487,10 @@ async def add_channel(request: Request):
             channels=channels,
             channel_status=channel_status,
             channel_counts=channel_counts,
+            categories=categories,
+            selected_category_id=requested_category_id,
             add_status=channel_status,
+            add_category_id=requested_category_id,
             **_channel_management_ui_context(request),
         )
         return request.app.state.templates.TemplateResponse(
@@ -498,6 +507,7 @@ async def add_channel(request: Request):
             add_source="",
             add_candidates=[],
             add_status=requested_status,
+            add_category_id=requested_category_id,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -520,6 +530,7 @@ async def add_channel(request: Request):
             add_source=source,
             add_candidates=[],
             add_status=requested_status,
+            add_category_id=requested_category_id,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -552,7 +563,9 @@ async def add_channel(request: Request):
             channel_status, channels, channel_counts = await _resolve_channel_management_state(
                 request,
                 requested_status,
+                category_id=requested_category_id,
             )
+            categories = await categories_repo.list_categories(request.app.state.runtime.db)
             context = await build_template_context(
                 request,
                 add_mode="success",
@@ -562,7 +575,10 @@ async def add_channel(request: Request):
                 channels=channels,
                 channel_status=channel_status,
                 channel_counts=channel_counts,
+                categories=categories,
+                selected_category_id=requested_category_id,
                 add_status=channel_status,
+                add_category_id=requested_category_id,
                 **_channel_management_ui_context(request),
             )
             return request.app.state.templates.TemplateResponse(
@@ -579,6 +595,7 @@ async def add_channel(request: Request):
             add_source=source,
             add_candidates=resolved.get("candidates", []),
             add_status=requested_status,
+            add_category_id=requested_category_id,
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -594,6 +611,7 @@ async def add_channel(request: Request):
         add_candidates=[],
         add_reason=str(resolved.get("reason", "")).strip(),
         add_status=requested_status,
+        add_category_id=requested_category_id,
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -1258,6 +1276,9 @@ async def bulk_commit(request: Request):
     requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
+    requested_category_id = _parse_optional_int(
+        str(form.get("category_id") or request.query_params.get("category_id", ""))
+    )
     items: list[dict[str, str]] = []
 
     resolved_ids = list(form.getlist("resolved_channel_id"))
@@ -1304,13 +1325,17 @@ async def bulk_commit(request: Request):
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
         requested_status,
+        category_id=requested_category_id,
     )
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         saved=saved,
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        categories=categories,
+        selected_category_id=requested_category_id,
         **_channel_management_ui_context(request),
     )
     return request.app.state.templates.TemplateResponse(

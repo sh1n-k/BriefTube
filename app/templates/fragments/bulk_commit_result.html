@@ -5,3 +5,8 @@
 <div id="channel-list-wrap" hx-swap-oob="true">
   {% include "fragments/channel_list.html" %}
 </div>
+
+{% if categories is defined %}
+  {% set category_sidebar_oob = true %}
+  {% include "fragments/category_sidebar.html" %}
+{% endif %}

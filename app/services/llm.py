@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
 import tempfile
 from typing import Any, Awaitable, Callable, Mapping
+from uuid import uuid4
 
 LLM_PROVIDER_CODEX = "codex"
 LLM_PROVIDER_CLAUDE = "claude"
@@ -109,6 +111,7 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
     if fallback == primary:
         fallback = LLM_PROVIDER_NONE
     prompt_template = str(payload.get("prompt_template") or "")
+
     model_payload = payload.get("llm_model")
     if isinstance(model_payload, Mapping):
         claude_model_raw = model_payload.get("claude", "")
@@ -189,10 +192,14 @@ class UnifiedLlmClient:
         timeout_seconds: int,
         runner: CommandRunner | None = None,
         command_exists: CommandExists | None = None,
+        response_capture_dir: str | None = None,
+        response_capture_max_chars: int = 200_000,
     ):
         self.timeout_seconds = max(1, int(timeout_seconds))
         self._runner = runner or _default_command_runner
         self._command_exists = command_exists or (lambda name: shutil.which(name) is not None)
+        self._response_capture_dir = Path(response_capture_dir).expanduser() if response_capture_dir else None
+        self._response_capture_max_chars = max(1_000, int(response_capture_max_chars))
 
     def resolve_runtime_plan(self, settings: Mapping[str, Any] | None) -> LlmRuntimePlan:
         normalized = normalize_llm_settings(settings)
@@ -269,7 +276,12 @@ class UnifiedLlmClient:
             refused_once = False
             while True:
                 try:
-                    return await self._invoke_provider(provider, prompt, normalized)
+                    return await self._invoke_provider(
+                        provider,
+                        prompt,
+                        source_title=source_title,
+                        settings=normalized,
+                    )
                 except LlmClientError as exc:
                     last_error = exc
                     if exc.code == "llm_provider_refused" and not refused_once:
@@ -293,16 +305,25 @@ class UnifiedLlmClient:
         rendered = rendered.replace("{transcript_text}", transcript_text)
         return rendered
 
-    async def _invoke_provider(self, provider: str, prompt: str, settings: LlmSettings) -> dict[str, str]:
+    async def _invoke_provider(
+        self,
+        provider: str,
+        prompt: str,
+        *,
+        source_title: str,
+        settings: LlmSettings,
+    ) -> dict[str, str]:
         if provider == LLM_PROVIDER_CODEX:
             return await self._invoke_codex(
                 prompt,
+                source_title=source_title,
                 model=settings.llm_model.get("codex", LLM_CODEX_MODEL_FIXED),
                 reasoning_effort=settings.llm_reasoning_effort.get("codex", ""),
             )
         if provider == LLM_PROVIDER_CLAUDE:
             return await self._invoke_claude(
                 prompt,
+                source_title=source_title,
                 model=settings.llm_model.get("claude", ""),
                 reasoning_effort=settings.llm_reasoning_effort.get("claude", ""),
             )
@@ -317,6 +338,7 @@ class UnifiedLlmClient:
         self,
         prompt: str,
         *,
+        source_title: str,
         model: str,
         reasoning_effort: str,
     ) -> dict[str, str]:
@@ -347,27 +369,47 @@ class UnifiedLlmClient:
             ]
             if reasoning_effort:
                 args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
-            result = await self._runner(args, self.timeout_seconds, prompt)
-            if result.exit_code != 0:
-                raise self._classify_command_failure(
-                    provider=LLM_PROVIDER_CODEX,
-                    stderr=result.stderr,
-                    stdout=result.stdout,
-                    exit_code=result.exit_code,
-                )
 
+            result = await self._runner(args, self.timeout_seconds, prompt)
             raw_output = ""
             if output_file.exists():
                 raw_output = output_file.read_text(encoding="utf-8", errors="replace").strip()
             if not raw_output:
                 raw_output = result.stdout
 
-        return self._parse_provider_output(LLM_PROVIDER_CODEX, raw_output)
+        if result.exit_code != 0:
+            classified = self._classify_command_failure(
+                provider=LLM_PROVIDER_CODEX,
+                stderr=result.stderr,
+                stdout=result.stdout,
+                exit_code=result.exit_code,
+            )
+            self._capture_provider_response(
+                provider=LLM_PROVIDER_CODEX,
+                source_title=source_title,
+                exit_code=result.exit_code,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                raw_output=raw_output,
+                parse_error_code=classified.code,
+                parse_error_message=str(classified),
+            )
+            raise classified
+
+        return self._parse_and_capture_provider_output(
+            provider=LLM_PROVIDER_CODEX,
+            source_title=source_title,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            raw_output=raw_output,
+        )
 
     async def _invoke_claude(
         self,
         prompt: str,
         *,
+        source_title: str,
         model: str,
         reasoning_effort: str,
     ) -> dict[str, str]:
@@ -392,16 +434,144 @@ class UnifiedLlmClient:
             args.extend(["--model", model])
         if reasoning_effort:
             args.extend(["--effort", reasoning_effort])
+
         result = await self._runner(args, self.timeout_seconds, prompt)
         if result.exit_code != 0:
-            raise self._classify_command_failure(
+            classified = self._classify_command_failure(
                 provider=LLM_PROVIDER_CLAUDE,
                 stderr=result.stderr,
                 stdout=result.stdout,
                 exit_code=result.exit_code,
             )
+            self._capture_provider_response(
+                provider=LLM_PROVIDER_CLAUDE,
+                source_title=source_title,
+                exit_code=result.exit_code,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                raw_output=result.stdout,
+                parse_error_code=classified.code,
+                parse_error_message=str(classified),
+            )
+            raise classified
 
-        return self._parse_provider_output(LLM_PROVIDER_CLAUDE, result.stdout)
+        return self._parse_and_capture_provider_output(
+            provider=LLM_PROVIDER_CLAUDE,
+            source_title=source_title,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            raw_output=result.stdout,
+        )
+
+    def _parse_and_capture_provider_output(
+        self,
+        *,
+        provider: str,
+        source_title: str,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        raw_output: str,
+    ) -> dict[str, str]:
+        try:
+            article = self._parse_provider_output(provider, raw_output)
+        except LlmClientError as exc:
+            self._capture_provider_response(
+                provider=provider,
+                source_title=source_title,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                raw_output=raw_output,
+                parse_error_code=exc.code,
+                parse_error_message=str(exc),
+            )
+            raise
+
+        self._capture_provider_response(
+            provider=provider,
+            source_title=source_title,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            raw_output=raw_output,
+            article=article,
+        )
+        return article
+
+    def _capture_provider_response(
+        self,
+        *,
+        provider: str,
+        source_title: str,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        raw_output: str,
+        parse_error_code: str | None = None,
+        parse_error_message: str | None = None,
+        article: Mapping[str, str] | None = None,
+    ) -> None:
+        capture_dir = self._response_capture_dir
+        if capture_dir is None:
+            return
+        try:
+            capture_dir.mkdir(parents=True, exist_ok=True)
+            day = datetime.now(timezone.utc).strftime("%Y%m%d")
+            capture_file = capture_dir / f"llm_response_{day}.jsonl"
+            stdout_text, stdout_truncated, stdout_chars = self._capture_text(stdout)
+            stderr_text, stderr_truncated, stderr_chars = self._capture_text(stderr)
+            raw_text, raw_truncated, raw_chars = self._capture_text(raw_output)
+            payload: dict[str, Any] = {
+                "id": str(uuid4()),
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "provider": provider,
+                "source_title": source_title,
+                "exit_code": int(exit_code),
+                "parse": {
+                    "ok": parse_error_code is None,
+                    "error_code": parse_error_code or "",
+                    "error_message": parse_error_message or "",
+                },
+                "stdout": {
+                    "text": stdout_text,
+                    "chars": stdout_chars,
+                    "truncated": stdout_truncated,
+                },
+                "stderr": {
+                    "text": stderr_text,
+                    "chars": stderr_chars,
+                    "truncated": stderr_truncated,
+                },
+                "raw_output": {
+                    "text": raw_text,
+                    "chars": raw_chars,
+                    "truncated": raw_truncated,
+                },
+            }
+            if article is not None:
+                payload["article"] = {
+                    "title": str(article.get("title") or ""),
+                    "lead": str(article.get("lead") or ""),
+                    "body": str(article.get("body") or ""),
+                    "fact_box": str(article.get("fact_box") or "{}"),
+                    "timestamps": str(article.get("timestamps") or "[]"),
+                }
+            with capture_file.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False))
+                handle.write("\n")
+        except Exception:
+            # Capture must never break LLM pipeline flow.
+            return
+
+    def _capture_text(self, value: str) -> tuple[str, bool, int]:
+        text = str(value or "")
+        chars = len(text)
+        max_chars = self._response_capture_max_chars
+        if chars <= max_chars:
+            return text, False, chars
+        return text[:max_chars], True, chars
 
     def _classify_command_failure(
         self,

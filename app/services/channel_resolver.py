@@ -11,7 +11,7 @@ import httpx
 CHANNEL_ID_RE = re.compile(r"UC[-_A-Za-z0-9]{22}")
 YOUTUBE_URL_RE = re.compile(r"https?://(?:www\.)?youtube\.com/[^\s]+", re.IGNORECASE)
 HANDLE_RE = re.compile(r"^@[\w._-]+$", re.UNICODE)
-HANDLE_IN_URL_RE = re.compile(r"https?://(?:www\.)?youtube\.com/(@[A-Za-z0-9_.-]+)", re.IGNORECASE)
+HANDLE_IN_URL_RE = re.compile(r"https?://(?:www\.)?youtube\.com/(@[^/?#\"'&]+)", re.IGNORECASE)
 CHANNEL_ID_PATTERNS = [
     re.compile(r'"externalId":"(UC[-_A-Za-z0-9]{22})"'),
     re.compile(r'"browseId":"(UC[-_A-Za-z0-9]{22})"'),

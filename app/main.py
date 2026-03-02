@@ -56,6 +56,20 @@ def _build_templates() -> Jinja2Templates:
     return Jinja2Templates(directory=str(template_dir))
 
 
+def _resolve_llm_response_capture_dir(env_name: str) -> str | None:
+    disabled = str(os.getenv("BRIEFTUBE_LLM_RESPONSE_CAPTURE_DISABLED", "")).strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        return None
+
+    explicit = str(os.getenv("BRIEFTUBE_LLM_RESPONSE_CAPTURE_DIR", "")).strip()
+    if explicit:
+        return explicit
+
+    if str(env_name).strip().lower() == "dev":
+        return "./output/llm_raw"
+    return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config()
@@ -116,6 +130,7 @@ async def lifespan(app: FastAPI):
         channel_resolver=ChannelResolverService(http_client),
         llm_client=UnifiedLlmClient(
             timeout_seconds=config.llm_timeout_seconds,
+            response_capture_dir=_resolve_llm_response_capture_dir(config.env),
         ),
         telegram_notifier=TelegramNotifier(
             token=config.telegram_bot_token,
