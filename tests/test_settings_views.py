@@ -32,12 +32,15 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'name="llm_provider_fallback"' in response.text
     assert 'name="llm_model_codex"' in response.text
     assert 'name="llm_model_claude"' in response.text
+    assert 'name="llm_model_gemini"' in response.text
     assert 'name="llm_reasoning_effort_codex"' in response.text
     assert 'name="llm_reasoning_effort_claude"' in response.text
+    assert 'name="llm_reasoning_effort_gemini"' in response.text
     assert 'name="llm_prompt_template"' in response.text
     assert 'hx-put="/api/settings/llm"' in response.text
     assert "Provider별 모델/사고 수준" in response.text
     assert "Codex 모델은 gpt-5.3-codex로 고정됩니다." in response.text
+    assert "Google Gemini CLI" in response.text
     assert "기본 화질 상한" in response.text
     assert "다운로드 저장 경로" in response.text
     assert 'name="download_output_dir"' in response.text

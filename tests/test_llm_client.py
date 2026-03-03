@@ -357,3 +357,31 @@ def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
 
     assert article["title"] == "Codex fallback title"
     assert calls[:3] == ["claude", "claude", "codex"]
+
+
+def test_runtime_plan_blocks_when_primary_is_gemini_without_schema_enforcement() -> None:
+    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
+    reason = client.runtime_not_ready_reason(
+        {
+            "provider_primary": "gemini",
+            "provider_fallback": "none",
+            "prompt_template": "{transcript_text}",
+            "llm_model": {"gemini": "gemini-3.1-pro-preview"},
+            "llm_reasoning_effort": {"gemini": "none"},
+        }
+    )
+    assert reason == "llm_provider_schema_invalid_gemini"
+
+
+def test_runtime_plan_keeps_primary_and_warns_when_fallback_is_gemini() -> None:
+    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
+    plan = client.resolve_runtime_plan(
+        {
+            "provider_primary": "codex",
+            "provider_fallback": "gemini",
+            "prompt_template": "{transcript_text}",
+        }
+    )
+    assert plan.blocking_reason is None
+    assert plan.providers_to_try == ["codex"]
+    assert plan.warnings == ["llm_provider_schema_invalid_gemini"]

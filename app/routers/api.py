@@ -24,6 +24,7 @@ from app.services.llm_runtime import (
     LlmRuntimeStatus,
     is_runtime_ready_for_resume,
     resolve_llm_runtime_status,
+    runtime_reason_text,
     runtime_reason_text_key,
 )
 from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
@@ -843,20 +844,28 @@ async def set_llm_settings(request: Request):
             provider_fallback = str(form.get("llm_provider_fallback", "")).strip().lower()
         if "llm_prompt_template" in form:
             prompt_template = str(form.get("llm_prompt_template", ""))
-        model_keys = ("llm_model_codex", "llm_model_claude")
+        model_keys = ("llm_model_codex", "llm_model_claude", "llm_model_gemini")
         if any(key in form for key in model_keys):
             llm_model = {}
             if "llm_model_codex" in form:
                 llm_model["codex"] = str(form.get("llm_model_codex", ""))
             if "llm_model_claude" in form:
                 llm_model["claude"] = str(form.get("llm_model_claude", ""))
-        reasoning_keys = ("llm_reasoning_effort_codex", "llm_reasoning_effort_claude")
+            if "llm_model_gemini" in form:
+                llm_model["gemini"] = str(form.get("llm_model_gemini", ""))
+        reasoning_keys = (
+            "llm_reasoning_effort_codex",
+            "llm_reasoning_effort_claude",
+            "llm_reasoning_effort_gemini",
+        )
         if any(key in form for key in reasoning_keys):
             llm_reasoning_effort = {}
             if "llm_reasoning_effort_codex" in form:
                 llm_reasoning_effort["codex"] = str(form.get("llm_reasoning_effort_codex", ""))
             if "llm_reasoning_effort_claude" in form:
                 llm_reasoning_effort["claude"] = str(form.get("llm_reasoning_effort_claude", ""))
+            if "llm_reasoning_effort_gemini" in form:
+                llm_reasoning_effort["gemini"] = str(form.get("llm_reasoning_effort_gemini", ""))
 
     if (
         provider_primary is None
@@ -898,8 +907,7 @@ async def set_llm_settings(request: Request):
             )
         )
         txt = get_texts(language)
-        reason_key = runtime_reason_text_key(runtime_reason)
-        reason_text = txt.get(reason_key, txt["settings_llm_runtime_reason_generic"])
+        reason_text = runtime_reason_text(runtime_reason, txt)
         message = txt["settings_llm_runtime_resume_blocked_toast"].format(reason=reason_text)
         return JSONResponse(
             status_code=409,
@@ -958,8 +966,7 @@ async def resume_llm_runtime(request: Request):
         pending_count=int(status_payload.get("pending_count") or 0),
     )
     if not is_runtime_ready_for_resume(status):
-        reason_key = runtime_reason_text_key(str(status_payload.get("code") or ""))
-        reason_text = txt.get(reason_key, txt["settings_llm_runtime_reason_generic"])
+        reason_text = runtime_reason_text(str(status_payload.get("code") or ""), txt)
         message = txt["settings_llm_runtime_resume_blocked_toast"].format(reason=reason_text)
         return JSONResponse(
             status_code=409,

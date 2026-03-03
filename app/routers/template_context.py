@@ -7,7 +7,7 @@ from app.repositories import alerts_retention as alerts_repo
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.services.channel_handle import format_channel_handle_display
-from app.services.llm_runtime import resolve_llm_runtime_status, runtime_reason_text_key
+from app.services.llm_runtime import resolve_llm_runtime_status, runtime_reason_text, runtime_reason_text_key
 from app.time_utils import format_upload_time
 from app.timezone_policy import DEFAULT_TIMEZONE, get_timezone_options, normalize_timezone
 
@@ -27,7 +27,7 @@ async def _build_llm_runtime_context(
     )
     reason_key = runtime_reason_text_key(status.code)
     warning_texts = [
-        txt.get(runtime_reason_text_key(code), txt["settings_llm_runtime_reason_generic"])
+        runtime_reason_text(code, txt)
         for code in status.warnings
     ]
     return {
@@ -35,7 +35,7 @@ async def _build_llm_runtime_context(
         "code": status.code,
         "reason": status.reason,
         "reason_text_key": reason_key,
-        "reason_text": txt.get(reason_key, txt["settings_llm_runtime_reason_generic"]),
+        "reason_text": runtime_reason_text(status.code, txt),
         "providers_to_try": status.providers_to_try,
         "warnings": status.warnings,
         "warning_texts": warning_texts,

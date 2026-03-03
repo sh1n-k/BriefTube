@@ -12,13 +12,16 @@ from uuid import uuid4
 
 LLM_PROVIDER_CODEX = "codex"
 LLM_PROVIDER_CLAUDE = "claude"
+LLM_PROVIDER_GEMINI = "gemini"
 LLM_PROVIDER_NONE = "none"
 
-LLM_PROVIDER_OPTIONS = {LLM_PROVIDER_CODEX, LLM_PROVIDER_CLAUDE}
+LLM_PROVIDER_OPTIONS = {LLM_PROVIDER_CODEX, LLM_PROVIDER_CLAUDE, LLM_PROVIDER_GEMINI}
 LLM_PROVIDER_FALLBACK_OPTIONS = {LLM_PROVIDER_NONE, *LLM_PROVIDER_OPTIONS}
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = 20_000
 LLM_CODEX_MODEL_FIXED = "gpt-5.3-codex"
+LLM_GEMINI_MODEL_DEFAULT = "gemini-3.1-pro-preview"
 LLM_REASONING_EFFORT_OPTIONS = {"low", "medium", "high"}
+LLM_REASONING_EFFORT_GEMINI_OPTIONS = {"none", "low", "medium", "high"}
 ARTICLE_FIELD_KEYS: tuple[str, ...] = ("title", "lead", "body", "fact_box", "timestamps")
 ARTICLE_CORE_KEYS: tuple[str, ...] = ("title", "lead", "body")
 
@@ -111,19 +114,27 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
     model_payload = payload.get("llm_model")
     if isinstance(model_payload, Mapping):
         claude_model_raw = model_payload.get("claude", "")
+        gemini_model_raw = model_payload.get("gemini", "")
     else:
         claude_model_raw = payload.get("llm_model_claude", "")
+        gemini_model_raw = payload.get("llm_model_gemini", "")
     claude_model = str(claude_model_raw or "").strip()
+    gemini_model = str(gemini_model_raw or "").strip()
+    if not gemini_model:
+        gemini_model = LLM_GEMINI_MODEL_DEFAULT
 
     effort_payload = payload.get("llm_reasoning_effort")
     if isinstance(effort_payload, Mapping):
         codex_effort_raw = effort_payload.get("codex", "")
         claude_effort_raw = effort_payload.get("claude", "")
+        gemini_effort_raw = effort_payload.get("gemini", "")
     else:
         codex_effort_raw = payload.get("llm_reasoning_effort_codex", "")
         claude_effort_raw = payload.get("llm_reasoning_effort_claude", "")
-    codex_effort = _normalize_reasoning_effort(codex_effort_raw)
-    claude_effort = _normalize_reasoning_effort(claude_effort_raw)
+        gemini_effort_raw = payload.get("llm_reasoning_effort_gemini", "")
+    codex_effort = _normalize_reasoning_effort(codex_effort_raw, provider=LLM_PROVIDER_CODEX)
+    claude_effort = _normalize_reasoning_effort(claude_effort_raw, provider=LLM_PROVIDER_CLAUDE)
+    gemini_effort = _normalize_reasoning_effort(gemini_effort_raw, provider=LLM_PROVIDER_GEMINI)
 
     return LlmSettings(
         provider_primary=primary,
@@ -132,21 +143,28 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         llm_model={
             "codex": LLM_CODEX_MODEL_FIXED,
             "claude": claude_model,
+            "gemini": gemini_model,
         },
         llm_reasoning_effort={
             "codex": codex_effort,
             "claude": claude_effort,
+            "gemini": gemini_effort,
         },
     )
 
 
-def _normalize_reasoning_effort(value: Any) -> str:
+def _normalize_reasoning_effort(value: Any, *, provider: str) -> str:
     normalized = str(value or "").strip().lower()
+    default = "none" if provider == LLM_PROVIDER_GEMINI else ""
     if not normalized:
-        return ""
-    if normalized in LLM_REASONING_EFFORT_OPTIONS:
+        return default
+    if provider == LLM_PROVIDER_GEMINI:
+        options = LLM_REASONING_EFFORT_GEMINI_OPTIONS
+    else:
+        options = LLM_REASONING_EFFORT_OPTIONS
+    if normalized in options:
         return normalized
-    return ""
+    return default
 
 
 async def _default_command_runner(
@@ -251,6 +269,8 @@ class UnifiedLlmClient:
             return "codex"
         if normalized == LLM_PROVIDER_CLAUDE:
             return "claude"
+        if normalized == LLM_PROVIDER_GEMINI:
+            return "gemini"
         raise LlmClientError(
             "llm_provider_invalid",
             f"Unsupported provider: {provider}",
@@ -341,6 +361,13 @@ class UnifiedLlmClient:
                 source_title=source_title,
                 model=settings.llm_model.get("claude", ""),
                 reasoning_effort=settings.llm_reasoning_effort.get("claude", ""),
+            )
+        if provider == LLM_PROVIDER_GEMINI:
+            return await self._invoke_gemini(
+                prompt,
+                source_title=source_title,
+                model=settings.llm_model.get("gemini", LLM_GEMINI_MODEL_DEFAULT),
+                reasoning_effort=settings.llm_reasoning_effort.get("gemini", "none"),
             )
         raise LlmClientError(
             "llm_provider_invalid",
@@ -477,6 +504,22 @@ class UnifiedLlmClient:
             stdout=result.stdout,
             stderr=result.stderr,
             raw_output=result.stdout,
+        )
+
+    async def _invoke_gemini(
+        self,
+        prompt: str,
+        *,
+        source_title: str,
+        model: str,
+        reasoning_effort: str,
+    ) -> dict[str, str]:
+        _ = (prompt, source_title, model, reasoning_effort)
+        raise LlmClientError(
+            self._schema_error_code(LLM_PROVIDER_GEMINI),
+            "Gemini CLI strict output schema enforcement is not available",
+            provider=LLM_PROVIDER_GEMINI,
+            retryable=False,
         )
 
     def _parse_and_capture_provider_output(
@@ -806,6 +849,13 @@ class UnifiedLlmClient:
 
     def validate_provider_schema(self, provider: str) -> None:
         normalized = normalize_llm_provider(provider, allow_none=False)
+        if normalized == LLM_PROVIDER_GEMINI:
+            raise LlmClientError(
+                self._schema_error_code(normalized),
+                "Gemini CLI does not support strict output schema enforcement",
+                provider=normalized,
+                retryable=False,
+            )
         schema = self._provider_schema(normalized)
         properties = schema.get("properties")
         required = schema.get("required")

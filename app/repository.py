@@ -11,13 +11,16 @@ import aiosqlite
 from app.services.downloads import validate_download_output_dir
 from app.services.llm import (
     LLM_CODEX_MODEL_FIXED,
+    LLM_GEMINI_MODEL_DEFAULT,
     LLM_PROMPT_TEMPLATE_MAX_LENGTH,
     LLM_PROVIDER_CLAUDE,
     LLM_PROVIDER_CODEX,
     LLM_PROVIDER_FALLBACK_OPTIONS,
+    LLM_PROVIDER_GEMINI,
     LLM_PROVIDER_NONE,
     LLM_PROVIDER_OPTIONS,
     LLM_REASONING_EFFORT_OPTIONS,
+    LLM_REASONING_EFFORT_GEMINI_OPTIONS,
     normalize_llm_provider,
 )
 
@@ -50,14 +53,17 @@ LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
 LLM_PROVIDER_FALLBACK_KEY = "llm_provider_fallback"
 LLM_PROMPT_TEMPLATE_KEY = "llm_prompt_template"
 LLM_MODEL_CLAUDE_KEY = "llm_model_claude"
+LLM_MODEL_GEMINI_KEY = "llm_model_gemini"
 LLM_REASONING_EFFORT_CODEX_KEY = "llm_reasoning_effort_codex"
 LLM_REASONING_EFFORT_CLAUDE_KEY = "llm_reasoning_effort_claude"
+LLM_REASONING_EFFORT_GEMINI_KEY = "llm_reasoning_effort_gemini"
 LLM_RUNTIME_LAST_CODE_KEY = "llm_runtime_last_code"
 LLM_RUNTIME_LAST_MESSAGE_KEY = "llm_runtime_last_message"
 LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
 LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
 LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_CLAUDE
 LLM_MODEL_CLAUDE_MAX_LENGTH = 200
+LLM_MODEL_GEMINI_MAX_LENGTH = 200
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
 
 RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY = "rss_bootstrap_lookback_days"
@@ -279,29 +285,43 @@ def _validate_llm_prompt_template(value: str | None) -> str:
 
 def _validate_llm_model_settings(value: Mapping[str, Any]) -> dict[str, str]:
     raw_claude = value.get("claude")
+    raw_gemini = value.get("gemini")
     claude_model = str(raw_claude or "").strip()
+    gemini_model = str(raw_gemini or "").strip()
     if len(claude_model) > LLM_MODEL_CLAUDE_MAX_LENGTH:
         raise ValueError(f"llm_model.claude is too long (max {LLM_MODEL_CLAUDE_MAX_LENGTH})")
+    if len(gemini_model) > LLM_MODEL_GEMINI_MAX_LENGTH:
+        raise ValueError(f"llm_model.gemini is too long (max {LLM_MODEL_GEMINI_MAX_LENGTH})")
+    if not gemini_model:
+        gemini_model = LLM_GEMINI_MODEL_DEFAULT
     return {
         "codex": LLM_CODEX_MODEL_FIXED,
         "claude": claude_model,
+        "gemini": gemini_model,
     }
 
 
-def _normalize_reasoning_effort(value: Any) -> str:
+def _normalize_reasoning_effort(value: Any, *, provider: str) -> str:
     normalized = str(value or "").strip().lower()
+    options = (
+        LLM_REASONING_EFFORT_GEMINI_OPTIONS
+        if provider == LLM_PROVIDER_GEMINI
+        else LLM_REASONING_EFFORT_OPTIONS
+    )
+    default_value = "none" if provider == LLM_PROVIDER_GEMINI else ""
     if not normalized:
-        return ""
-    if normalized not in LLM_REASONING_EFFORT_OPTIONS:
-        allowed = ", ".join(sorted(LLM_REASONING_EFFORT_OPTIONS))
+        return default_value
+    if normalized not in options:
+        allowed = ", ".join(sorted(options))
         raise ValueError(f"reasoning_effort must be one of: {allowed}")
     return normalized
 
 
 def _validate_llm_reasoning_effort_settings(value: Mapping[str, Any]) -> dict[str, str]:
     return {
-        "codex": _normalize_reasoning_effort(value.get("codex")),
-        "claude": _normalize_reasoning_effort(value.get("claude")),
+        "codex": _normalize_reasoning_effort(value.get("codex"), provider=LLM_PROVIDER_CODEX),
+        "claude": _normalize_reasoning_effort(value.get("claude"), provider=LLM_PROVIDER_CLAUDE),
+        "gemini": _normalize_reasoning_effort(value.get("gemini"), provider=LLM_PROVIDER_GEMINI),
     }
 
 
@@ -2627,6 +2647,11 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         key=LLM_MODEL_CLAUDE_KEY,
         default="",
     )
+    model_gemini_raw = await get_setting(
+        db,
+        key=LLM_MODEL_GEMINI_KEY,
+        default=LLM_GEMINI_MODEL_DEFAULT,
+    )
     reasoning_effort_codex_raw = await get_setting(
         db,
         key=LLM_REASONING_EFFORT_CODEX_KEY,
@@ -2636,6 +2661,11 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         db,
         key=LLM_REASONING_EFFORT_CLAUDE_KEY,
         default="",
+    )
+    reasoning_effort_gemini_raw = await get_setting(
+        db,
+        key=LLM_REASONING_EFFORT_GEMINI_KEY,
+        default="none",
     )
 
     primary = normalize_llm_provider(primary_raw, allow_none=False)
@@ -2649,23 +2679,38 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     except ValueError:
         prompt_template = ""
     try:
-        model = _validate_llm_model_settings({"claude": model_claude_raw})
+        model = _validate_llm_model_settings({"claude": model_claude_raw, "gemini": model_gemini_raw})
     except ValueError:
         model = {
             "codex": LLM_CODEX_MODEL_FIXED,
             "claude": "",
+            "gemini": LLM_GEMINI_MODEL_DEFAULT,
         }
     try:
-        reasoning_effort_codex = _normalize_reasoning_effort(reasoning_effort_codex_raw)
+        reasoning_effort_codex = _normalize_reasoning_effort(
+            reasoning_effort_codex_raw,
+            provider=LLM_PROVIDER_CODEX,
+        )
     except ValueError:
         reasoning_effort_codex = ""
     try:
-        reasoning_effort_claude = _normalize_reasoning_effort(reasoning_effort_claude_raw)
+        reasoning_effort_claude = _normalize_reasoning_effort(
+            reasoning_effort_claude_raw,
+            provider=LLM_PROVIDER_CLAUDE,
+        )
     except ValueError:
         reasoning_effort_claude = ""
+    try:
+        reasoning_effort_gemini = _normalize_reasoning_effort(
+            reasoning_effort_gemini_raw,
+            provider=LLM_PROVIDER_GEMINI,
+        )
+    except ValueError:
+        reasoning_effort_gemini = "none"
     reasoning_effort = {
         "codex": reasoning_effort_codex,
         "claude": reasoning_effort_claude,
+        "gemini": reasoning_effort_gemini,
     }
 
     return {
@@ -2694,8 +2739,10 @@ async def set_llm_settings(
     current_model = current.get("llm_model", {})
     current_reasoning_effort = current.get("llm_reasoning_effort", {})
     next_model_claude = str(current_model.get("claude", ""))
+    next_model_gemini = str(current_model.get("gemini", LLM_GEMINI_MODEL_DEFAULT))
     next_reasoning_effort_codex = str(current_reasoning_effort.get("codex", ""))
     next_reasoning_effort_claude = str(current_reasoning_effort.get("claude", ""))
+    next_reasoning_effort_gemini = str(current_reasoning_effort.get("gemini", "none"))
 
     if provider_primary is not None:
         next_primary = _validate_llm_provider_setting(provider_primary, allow_none=False)
@@ -2709,31 +2756,35 @@ async def set_llm_settings(
         next_model_payload = {
             "codex": LLM_CODEX_MODEL_FIXED,
             "claude": next_model_claude,
+            "gemini": next_model_gemini,
         }
         next_model_payload.update(
             {
                 key: value
                 for key, value in llm_model.items()
-                if key in {"codex", "claude"}
+                if key in {"codex", "claude", "gemini"}
             }
         )
         validated_model = _validate_llm_model_settings(next_model_payload)
         next_model_claude = validated_model["claude"]
+        next_model_gemini = validated_model["gemini"]
     if llm_reasoning_effort is not None:
         next_effort_payload = {
             "codex": next_reasoning_effort_codex,
             "claude": next_reasoning_effort_claude,
+            "gemini": next_reasoning_effort_gemini,
         }
         next_effort_payload.update(
             {
                 key: value
                 for key, value in llm_reasoning_effort.items()
-                if key in {"codex", "claude"}
+                if key in {"codex", "claude", "gemini"}
             }
         )
         validated_effort = _validate_llm_reasoning_effort_settings(next_effort_payload)
         next_reasoning_effort_codex = validated_effort["codex"]
         next_reasoning_effort_claude = validated_effort["claude"]
+        next_reasoning_effort_gemini = validated_effort["gemini"]
 
     next_settings: dict[str, Any] = {
         "provider_primary": next_primary,
@@ -2742,10 +2793,12 @@ async def set_llm_settings(
         "llm_model": {
             "codex": LLM_CODEX_MODEL_FIXED,
             "claude": next_model_claude,
+            "gemini": next_model_gemini,
         },
         "llm_reasoning_effort": {
             "codex": next_reasoning_effort_codex,
             "claude": next_reasoning_effort_claude,
+            "gemini": next_reasoning_effort_gemini,
         },
     }
     if not persist:
@@ -2755,8 +2808,10 @@ async def set_llm_settings(
     await set_setting(db, key=LLM_PROVIDER_FALLBACK_KEY, value=next_fallback)
     await set_setting(db, key=LLM_PROMPT_TEMPLATE_KEY, value=next_prompt)
     await set_setting(db, key=LLM_MODEL_CLAUDE_KEY, value=next_model_claude)
+    await set_setting(db, key=LLM_MODEL_GEMINI_KEY, value=next_model_gemini)
     await set_setting(db, key=LLM_REASONING_EFFORT_CODEX_KEY, value=next_reasoning_effort_codex)
     await set_setting(db, key=LLM_REASONING_EFFORT_CLAUDE_KEY, value=next_reasoning_effort_claude)
+    await set_setting(db, key=LLM_REASONING_EFFORT_GEMINI_KEY, value=next_reasoning_effort_gemini)
     return next_settings
 
 

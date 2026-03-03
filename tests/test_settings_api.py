@@ -36,10 +36,12 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
         "llm_model": {
             "codex": "gpt-5.3-codex",
             "claude": "",
+            "gemini": "gemini-3.1-pro-preview",
         },
         "llm_reasoning_effort": {
             "codex": "",
             "claude": "",
+            "gemini": "none",
         },
     }
     assert initial.json()["videos_per_page"] == 8
@@ -250,10 +252,12 @@ def test_settings_llm_update(client: TestClient) -> None:
             "llm_model": {
                 "codex": "ignored-model",
                 "claude": "sonnet",
+                "gemini": "gemini-3.1-pro-preview",
             },
             "llm_reasoning_effort": {
                 "codex": "high",
                 "claude": "medium",
+                "gemini": "low",
             },
         },
     )
@@ -264,10 +268,12 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert response.json()["llm_settings"]["llm_model"] == {
         "codex": "gpt-5.3-codex",
         "claude": "sonnet",
+        "gemini": "gemini-3.1-pro-preview",
     }
     assert response.json()["llm_settings"]["llm_reasoning_effort"] == {
         "codex": "high",
         "claude": "medium",
+        "gemini": "low",
     }
 
     after = client.get("/api/settings")
@@ -277,10 +283,12 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert after.json()["llm_settings"]["llm_model"] == {
         "codex": "gpt-5.3-codex",
         "claude": "sonnet",
+        "gemini": "gemini-3.1-pro-preview",
     }
     assert after.json()["llm_settings"]["llm_reasoning_effort"] == {
         "codex": "high",
         "claude": "medium",
+        "gemini": "low",
     }
 
 
@@ -372,6 +380,7 @@ def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(cli
     assert second.json()["llm_settings"]["llm_reasoning_effort"] == {
         "codex": "high",
         "claude": "medium",
+        "gemini": "none",
     }
 
 
@@ -384,8 +393,10 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
             "llm_prompt_template": "Body={transcript_text}",
             "llm_model_codex": "custom-codex-model",
             "llm_model_claude": "sonnet",
+            "llm_model_gemini": "gemini-3.1-pro-preview",
             "llm_reasoning_effort_codex": "medium",
             "llm_reasoning_effort_claude": "high",
+            "llm_reasoning_effort_gemini": "low",
         },
     )
     assert response.status_code == 200
@@ -393,10 +404,12 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
     assert llm_settings["llm_model"] == {
         "codex": "gpt-5.3-codex",
         "claude": "sonnet",
+        "gemini": "gemini-3.1-pro-preview",
     }
     assert llm_settings["llm_reasoning_effort"] == {
         "codex": "medium",
         "claude": "high",
+        "gemini": "low",
     }
 
 def test_settings_llm_update_blocks_when_schema_preflight_fails(
@@ -444,12 +457,41 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
         "llm_model": {
             "codex": "gpt-5.3-codex",
             "claude": "",
+            "gemini": "gemini-3.1-pro-preview",
         },
         "llm_reasoning_effort": {
             "codex": "",
             "claude": "",
+            "gemini": "none",
         },
     }
+
+
+def test_settings_llm_update_blocks_when_primary_provider_is_gemini(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "gemini",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+            "llm_model": {
+                "gemini": "gemini-3.1-pro-preview",
+            },
+            "llm_reasoning_effort": {
+                "gemini": "none",
+            },
+        },
+    )
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["code"] == "llm_provider_schema_invalid_gemini"
+
+    after = client.get("/api/settings")
+    assert after.status_code == 200
+    assert after.json()["llm_settings"]["provider_primary"] == "codex"
+    assert after.json()["llm_settings"]["provider_fallback"] == "claude"
+
 
 def test_settings_llm_runtime_status_reports_prompt_missing(client: TestClient) -> None:
     response = client.get("/api/settings/llm/runtime-status")

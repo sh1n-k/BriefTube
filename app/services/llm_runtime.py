@@ -76,19 +76,33 @@ def runtime_reason_text_key(code: str) -> str:
         return "settings_llm_runtime_reason_prompt_missing"
     if normalized == "llm_provider_auth_required":
         return "settings_llm_runtime_reason_auth_required"
-    if normalized == "llm_provider_unavailable_codex":
-        return "settings_llm_runtime_reason_codex_unavailable"
-    if normalized == "llm_provider_unavailable_claude":
-        return "settings_llm_runtime_reason_claude_unavailable"
     if normalized.startswith("llm_provider_unavailable_"):
         return "settings_llm_runtime_reason_provider_unavailable"
-    if normalized == "llm_provider_schema_invalid_codex":
-        return "settings_llm_runtime_reason_schema_invalid_codex"
-    if normalized == "llm_provider_schema_invalid_claude":
-        return "settings_llm_runtime_reason_schema_invalid_claude"
     if normalized.startswith("llm_provider_schema_invalid_"):
         return "settings_llm_runtime_reason_schema_invalid"
     return "settings_llm_runtime_reason_generic"
+
+
+def runtime_reason_provider(code: str) -> str:
+    normalized = str(code or "").strip().lower()
+    for prefix in ("llm_provider_unavailable_", "llm_provider_schema_invalid_"):
+        if normalized.startswith(prefix):
+            return normalized.removeprefix(prefix).strip()
+    return ""
+
+
+def runtime_reason_text(code: str, txt: Mapping[str, str]) -> str:
+    reason_key = runtime_reason_text_key(code)
+    fallback = str(txt.get("settings_llm_runtime_reason_generic") or "")
+    template = str(txt.get(reason_key) or fallback)
+    provider = runtime_reason_provider(code)
+    if provider and "{provider}" in template:
+        provider_label = str(txt.get(f"settings_llm_provider_{provider}") or provider)
+        try:
+            return template.format(provider=provider_label)
+        except Exception:
+            return template
+    return template
 
 
 def _is_runtime_blocking_issue(code: str) -> bool:
