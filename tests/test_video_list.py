@@ -134,7 +134,7 @@ def test_video_list_pipeline_status_filter(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
-        conn.execute("UPDATE videos SET pipeline_status = 'llm_failed' WHERE video_id = 'vid-a-001'")
+        conn.execute("UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id = 'vid-a-001'")
         conn.commit()
 
     response = client.get("/views/video-list", params={"pipeline_status": "done", "limit": "20"})
@@ -154,7 +154,7 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
         cursor = conn.execute("INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999))
         category_id = int(cursor.lastrowid)
         conn.execute("UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB"))
-        conn.execute("UPDATE videos SET pipeline_status = 'llm_failed' WHERE video_id IN ('vid-a-000', 'vid-b-001')")
+        conn.execute("UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id IN ('vid-a-000', 'vid-b-001')")
         conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
         conn.commit()
 
@@ -163,7 +163,7 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
         params={
             "category_id": str(category_id),
             "channel_id": "UC_BBB",
-            "pipeline_status": "llm_failed",
+            "pipeline_status": "manual_review",
             "limit": "20",
         },
     )

@@ -139,12 +139,13 @@ PIPELINE_STATUS_KEYS: tuple[str, ...] = (
     "done",
 )
 VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES: tuple[str, ...] = (
-    "done",
-    "llm_pending",
-    "llm_failed",
-    "manual_review",
+    "auto_paused",
+    "transcript_done",
     "transcript_failed",
     "no_subtitle",
+    "llm_pending",
+    "manual_review",
+    "done",
 )
 TRANSCRIPT_QUEUE_STATUSES = ("transcript_pending", "transcript_processing", "transcript_failed", "no_subtitle")
 LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_review")
