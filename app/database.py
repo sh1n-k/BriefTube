@@ -354,14 +354,22 @@ async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:
 
 
 async def _ensure_article_columns(db: aiosqlite.Connection) -> None:
+    migrated = False
     if not await _column_exists(db, "articles", "llm_provider"):
         await db.execute("ALTER TABLE articles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'unknown'")
+        migrated = True
     if not await _column_exists(db, "articles", "llm_model"):
         await db.execute("ALTER TABLE articles ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
+        migrated = True
     if not await _column_exists(db, "articles", "llm_reasoning_effort"):
         await db.execute("ALTER TABLE articles ADD COLUMN llm_reasoning_effort TEXT NOT NULL DEFAULT ''")
+        migrated = True
     if not await _column_exists(db, "articles", "llm_generated_at"):
         await db.execute("ALTER TABLE articles ADD COLUMN llm_generated_at TEXT")
+        migrated = True
+
+    if not migrated:
+        return
 
     await db.execute(
         """

@@ -418,9 +418,10 @@ async def export_channels(
 ):
     db = request.app.state.runtime.db
     channels = await channels_repo.list_channels_for_management(db, status, category_id)
+    now = datetime.now(timezone.utc)
     export_data = {
         "version": 1,
-        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "exported_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "filter": {"status": status, "category_id": category_id},
         "channels": [
             {
@@ -433,7 +434,7 @@ async def export_channels(
             for ch in channels
         ],
     }
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
     filename = f"brieftube_channels_{status}_{timestamp}.json"
     json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
     return Response(
