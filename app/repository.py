@@ -58,6 +58,7 @@ LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
 LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
 LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_CLAUDE
 LLM_MODEL_CLAUDE_MAX_LENGTH = 200
+LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
 
 RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY = "rss_bootstrap_lookback_days"
 RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT = 60
@@ -358,6 +359,20 @@ def _normalize_error_message(value: str | None) -> str:
     if len(trimmed) <= TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH:
         return trimmed
     return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
+
+
+def _normalize_article_provider(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in LLM_PROVIDER_OPTIONS:
+        return normalized
+    return LLM_ARTICLE_PROVIDER_UNKNOWN
+
+
+def _normalize_article_text_meta(value: str | None, *, max_length: int = 200) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    return normalized[:max_length]
 
 
 def normalize_channel_metadata_status(value: str | None) -> str:
@@ -1422,7 +1437,11 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             a.lead,
             a.body,
             a.fact_box,
-            a.timestamps
+            a.timestamps,
+            a.llm_provider,
+            a.llm_model,
+            a.llm_reasoning_effort,
+            a.llm_generated_at
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         LEFT JOIN transcripts t ON t.video_id = v.video_id
@@ -1452,7 +1471,18 @@ async def get_transcript(db: aiosqlite.Connection, video_id: str) -> dict[str, A
 async def get_article(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:
     cursor = await db.execute(
         """
-        SELECT video_id, title, lead, body, fact_box, timestamps, created_at
+        SELECT
+            video_id,
+            title,
+            lead,
+            body,
+            fact_box,
+            timestamps,
+            llm_provider,
+            llm_model,
+            llm_reasoning_effort,
+            llm_generated_at,
+            created_at
         FROM articles
         WHERE video_id = ?
         """,
@@ -1590,6 +1620,26 @@ async def mark_video_retry(db: aiosqlite.Connection, video_id: str) -> int:
     )
     await db.commit()
     return cursor.rowcount
+
+
+async def requeue_done_video_for_manual_article_retry(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'llm_pending',
+            retry_count = 0
+        WHERE video_id = ?
+          AND pipeline_status = 'done'
+          AND EXISTS (
+              SELECT 1
+              FROM transcripts t
+              WHERE t.video_id = videos.video_id
+          )
+        """,
+        (video_id,),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def pop_pending_transcript_videos(
@@ -1878,19 +1928,54 @@ async def save_article(
     body: str,
     fact_box: str | None,
     timestamps: str | None,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    llm_reasoning_effort: str | None = None,
+    llm_generated_at: str | None = None,
 ) -> None:
+    safe_provider = _normalize_article_provider(llm_provider)
+    safe_model = _normalize_article_text_meta(llm_model)
+    safe_reasoning_effort = _normalize_article_text_meta(llm_reasoning_effort, max_length=32)
+    safe_generated_at = str(llm_generated_at or "").strip() or None
+
     await db.execute(
         """
-        INSERT INTO articles(video_id, title, lead, body, fact_box, timestamps)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO articles(
+            video_id,
+            title,
+            lead,
+            body,
+            fact_box,
+            timestamps,
+            llm_provider,
+            llm_model,
+            llm_reasoning_effort,
+            llm_generated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
         ON CONFLICT(video_id) DO UPDATE SET
             title=excluded.title,
             lead=excluded.lead,
             body=excluded.body,
             fact_box=excluded.fact_box,
-            timestamps=excluded.timestamps
+            timestamps=excluded.timestamps,
+            llm_provider=excluded.llm_provider,
+            llm_model=excluded.llm_model,
+            llm_reasoning_effort=excluded.llm_reasoning_effort,
+            llm_generated_at=excluded.llm_generated_at
         """,
-        (video_id, title, lead, body, fact_box, timestamps),
+        (
+            video_id,
+            title,
+            lead,
+            body,
+            fact_box,
+            timestamps,
+            safe_provider,
+            safe_model,
+            safe_reasoning_effort,
+            safe_generated_at,
+        ),
     )
     await db.execute(
         "UPDATE videos SET pipeline_status = 'done' WHERE video_id = ?",

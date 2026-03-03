@@ -118,6 +118,10 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     body=article["body"],
                     fact_box=article.get("fact_box"),
                     timestamps=article.get("timestamps"),
+                    llm_provider=article.get("_llm_provider"),
+                    llm_model=article.get("_llm_model"),
+                    llm_reasoning_effort=article.get("_llm_reasoning_effort"),
+                    llm_generated_at=article.get("_llm_generated_at"),
                 )
                 await state.notification_queue.put(
                     {

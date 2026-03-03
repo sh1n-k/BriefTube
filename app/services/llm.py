@@ -284,12 +284,19 @@ class UnifiedLlmClient:
             refused_once = False
             while True:
                 try:
-                    return await self._invoke_provider(
+                    article = await self._invoke_provider(
                         provider,
                         prompt,
                         source_title=source_title,
                         settings=normalized,
                     )
+                    article["_llm_provider"] = provider
+                    article["_llm_model"] = str(normalized.llm_model.get(provider, "") or "")
+                    article["_llm_reasoning_effort"] = str(
+                        normalized.llm_reasoning_effort.get(provider, "") or ""
+                    )
+                    article["_llm_generated_at"] = datetime.now(timezone.utc).isoformat()
+                    return article
                 except LlmClientError as exc:
                     last_error = exc
                     if exc.code == "llm_provider_refused" and not refused_once:

@@ -69,6 +69,10 @@ class DelayedSuccessClient:
             "body": "Article body",
             "fact_box": "{}",
             "timestamps": "[]",
+            "_llm_provider": "codex",
+            "_llm_model": "gpt-5.3-codex",
+            "_llm_reasoning_effort": "medium",
+            "_llm_generated_at": "2026-03-02T10:00:00+00:00",
         }
 
 
@@ -282,7 +286,7 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
 def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> None:
     db_path = tmp_path / "worker-runtime-transition-success.db"
 
-    async def _run() -> tuple[str, int, int, str]:
+    async def _run() -> tuple[str, int, int, str, str, str, str, str]:
         db = await open_database(str(db_path))
         await init_database(db)
         await db.execute(
@@ -346,6 +350,15 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
                 ("vid-worker-003",),
             )
             article_row = await cursor.fetchone()
+            article_meta_cursor = await db.execute(
+                """
+                SELECT llm_provider, llm_model, llm_reasoning_effort, llm_generated_at
+                FROM articles
+                WHERE video_id = ?
+                """,
+                ("vid-worker-003",),
+            )
+            article_meta = await article_meta_cursor.fetchone()
             runtime_issue = await repository.get_llm_runtime_issue(db)
             notice = await asyncio.wait_for(queue.get(), timeout=1)
             assert notice.get("video_id") == "vid-worker-003"
@@ -354,17 +367,27 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
                 int(done_row["retry_count"]),
                 int(article_row["cnt"] or 0),
                 runtime_issue["code"] if runtime_issue else "",
+                str(article_meta["llm_provider"] if article_meta is not None else ""),
+                str(article_meta["llm_model"] if article_meta is not None else ""),
+                str(article_meta["llm_reasoning_effort"] if article_meta is not None else ""),
+                str(article_meta["llm_generated_at"] if article_meta is not None else ""),
             )
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await db.close()
 
-    status, retry_count, article_count, runtime_issue_code = asyncio.run(_run())
+    status, retry_count, article_count, runtime_issue_code, llm_provider, llm_model, llm_effort, llm_generated_at = asyncio.run(
+        _run()
+    )
     assert status == "done"
     assert retry_count == 0
     assert article_count == 1
     assert runtime_issue_code == ""
+    assert llm_provider == "codex"
+    assert llm_model == "gpt-5.3-codex"
+    assert llm_effort == "medium"
+    assert llm_generated_at == "2026-03-02T10:00:00+00:00"
 
 
 def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhausted(tmp_path) -> None:

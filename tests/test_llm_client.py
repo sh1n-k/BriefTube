@@ -77,6 +77,10 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
     assert article["title"] == "Article title"
     assert article["lead"] == "Lead"
     assert article["body"] == "Body"
+    assert article["_llm_provider"] == "codex"
+    assert article["_llm_model"] == "gpt-5.3-codex"
+    assert article["_llm_reasoning_effort"] == ""
+    assert article["_llm_generated_at"]
 
 
 def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
@@ -120,6 +124,7 @@ def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
 
     assert article["title"] == "Claude title"
     assert calls[:3] == ["codex", "codex", "claude"]
+    assert article["_llm_provider"] == "claude"
 
 
 def test_restructure_applies_reasoning_effort_for_codex() -> None:
@@ -191,6 +196,8 @@ def test_restructure_applies_model_and_effort_for_claude() -> None:
         )
     )
     assert article["title"] == "Claude title"
+    assert article["_llm_model"] == "sonnet"
+    assert article["_llm_reasoning_effort"] == "high"
 
 
 def test_restructure_raises_auth_required_when_provider_not_logged_in() -> None:

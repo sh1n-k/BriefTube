@@ -1176,17 +1176,38 @@ async def article_request_selected_videos(request: Request):
 @router.post("/videos/{video_id}/article-request")
 async def article_request_single_video(video_id: str, request: Request):
     txt = await _texts(request)
-    bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
-        request.app.state.runtime.db,
-        video_ids=[video_id],
-    )
-    new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-    retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-    skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-    failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    new_count = 0
+    retry_count = 0
+    skip_count = 0
+    failed_count = 0
+    detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
+    pipeline_status = str(detail.get("pipeline_status") or "").strip().lower() if detail else ""
+    has_transcript = bool(str(detail.get("raw_text") or "").strip()) if detail else False
 
-    if (new_count + retry_count) > 0:
-        request.app.state.runtime.manual_article_wake_event.set()
+    if detail and pipeline_status == "done":
+        if has_transcript:
+            retried = await videos_repo.requeue_done_video_for_manual_article_retry(
+                request.app.state.runtime.db,
+                video_id,
+            )
+            if retried > 0:
+                retry_count = 1
+                request.app.state.runtime.llm_wake_event.set()
+            else:
+                failed_count = 1
+        else:
+            failed_count = 1
+    else:
+        bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
+            request.app.state.runtime.db,
+            video_ids=[video_id],
+        )
+        new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        if (new_count + retry_count) > 0:
+            request.app.state.runtime.manual_article_wake_event.set()
 
     llm_worker_waiting = not await settings_repo.is_worker_enabled(
         request.app.state.runtime.db,

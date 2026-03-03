@@ -176,6 +176,19 @@
 
 {{ video.body or '' }}</div>
         <h3 class="text-lg font-medium text-slate-900">{{ video.article_title }}</h3>
+        {% set provider_display = (video.llm_provider|default('', true)|trim) or txt.detail_article_meta_unknown %}
+        {% set model_display = (video.llm_model|default('', true)|trim) or txt.detail_article_meta_unknown %}
+        {% set effort_display = (video.llm_reasoning_effort|default('', true)|trim) or txt.detail_article_meta_unknown %}
+        {% set generated_display = format_upload_time(video.llm_generated_at, timezone) if video.llm_generated_at else txt.detail_article_meta_unknown %}
+        <div class="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <div class="mb-1 font-medium text-slate-700">{{ txt.detail_article_meta_title }}</div>
+          <div class="grid gap-1 sm:grid-cols-2">
+            <div><span class="text-slate-500">{{ txt.detail_article_meta_provider }}:</span> <span class="font-mono">{{ provider_display }}</span></div>
+            <div><span class="text-slate-500">{{ txt.detail_article_meta_model }}:</span> <span class="font-mono">{{ model_display }}</span></div>
+            <div><span class="text-slate-500">{{ txt.detail_article_meta_effort }}:</span> <span class="font-mono">{{ effort_display }}</span></div>
+            <div><span class="text-slate-500">{{ txt.detail_article_meta_generated_at }}:</span> <span class="font-mono">{{ generated_display }}</span></div>
+          </div>
+        </div>
         {% if video.lead %}
         <blockquote class="border-l-4 border-indigo-400 pl-4 text-sm italic text-slate-700">
           {% if article_lead_html %}
