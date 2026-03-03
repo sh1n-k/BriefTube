@@ -73,6 +73,11 @@
           {{ txt.channel_select_all }}
         </label>
         <div class="flex items-center gap-2">
+          <a
+            href="/api/channels/export?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
+            class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            download
+          >{{ txt.channel_export_button }}</a>
           <button
             type="button"
             hx-post="/views/channels/metadata/retry-failed?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
