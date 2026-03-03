@@ -5,14 +5,16 @@
     'total': videos|length,
     'total_pages': 1,
     'channel_id': '',
+    'pipeline_status': '',
     'sort': 'upload_time',
     'order': 'desc'
   } %}
 
-  {# ── Channel + Category filters ── #}
+  {# ── Channel + Category + Status filters ── #}
   {% set has_channels = channels is defined and channels|length > 0 %}
   {% set has_categories = categories_for_filter is defined and categories_for_filter|length > 0 %}
-  {% if has_channels or has_categories %}
+  {% set has_status_filters = status_filter_options is defined and status_filter_options|length > 0 %}
+  {% if has_channels or has_categories or has_status_filters %}
   <div class="border-b border-slate-200 px-3 py-2">
     <form hx-get="/views/video-list" hx-target="#video-list-wrap"
           hx-swap="outerHTML" hx-push-url="true"
@@ -47,6 +49,19 @@
         {% endfor %}
       </select>
       {% endif %}
+      {% if has_status_filters %}
+      <select name="pipeline_status"
+              class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700">
+        <option value="">{{ txt.video_filter_all_statuses }}</option>
+        {% for status_key in status_filter_options %}
+          {% set status_text_key = 'pipeline_status_' ~ status_key %}
+          <option value="{{ status_key }}"
+            {% if pager.pipeline_status is defined and pager.pipeline_status == status_key %}selected{% endif %}>
+            {{ txt.get(status_text_key, status_key | replace('_', ' ')) }}
+          </option>
+        {% endfor %}
+      </select>
+      {% endif %}
     </form>
   </div>
   {% endif %}
@@ -65,6 +80,9 @@
     {% endif %}
     {% if pager.category_id is defined and pager.category_id %}
       <input type="hidden" name="_category_id" value="{{ pager.category_id }}" />
+    {% endif %}
+    {% if pager.pipeline_status is defined and pager.pipeline_status %}
+      <input type="hidden" name="_pipeline_status" value="{{ pager.pipeline_status }}" />
     {% endif %}
 
     {# ── Control bar ── #}
@@ -131,6 +149,7 @@
             {% set sort_q = "page=1&limit=" ~ pager.limit ~ "&sort=upload_time&order=" ~ sort_toggle %}
             {% if pager.channel_id %}{% set sort_q = sort_q ~ "&channel_id=" ~ pager.channel_id %}{% endif %}
             {% if pager.category_id is defined and pager.category_id %}{% set sort_q = sort_q ~ "&category_id=" ~ pager.category_id %}{% endif %}
+            {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set sort_q = sort_q ~ "&pipeline_status=" ~ pager.pipeline_status %}{% endif %}
             <th class="cursor-pointer select-none whitespace-nowrap p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-indigo-600"
                 hx-get="/views/video-list?{{ sort_q }}"
                 hx-target="#video-list-wrap" hx-swap="outerHTML"
@@ -229,6 +248,9 @@
       {% if pager.category_id is defined and pager.category_id %}
         {% set query_common = query_common ~ "&category_id=" ~ pager.category_id %}
       {% endif %}
+      {% if pager.pipeline_status is defined and pager.pipeline_status %}
+        {% set query_common = query_common ~ "&pipeline_status=" ~ pager.pipeline_status %}
+      {% endif %}
       {% set first_page = 1 %}
       {% set last_page = pager.total_pages %}
       {% set prev_page = pager.page - 1 %}
@@ -296,6 +318,9 @@
         {% endif %}
         {% if pager.category_id is defined and pager.category_id %}
           <input type="hidden" name="category_id" value="{{ pager.category_id }}" />
+        {% endif %}
+        {% if pager.pipeline_status is defined and pager.pipeline_status %}
+          <input type="hidden" name="pipeline_status" value="{{ pager.pipeline_status }}" />
         {% endif %}
         <label class="text-xs text-slate-600">{{ txt.video_pager_page_input_label }}</label>
         <input

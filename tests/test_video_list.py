@@ -129,6 +129,51 @@ def test_video_list_channel_filter(client: TestClient) -> None:
     assert "vid-a-000" not in html
 
 
+def test_video_list_pipeline_status_filter(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        conn.execute("UPDATE videos SET pipeline_status = 'llm_failed' WHERE video_id = 'vid-a-001'")
+        conn.commit()
+
+    response = client.get("/views/video-list", params={"pipeline_status": "done", "limit": "20"})
+    assert response.status_code == 200
+    html = response.text
+    assert 'name="pipeline_status"' in html
+    assert "전체 상태" in html
+    assert "vid-b-000" in html
+    assert "vid-a-001" not in html
+    assert "vid-b-001" not in html
+
+
+def test_video_list_filters_apply_as_and(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute("INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999))
+        category_id = int(cursor.lastrowid)
+        conn.execute("UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB"))
+        conn.execute("UPDATE videos SET pipeline_status = 'llm_failed' WHERE video_id IN ('vid-a-000', 'vid-b-001')")
+        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        conn.commit()
+
+    response = client.get(
+        "/views/video-list",
+        params={
+            "category_id": str(category_id),
+            "channel_id": "UC_BBB",
+            "pipeline_status": "llm_failed",
+            "limit": "20",
+        },
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert "vid-b-001" in html
+    assert "vid-b-000" not in html
+    assert "vid-a-000" not in html
+
+
 def test_video_list_sets_home_push_url_header(client: TestClient) -> None:
     _seed_channels_and_videos()
 
@@ -142,6 +187,23 @@ def test_video_list_sets_home_push_url_header(client: TestClient) -> None:
     assert push_url.startswith("/?")
     assert "/views/video-list" not in push_url
     assert "channel_id=UC_BBB" in push_url
+
+
+def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        conn.commit()
+
+    response = client.get(
+        "/views/video-list",
+        params={"pipeline_status": "done", "page": "1", "limit": "20", "sort": "upload_time", "order": "desc"},
+    )
+    assert response.status_code == 200
+    push_url = response.headers.get("HX-Push-Url")
+    assert push_url is not None
+    assert "pipeline_status=done" in push_url
 
 
 def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
@@ -162,6 +224,20 @@ def test_home_accepts_empty_category_id_as_all(client: TestClient) -> None:
     html = response.text
     assert "Channel A" in html
     assert "Channel B" in html
+
+
+def test_home_pipeline_status_filter(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-001'")
+        conn.commit()
+
+    response = client.get("/", params={"pipeline_status": "done", "limit": "20"})
+    assert response.status_code == 200
+    html = response.text
+    assert "vid-b-001" in html
+    assert "vid-a-000" not in html
 
 
 def test_video_list_category_then_all_restores_all_channel_options(client: TestClient) -> None:
@@ -229,6 +305,24 @@ def test_video_download_selected_empty_selection_returns_bulk_toast(client: Test
     assert response.status_code == 200
     assert "HX-Trigger" in response.headers
     assert "video-download-bulk-toast" in response.headers["HX-Trigger"]
+
+
+def test_video_download_selected_preserves_pipeline_status_filter(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET pipeline_status = 'no_subtitle' WHERE video_id = 'vid-b-001'")
+        conn.commit()
+
+    response = client.post(
+        "/views/videos/download-selected",
+        data={"_page": "1", "_limit": "20", "_pipeline_status": "no_subtitle"},
+    )
+
+    assert response.status_code == 200
+    assert 'name="_pipeline_status" value="no_subtitle"' in response.text
+    assert "vid-b-001" in response.text
+    assert "vid-a-000" not in response.text
 
 
 def test_video_download_selected_duplicate_only_returns_info_tone(
@@ -299,6 +393,24 @@ def test_video_article_selected_empty_selection_returns_bulk_toast(client: TestC
     assert "HX-Trigger" in response.headers
     payload = json.loads(response.headers["HX-Trigger"])
     assert "video-article-request-toast" in payload
+
+
+def test_video_article_selected_preserves_pipeline_status_filter(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-a-002'")
+        conn.commit()
+
+    response = client.post(
+        "/views/videos/article-request-selected",
+        data={"_page": "1", "_limit": "20", "_pipeline_status": "done"},
+    )
+
+    assert response.status_code == 200
+    assert 'name="_pipeline_status" value="done"' in response.text
+    assert "vid-a-002" in response.text
+    assert "vid-b-000" not in response.text
 
 
 def test_video_article_selected_limit_exceeded_returns_bulk_toast(client: TestClient) -> None:

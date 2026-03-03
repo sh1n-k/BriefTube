@@ -137,6 +137,7 @@ def _video_list_push_url(
     order: str,
     channel_id: str | None,
     category_id: int | None,
+    pipeline_status: str | None,
 ) -> str:
     params: dict[str, str] = {
         "page": str(max(1, int(page))),
@@ -148,6 +149,8 @@ def _video_list_push_url(
         params["channel_id"] = channel_id
     if category_id is not None:
         params["category_id"] = str(category_id)
+    if pipeline_status:
+        params["pipeline_status"] = pipeline_status
     return "/?" + urlencode(params)
 
 
@@ -946,18 +949,23 @@ async def video_list(
     request: Request,
     channel_id: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
+    pipeline_status: str | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
     normalized_category_id = _parse_optional_int(category_id)
+    normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
 
     if limit is None:
         limit = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
 
     total = await videos_repo.count_videos(
-        request.app.state.runtime.db, channel_id=channel_id, category_id=normalized_category_id,
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+        category_id=normalized_category_id,
+        pipeline_status=normalized_pipeline_status,
     )
     total_pages = max(1, (total + limit - 1) // limit)
     current_page = min(max(1, page), total_pages)
@@ -969,6 +977,7 @@ async def video_list(
         page=current_page,
         limit=limit,
         category_id=normalized_category_id,
+        pipeline_status=normalized_pipeline_status,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
     channels = (
@@ -982,6 +991,7 @@ async def video_list(
         videos=videos,
         channels=channels,
         categories_for_filter=categories,
+        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
         pagination={
             "page": current_page,
             "limit": limit,
@@ -989,6 +999,7 @@ async def video_list(
             "total_pages": total_pages,
             "channel_id": channel_id or "",
             "category_id": normalized_category_id if normalized_category_id is not None else "",
+            "pipeline_status": normalized_pipeline_status or "",
             "sort": sort,
             "order": order,
         },
@@ -1005,6 +1016,7 @@ async def video_list(
                 order=order,
                 channel_id=channel_id,
                 category_id=normalized_category_id,
+                pipeline_status=normalized_pipeline_status,
             )
         },
     )
@@ -1033,9 +1045,13 @@ async def delete_selected_videos(request: Request):
     channel_id = str(form.get("_channel_id") or "") or None
     raw_cat = form.get("_category_id")
     category_id = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
+    pipeline_status = videos_repo.normalize_pipeline_status_filter(str(form.get("_pipeline_status") or ""))
 
     total = await videos_repo.count_videos(
-        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id,
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+        category_id=category_id,
+        pipeline_status=pipeline_status,
     )
     total_pages = max(1, (total + limit_val - 1) // limit_val)
     current_page = min(max(1, page), total_pages)
@@ -1047,6 +1063,7 @@ async def delete_selected_videos(request: Request):
         page=current_page,
         limit=limit_val,
         category_id=category_id,
+        pipeline_status=pipeline_status,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
     channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
@@ -1056,6 +1073,7 @@ async def delete_selected_videos(request: Request):
         videos=videos,
         channels=channels,
         categories_for_filter=categories,
+        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
         pagination={
             "page": current_page,
             "limit": limit_val,
@@ -1063,6 +1081,7 @@ async def delete_selected_videos(request: Request):
             "total_pages": total_pages,
             "channel_id": channel_id or "",
             "category_id": category_id if category_id is not None else "",
+            "pipeline_status": pipeline_status or "",
             "sort": sort,
             "order": order,
         },
@@ -1138,11 +1157,13 @@ async def article_request_selected_videos(request: Request):
     channel_id = str(form.get("_channel_id") or "") or None
     raw_cat = form.get("_category_id")
     category_id = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
+    pipeline_status = videos_repo.normalize_pipeline_status_filter(str(form.get("_pipeline_status") or ""))
 
     response = await video_list(
         request=request,
         channel_id=channel_id,
         category_id=category_id,
+        pipeline_status=pipeline_status,
         sort=sort,
         order=order,
         page=page,

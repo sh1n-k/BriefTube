@@ -36,7 +36,7 @@ def _seed_videos(total: int) -> None:
                     "UCpage001",
                     f"Pagination Video {index:03d}",
                     upload_time,
-                    "transcript_pending",
+                    "done",
                     0,
                 ),
             )
@@ -76,3 +76,14 @@ def test_home_uses_default_videos_per_page_when_limit_is_missing(client: TestCli
     assert response.status_code == 200
     # default videos_per_page=8 => total_pages=4
     assert "페이지 1 / 4" in response.text
+
+
+def test_video_list_fragment_keeps_pipeline_status_in_paging_queries(client: TestClient) -> None:
+    _seed_videos(25)
+
+    response = client.get("/views/video-list", params={"page": 2, "limit": 10, "pipeline_status": "done"})
+    assert response.status_code == 200
+    html = response.text
+
+    assert "pipeline_status=done" in html
+    assert 'name="pipeline_status" value="done"' in html

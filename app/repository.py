@@ -138,6 +138,14 @@ PIPELINE_STATUS_KEYS: tuple[str, ...] = (
     "manual_review",
     "done",
 )
+VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES: tuple[str, ...] = (
+    "done",
+    "llm_pending",
+    "llm_failed",
+    "manual_review",
+    "transcript_failed",
+    "no_subtitle",
+)
 TRANSCRIPT_QUEUE_STATUSES = ("transcript_pending", "transcript_processing", "transcript_failed", "no_subtitle")
 LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_review")
 logger = logging.getLogger(__name__)
@@ -319,6 +327,15 @@ def normalize_download_status_filter(value: str | None) -> str:
     if normalized in DOWNLOAD_STATUS_OPTIONS:
         return normalized
     return "all"
+
+
+def normalize_pipeline_status_filter(value: str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES:
+        return normalized
+    return None
 
 
 def _parse_datetime_setting(value: str | None) -> datetime | None:
@@ -1241,6 +1258,7 @@ async def list_videos(
     page: int,
     limit: int,
     category_id: int | None = None,
+    pipeline_status: str | None = None,
 ) -> list[dict[str, Any]]:
     sort_column = "upload_time" if sort not in {"upload_time", "created_at"} else sort
     order_sql = "ASC" if order.lower() == "asc" else "DESC"
@@ -1254,6 +1272,9 @@ async def list_videos(
     if category_id is not None:
         conditions.append("c.category_id = ?")
         params.append(category_id)
+    if pipeline_status:
+        conditions.append("v.pipeline_status = ?")
+        params.append(pipeline_status)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.extend([limit, offset])
 
@@ -1287,6 +1308,7 @@ async def count_videos(
     db: aiosqlite.Connection,
     channel_id: str | None = None,
     category_id: int | None = None,
+    pipeline_status: str | None = None,
 ) -> int:
     conditions: list[str] = []
     params: list[object] = []
@@ -1296,6 +1318,9 @@ async def count_videos(
     if category_id is not None:
         conditions.append("c.category_id = ?")
         params.append(category_id)
+    if pipeline_status:
+        conditions.append("v.pipeline_status = ?")
+        params.append(pipeline_status)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = await db.execute(
         f"""

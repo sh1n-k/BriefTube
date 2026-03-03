@@ -126,9 +126,15 @@ async def download_selected_videos(request: Request):
             channel_id = str(form.get("_channel_id") or "") or None
             raw_cat_early = form.get("_category_id")
             category_id_early = int(raw_cat_early) if raw_cat_early and str(raw_cat_early).strip().isdigit() else None
+            pipeline_status_early = videos_repo.normalize_pipeline_status_filter(
+                str(form.get("_pipeline_status") or "")
+            )
 
             total = await videos_repo.count_videos(
-                request.app.state.runtime.db, channel_id=channel_id, category_id=category_id_early,
+                request.app.state.runtime.db,
+                channel_id=channel_id,
+                category_id=category_id_early,
+                pipeline_status=pipeline_status_early,
             )
             total_pages = max(1, (total + limit_val - 1) // limit_val)
             current_page = min(max(1, page), total_pages)
@@ -140,6 +146,7 @@ async def download_selected_videos(request: Request):
                 page=current_page,
                 limit=limit_val,
                 category_id=category_id_early,
+                pipeline_status=pipeline_status_early,
             )
             all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
             channels = [ch for ch in all_channels if ch.get("category_id") == category_id_early] if category_id_early is not None else all_channels
@@ -149,6 +156,7 @@ async def download_selected_videos(request: Request):
                 videos=videos,
                 channels=channels,
                 categories_for_filter=categories_early,
+                status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
                 pagination={
                     "page": current_page,
                     "limit": limit_val,
@@ -156,6 +164,7 @@ async def download_selected_videos(request: Request):
                     "total_pages": total_pages,
                     "channel_id": channel_id or "",
                     "category_id": category_id_early if category_id_early is not None else "",
+                    "pipeline_status": pipeline_status_early or "",
                     "sort": sort,
                     "order": order,
                 },
@@ -213,9 +222,13 @@ async def download_selected_videos(request: Request):
     channel_id = str(form.get("_channel_id") or "") or None
     raw_cat_final = form.get("_category_id")
     category_id_final = int(raw_cat_final) if raw_cat_final and str(raw_cat_final).strip().isdigit() else None
+    pipeline_status_final = videos_repo.normalize_pipeline_status_filter(str(form.get("_pipeline_status") or ""))
 
     total = await videos_repo.count_videos(
-        request.app.state.runtime.db, channel_id=channel_id, category_id=category_id_final,
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+        category_id=category_id_final,
+        pipeline_status=pipeline_status_final,
     )
     total_pages = max(1, (total + limit_val - 1) // limit_val)
     current_page = min(max(1, page), total_pages)
@@ -227,6 +240,7 @@ async def download_selected_videos(request: Request):
         page=current_page,
         limit=limit_val,
         category_id=category_id_final,
+        pipeline_status=pipeline_status_final,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
     channels = [ch for ch in all_channels if ch.get("category_id") == category_id_final] if category_id_final is not None else all_channels
@@ -236,6 +250,7 @@ async def download_selected_videos(request: Request):
         videos=videos,
         channels=channels,
         categories_for_filter=categories_final,
+        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
         pagination={
             "page": current_page,
             "limit": limit_val,
@@ -243,6 +258,7 @@ async def download_selected_videos(request: Request):
             "total_pages": total_pages,
             "channel_id": channel_id or "",
             "category_id": category_id_final if category_id_final is not None else "",
+            "pipeline_status": pipeline_status_final or "",
             "sort": sort,
             "order": order,
         },

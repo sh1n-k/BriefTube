@@ -48,12 +48,14 @@ async def home(
     request: Request,
     channel_id: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
+    pipeline_status: str | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
     normalized_category_id = _parse_optional_int(category_id)
+    normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
 
     if limit is None:
         limit = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
@@ -66,7 +68,10 @@ async def home(
     )
     categories = await categories_repo.list_categories(request.app.state.runtime.db)
     total = await videos_repo.count_videos(
-        request.app.state.runtime.db, channel_id=channel_id, category_id=normalized_category_id,
+        request.app.state.runtime.db,
+        channel_id=channel_id,
+        category_id=normalized_category_id,
+        pipeline_status=normalized_pipeline_status,
     )
     total_pages = max(1, (total + limit - 1) // limit)
     current_page = min(max(1, page), total_pages)
@@ -78,6 +83,7 @@ async def home(
         page=current_page,
         limit=limit,
         category_id=normalized_category_id,
+        pipeline_status=normalized_pipeline_status,
     )
 
     context = await build_template_context(
@@ -85,6 +91,7 @@ async def home(
         channels=channels,
         videos=videos,
         categories_for_filter=categories,
+        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
         pagination={
             "page": current_page,
             "limit": limit,
@@ -92,6 +99,7 @@ async def home(
             "total_pages": total_pages,
             "channel_id": channel_id or "",
             "category_id": normalized_category_id if normalized_category_id is not None else "",
+            "pipeline_status": normalized_pipeline_status or "",
             "sort": sort,
             "order": order,
         },

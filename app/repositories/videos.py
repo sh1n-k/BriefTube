@@ -5,6 +5,8 @@ from app import repository as legacy
 insert_video_if_absent = legacy.insert_video_if_absent
 list_videos = legacy.list_videos
 count_videos = legacy.count_videos
+normalize_pipeline_status_filter = legacy.normalize_pipeline_status_filter
+VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES = legacy.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES
 get_video = legacy.get_video
 list_videos_by_ids = legacy.list_videos_by_ids
 mark_video_viewed = legacy.mark_video_viewed
