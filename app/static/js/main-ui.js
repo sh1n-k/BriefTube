@@ -2612,6 +2612,59 @@
         initCategoryRename();
       }
 
+      function initChannelImportForm() {
+        const form = document.getElementById("channel-import-form");
+        if (!form || form.dataset.importBound === "1") return;
+        form.dataset.importBound = "1";
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const fileInput = form.querySelector('input[name="import_file"]');
+          if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+            showUiToast(form.dataset.toastNoFile || "Please select a file.", "info");
+            return;
+          }
+          const submitBtn = form.querySelector('button[type="submit"]');
+          if (submitBtn) submitBtn.disabled = true;
+          try {
+            const fd = new FormData();
+            fd.append("import_file", fileInput.files[0]);
+            const resp = await fetch("/api/channels/import", { method: "POST", body: fd });
+            const data = await resp.json();
+            if (resp.ok && data.ok) {
+              let msg;
+              if (data.created_categories > 0) {
+                msg = (form.dataset.toastSuccessCat || "")
+                  .replace("{added}", data.added)
+                  .replace("{duplicate}", data.duplicate)
+                  .replace("{invalid}", data.invalid)
+                  .replace("{created_categories}", data.created_categories);
+              } else {
+                msg = (form.dataset.toastSuccess || "")
+                  .replace("{added}", data.added)
+                  .replace("{duplicate}", data.duplicate)
+                  .replace("{invalid}", data.invalid);
+              }
+              showUiToast(msg, "success");
+              fileInput.value = "";
+              const statusInput = document.querySelector('[data-channel-status-input]');
+              const status = statusInput ? statusInput.value : "active";
+              if (typeof htmx !== "undefined") {
+                htmx.ajax("GET", "/views/channel-list?status=" + encodeURIComponent(status), {
+                  target: "#channel-list-wrap",
+                  swap: "innerHTML",
+                });
+              }
+            } else {
+              showUiToast(form.dataset.toastFailed || "Import failed.", "error");
+            }
+          } catch (_err) {
+            showUiToast(form.dataset.toastFailed || "Import failed.", "error");
+          } finally {
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        });
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         const themeState = getThemeState();
         applyTheme(themeState.mode, themeState.tone, { persist: false });
@@ -2651,6 +2704,7 @@
         bindChannelMoveCategory(document);
         bindCategoryFilterReset(document);
         bindCategoryRename();
+        initChannelImportForm();
         revealPageShell();
       });
       window.addEventListener("pageshow", () => {
