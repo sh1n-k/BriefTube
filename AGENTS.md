@@ -77,50 +77,50 @@ claude -p "Respond with exactly: OK" --output-format text --no-session-persisten
 ## 테스트 최소 기준
 - 문서만 변경(`README.md`, `AGENTS.md`, `CONTRIBUTING.md`)이고 로직/템플릿/JS 변경이 없으면:
 ```bash
-.venv/bin/python -m pytest -q tests/test_health.py
+python -m pytest -q tests/test_health.py
 ```
 - 채널 관리/재활성화를 건드렸다면 최소:
 ```bash
-.venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py
+python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py
 ```
 - 설정/공통 토스트/템플릿 영향이 있으면 추가:
 ```bash
-.venv/bin/python -m pytest -q tests/test_health.py tests/test_settings_api.py tests/test_settings_views.py
+python -m pytest -q tests/test_health.py tests/test_settings_api.py tests/test_settings_views.py
 ```
 - 가능하면 전체:
 ```bash
-.venv/bin/python -m pytest -q
+python -m pytest -q
 ```
 - Playwright E2E는 기본 실행에서 제외하고 명시 실행:
 ```bash
-.venv/bin/python -m pytest -q -m e2e tests/e2e
+python -m pytest -q -m e2e tests/e2e
 ```
 전체 테스트는 환경 이슈로 간헐적 DB 오픈 오류가 나올 수 있어, 실패 시 단건 재실행으로 재현성 확인 후 보고한다.
 
 ## 테스트 프로파일 (LLM 작업용)
 - `profile:quick-ui` (템플릿/프런트 공통 변경)
 ```bash
-.venv/bin/python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
+python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
 ```
 - `profile:downloads` (다운로드 도메인/화면/API/워커 변경)
 ```bash
-.venv/bin/python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py
+python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py
 ```
 - `profile:channels` (채널 추가/삭제/재활성화/벌크 변경)
 ```bash
-.venv/bin/python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
+python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
 ```
 - `profile:llm-manual-article` (수동 기사화/LLM 런타임/재개 플로우 변경)
 ```bash
-.venv/bin/python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py
+python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py
 ```
 - `profile:full` (릴리즈 전 또는 광범위 리팩터링)
 ```bash
-.venv/bin/python -m pytest -q
+python -m pytest -q
 ```
 - `profile:e2e` (브라우저 UI 회귀)
 ```bash
-.venv/bin/python -m pytest -q -m e2e tests/e2e
+python -m pytest -q -m e2e tests/e2e
 ```
 - 프로파일 일부만 실행한 경우, 실행하지 않은 프로파일과 이유를 함께 기록한다.
 
