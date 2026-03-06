@@ -49,3 +49,9 @@ dist/
 .worktrees/
 screenshot-*.png
 image.png
+channels_page.png
+
+# Local tool outputs
+.playwright-cli/
+downloads/
+output/llm_raw/
