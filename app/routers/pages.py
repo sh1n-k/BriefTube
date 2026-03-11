@@ -111,11 +111,18 @@ async def home(
     return request.app.state.templates.TemplateResponse(request=request, name="index.html", context=context)
 
 
-@router.get("/videos/{video_id}")
-async def video_page(video_id: str, request: Request):
+async def build_video_detail_context(
+    request: Request,
+    *,
+    video_id: str,
+    transcript_retry_done: bool = False,
+    mark_viewed: bool = False,
+) -> dict[str, object]:
     detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
-    if detail:
+    if detail and mark_viewed:
         await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
+        detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
+
     article_body_html = ""
     article_lead_html = ""
     article_fact_box_html = ""
@@ -125,12 +132,12 @@ async def video_page(video_id: str, request: Request):
         fact_box = str(detail.get("fact_box") or "")
         if fact_box and fact_box not in {"{}", ""}:
             article_fact_box_html = render_markdown_to_safe_html(fact_box)
-    transcript_retry_done = request.query_params.get("transcript_retry") == "1"
+
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
-    context = await build_template_context(
+    return await build_template_context(
         request,
         video=detail,
         article_lead_html=article_lead_html,
@@ -139,6 +146,16 @@ async def video_page(video_id: str, request: Request):
         transcript_retry_done=transcript_retry_done,
         download_defaults=download_defaults,
         ffmpeg_available=is_ffmpeg_available(),
+    )
+
+
+@router.get("/videos/{video_id}")
+async def video_page(video_id: str, request: Request):
+    context = await build_video_detail_context(
+        request,
+        video_id=video_id,
+        transcript_retry_done=request.query_params.get("transcript_retry") == "1",
+        mark_viewed=True,
     )
     return request.app.state.templates.TemplateResponse(request=request, name="video_detail.html", context=context)
 

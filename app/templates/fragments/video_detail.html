@@ -1,4 +1,13 @@
-<div id="video-detail-fragment" class="space-y-6">
+<div
+  id="video-detail-fragment"
+  class="space-y-6"
+  data-video-detail-fragment
+  {% if video %}
+  data-video-detail-id="{{ video.video_id }}"
+  data-video-detail-refresh-url="/views/videos/{{ video.video_id }}/detail-fragment"
+  data-video-detail-auto-refresh="{{ '1' if video.pipeline_status != 'done' or not video.article_title else '0' }}"
+  {% endif %}
+>
   {% if video %}
   {% if transcript_retry_done %}
   <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

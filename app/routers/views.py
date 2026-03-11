@@ -18,6 +18,7 @@ from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers import views_downloads
+from app.routers.pages import build_video_detail_context
 from app.routers.template_context import build_template_context
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
@@ -1027,6 +1028,21 @@ async def video_list(
                 pipeline_status=normalized_pipeline_status,
             )
         },
+    )
+
+
+@router.get("/videos/{video_id}/detail-fragment")
+async def video_detail_fragment(video_id: str, request: Request):
+    context = await build_video_detail_context(
+        request,
+        video_id=video_id,
+        transcript_retry_done=False,
+        mark_viewed=False,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/video_detail.html",
+        context=context,
     )
 
 

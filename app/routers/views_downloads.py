@@ -12,6 +12,7 @@ from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
+from app.routers.pages_downloads import build_download_history_context
 from app.routers.template_context import build_template_context
 
 router = APIRouter(tags=["views"])
@@ -37,6 +38,24 @@ async def _texts(request: Request) -> dict[str, str]:
         )
     )
     return get_texts(language)
+
+
+@router.get("/downloads/table")
+async def download_history_fragment(
+    request: Request,
+    status: str = "all",
+    page: int = 1,
+):
+    context = await build_download_history_context(
+        request,
+        status=status,
+        page=max(1, int(page)),
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/download_history.html",
+        context=context,
+    )
 
 
 def _download_bulk_toast_header(message: str, tone: str) -> dict[str, str]:

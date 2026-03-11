@@ -5,8 +5,26 @@
 {% set inactive_count = counts.get("inactive", 0) %}
 {% set batch_limit = reactivate_batch_limit if reactivate_batch_limit is defined else 50 %}
 {% set probe_timeout_seconds = reactivate_probe_timeout_seconds if reactivate_probe_timeout_seconds is defined else 20 %}
+{% set refresh_params = "status=" ~ current_status %}
+{% if selected_cat_id is not none %}
+  {% set refresh_params = refresh_params ~ "&category_id=" ~ selected_cat_id %}
+{% endif %}
+{% set refresh_state = namespace(auto_refresh=(current_status == "inactive")) %}
+{% if not refresh_state.auto_refresh %}
+  {% for channel in channels if not refresh_state.auto_refresh %}
+    {% set meta_status = (channel.metadata_fetch_status or "never")|lower %}
+    {% if meta_status in ["pending", "running"] %}
+      {% set refresh_state.auto_refresh = true %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
 
-<div class="space-y-2">
+<div
+  class="space-y-2"
+  data-channel-list-fragment
+  data-channel-list-refresh-url="{{ '/views/channel-list?' ~ refresh_params }}"
+  data-channel-list-auto-refresh="{{ '1' if refresh_state.auto_refresh else '0' }}"
+>
   <div class="inline-flex flex-wrap rounded-lg border border-slate-200 bg-white p-1">
     <a
       href="/channels?status=active"

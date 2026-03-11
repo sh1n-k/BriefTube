@@ -123,6 +123,8 @@ def test_settings_llm_runtime_status_fragment_renders(client: TestClient) -> Non
     response = client.get("/views/settings/llm/runtime-status")
     assert response.status_code == 200
     assert 'id="llm-runtime-status"' in response.text
+    assert 'data-llm-runtime-refresh-url="/views/settings/llm/runtime-status"' in response.text
+    assert 'data-llm-runtime-auto-refresh="1"' in response.text
 
 
 @pytest.mark.parametrize("bulk_text", ["resolved-only"])

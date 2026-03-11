@@ -10,12 +10,12 @@ router = APIRouter(tags=["pages"])
 DOWNLOAD_PAGE_LIMIT = 50
 
 
-@router.get("/downloads")
-async def downloads_page(
+async def build_download_history_context(
     request: Request,
-    status: str = Query(default="all"),
-    page: int = Query(default=1, ge=1),
-):
+    *,
+    status: str,
+    page: int,
+) -> dict[str, object]:
     normalized_status = downloads_repo.normalize_download_status_filter(status)
     jobs = await downloads_repo.list_download_jobs(
         request.app.state.runtime.db,
@@ -28,7 +28,7 @@ async def downloads_page(
         status=normalized_status,
     )
     counts = await downloads_repo.count_download_jobs_by_status(request.app.state.runtime.db)
-    context = await build_template_context(
+    return await build_template_context(
         request,
         jobs=jobs,
         download_status=normalized_status,
@@ -37,6 +37,20 @@ async def downloads_page(
         download_limit=DOWNLOAD_PAGE_LIMIT,
         download_counts=counts,
         ffmpeg_available=is_ffmpeg_available(),
+        download_history_refresh_url=f"/views/downloads/table?status={normalized_status}&page={page}",
+    )
+
+
+@router.get("/downloads")
+async def downloads_page(
+    request: Request,
+    status: str = Query(default="all"),
+    page: int = Query(default=1, ge=1),
+):
+    context = await build_download_history_context(
+        request,
+        status=status,
+        page=page,
     )
     return request.app.state.templates.TemplateResponse(
         request=request,

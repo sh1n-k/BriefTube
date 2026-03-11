@@ -233,6 +233,33 @@ def test_detail_article_request_button_contract(client: TestClient) -> None:
     assert 'hx-swap="none"' in html
 
 
+def test_detail_page_disables_auto_refresh_when_article_is_ready(client: TestClient) -> None:
+    _seed_video()
+
+    response = client.get("/videos/vid-001")
+
+    assert response.status_code == 200
+    assert 'data-video-detail-refresh-url="/views/videos/vid-001/detail-fragment"' in response.text
+    assert 'data-video-detail-auto-refresh="0"' in response.text
+
+
+def test_detail_fragment_enables_auto_refresh_for_incomplete_article(client: TestClient) -> None:
+    _seed_video(
+        video_id="vid-pending-001",
+        pipeline_status="llm_pending",
+        article_title=None,
+        raw_text="Pending transcript",
+    )
+
+    response = client.get("/views/videos/vid-pending-001/detail-fragment")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "<html" not in html.lower()
+    assert 'data-video-detail-refresh-url="/views/videos/vid-pending-001/detail-fragment"' in html
+    assert 'data-video-detail-auto-refresh="1"' in html
+
+
 def test_detail_page_shows_llm_article_metadata(client: TestClient) -> None:
     _seed_video(
         llm_provider="codex",

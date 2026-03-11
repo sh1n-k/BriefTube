@@ -25,6 +25,8 @@ def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient
     assert 'data-channel-select-all' in html
     assert 'hx-post="/views/channels/delete-selected"' in html
     assert 'name="status" value="active"' in html
+    assert 'data-channel-list-auto-refresh="0"' in html
+    assert 'data-channel-list-refresh-url="/views/channel-list?status=active"' in html
 
 
 def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: TestClient) -> None:
@@ -40,6 +42,8 @@ def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: Test
     assert 'name="bulk_action"' in html
     assert 'value="delete"' in html
     assert 'name="status" value="inactive"' in html
+    assert 'data-channel-list-auto-refresh="1"' in html
+    assert 'data-channel-list-refresh-url="/views/channel-list?status=inactive"' in html
 
 
 def test_channel_list_move_dropdown_selects_current_category(client: TestClient) -> None:

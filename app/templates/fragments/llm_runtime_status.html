@@ -2,6 +2,8 @@
   id="llm-runtime-status"
   class="mt-3 rounded-md border p-3 {% if llm_runtime_status.ready %}border-emerald-200 bg-emerald-50{% else %}border-amber-200 bg-amber-50{% endif %}"
   data-llm-runtime-status
+  data-llm-runtime-refresh-url="/views/settings/llm/runtime-status"
+  data-llm-runtime-auto-refresh="{{ '1' if (not llm_runtime_status.ready) or llm_runtime_status.pending_count > 0 else '0' }}"
 >
   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
     <div>

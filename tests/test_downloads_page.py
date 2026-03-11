@@ -103,3 +103,20 @@ def test_downloads_page_summary_and_mobile_card_contract(client: TestClient) -> 
     assert 'data-video-id="vid-download-view-1"' in html
     assert "data-error-message=" in html
     assert "data-output-url=" in html
+    assert 'id="download-history-fragment"' in html
+    assert 'data-download-history-refresh-url="/views/downloads/table?status=all&amp;page=1"' in html
+
+
+def test_download_history_fragment_view_returns_partial_markup(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_download_jobs(db_path)
+
+    response = client.get("/views/downloads/table?status=failed&page=1")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "<html" not in html.lower()
+    assert "<body" not in html.lower()
+    assert 'id="download-history-fragment"' in html
+    assert "View Video 1" in html
+    assert 'data-download-history-refresh-url="/views/downloads/table?status=failed&amp;page=1"' in html

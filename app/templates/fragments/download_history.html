@@ -1,0 +1,232 @@
+<div
+  id="download-history-fragment"
+  data-download-history-fragment
+  data-download-history-refresh-url="{{ download_history_refresh_url }}"
+>
+  {% set counts = download_counts or {} %}
+  {% set pending_count = counts.get('pending', 0) %}
+  {% set running_count = counts.get('running', 0) %}
+  {% set succeeded_count = counts.get('succeeded', 0) %}
+  {% set failed_count = counts.get('failed', 0) %}
+
+  <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      <a href="/downloads?status=all"
+         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'all' else 'text-slate-600 hover:bg-slate-100' }}">
+        {{ txt.download_status_all }} ({{ download_total }})
+      </a>
+      <a href="/downloads?status=pending"
+         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'pending' else 'text-slate-600 hover:bg-slate-100' }}">
+        {{ txt.download_status_pending }} ({{ pending_count }})
+      </a>
+      <a href="/downloads?status=running"
+         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'running' else 'text-slate-600 hover:bg-slate-100' }}">
+        {{ txt.download_status_running }} ({{ running_count }})
+      </a>
+      <a href="/downloads?status=succeeded"
+         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'succeeded' else 'text-slate-600 hover:bg-slate-100' }}">
+        {{ txt.download_status_succeeded }} ({{ succeeded_count }})
+      </a>
+      <a href="/downloads?status=failed"
+         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'failed' else 'text-slate-600 hover:bg-slate-100' }}">
+        {{ txt.download_status_failed }} ({{ failed_count }})
+      </a>
+    </div>
+  </div>
+
+  {% if jobs %}
+  <div class="space-y-3 md:hidden">
+    {% for job in jobs %}
+    {% if job.status == 'pending' %}
+    {% set status_label = txt.download_status_pending %}
+    {% set status_badge_class = 'status-badge--transcript-pending' %}
+    {% set result_text = txt.download_status_pending %}
+    {% set result_class = 'text-slate-700' %}
+    {% elif job.status == 'running' %}
+    {% set status_label = txt.download_status_running %}
+    {% set status_badge_class = 'status-badge--transcript-processing' %}
+    {% set result_text = txt.download_status_running %}
+    {% set result_class = 'text-slate-700' %}
+    {% elif job.status == 'succeeded' %}
+    {% set status_label = txt.download_status_succeeded %}
+    {% set status_badge_class = 'status-badge--done' %}
+    {% set result_text = job.output_path or txt.download_result_missing_output %}
+    {% set result_class = 'text-emerald-700' %}
+    {% else %}
+    {% set status_label = txt.download_status_failed %}
+    {% set status_badge_class = 'status-badge--transcript-failed' %}
+    {% set result_text = (job.error_code or txt.download_error_unknown) ~ (' · ' ~ (job.error_message or '')) %}
+    {% set result_class = 'text-rose-700' %}
+    {% endif %}
+    {% set requested_text = format_upload_time(job.requested_at, timezone) if job.requested_at else txt.download_detail_none %}
+    {% set updated_text = format_upload_time(job.updated_at, timezone) if job.updated_at else txt.download_detail_none %}
+    {% set finished_text = format_upload_time(job.finished_at, timezone) if job.finished_at else txt.download_detail_none %}
+    {% set error_text = job.error_message or '' %}
+    {% set output_path = job.output_path or '' %}
+    {% set result_short = result_text[:40] ~ ('...' if result_text|length > 40 else '') %}
+    <article class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div class="flex items-start justify-between gap-2">
+        <a
+          href="/videos/{{ job.video_id }}"
+          class="min-w-0 flex-1 truncate text-sm font-medium text-indigo-700 hover:text-indigo-900"
+          title="{{ job.video_title }}"
+        >
+          {{ job.video_title }}
+        </a>
+        <span class="status-badge {{ status_badge_class }} inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium">{{ status_label }}</span>
+      </div>
+      <div class="mt-1 truncate text-xs font-mono text-slate-500" title="{{ job.video_id }}">{{ job.video_id }}</div>
+      <div class="mt-2 text-xs text-slate-600">
+        <span class="truncate" title="q{{ job.quality }}">q{{ job.quality }}</span>
+        <span class="mx-1 text-slate-300">|</span>
+        <span class="truncate" title="{{ txt.download_option_overwrite }}: {{ txt.download_yes if job.overwrite else txt.download_no }}">{{ txt.download_option_overwrite }}: {{ txt.download_yes if job.overwrite else txt.download_no }}</span>
+        <span class="mx-1 text-slate-300">|</span>
+        <span class="truncate" title="{{ txt.download_option_attempt }}: {{ job.attempt_count }}">{{ txt.download_option_attempt }}: {{ job.attempt_count }}</span>
+      </div>
+      <div class="mt-1 text-xs text-slate-500" title="{{ requested_text }}">{{ requested_text }}</div>
+      <div class="mt-2 truncate text-sm font-medium {{ result_class }}" title="{{ result_text }}">{{ result_short }}</div>
+      <div class="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          data-download-detail-open
+          data-video-title="{{ job.video_title }}"
+          data-video-id="{{ job.video_id }}"
+          data-status-label="{{ status_label }}"
+          data-requested-at="{{ requested_text }}"
+          data-updated-at="{{ updated_text }}"
+          data-finished-at="{{ finished_text }}"
+          data-file-size="{{ job.file_size_bytes if job.file_size_bytes is not none else txt.download_detail_none }}"
+          data-output-path="{{ output_path }}"
+          data-output-url="{{ ('/downloads/files/' ~ (job.output_path | urlencode) ~ '?job_id=' ~ job.id) if job.output_path else '' }}"
+          data-error-code="{{ job.error_code or txt.download_detail_none }}"
+          data-error-message="{{ error_text }}"
+          class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          {{ txt.download_detail_open }}
+        </button>
+        {% if job.status == 'failed' %}
+        <button
+          type="button"
+          data-download-retry-button
+          data-job-id="{{ job.id }}"
+          class="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          {{ txt.download_retry_button }}
+        </button>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="hidden rounded-lg border border-slate-200 bg-white shadow-sm md:block">
+      <table class="w-full table-auto divide-y divide-slate-200 text-sm">
+        <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <tr>
+            <th class="px-4 py-3">{{ txt.download_col_video }}</th>
+            <th class="px-4 py-3">{{ txt.download_col_option }}</th>
+            <th class="px-4 py-3">{{ txt.download_col_status }}</th>
+            <th class="px-4 py-3">{{ txt.download_col_requested_at }}</th>
+            <th class="w-[15%] px-4 py-3">{{ txt.download_col_result }}</th>
+            <th class="w-[10%] min-w-[7.5rem] whitespace-nowrap px-4 py-3">{{ txt.download_col_action }}</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200">
+          {% for job in jobs %}
+          {% if job.status == 'pending' %}
+          {% set status_label = txt.download_status_pending %}
+          {% set status_badge_class = 'status-badge--transcript-pending' %}
+          {% set result_text = txt.download_status_pending %}
+          {% set result_class = 'text-slate-700' %}
+          {% elif job.status == 'running' %}
+          {% set status_label = txt.download_status_running %}
+          {% set status_badge_class = 'status-badge--transcript-processing' %}
+          {% set result_text = txt.download_status_running %}
+          {% set result_class = 'text-slate-700' %}
+          {% elif job.status == 'succeeded' %}
+          {% set status_label = txt.download_status_succeeded %}
+          {% set status_badge_class = 'status-badge--done' %}
+          {% set result_text = job.output_path or txt.download_result_missing_output %}
+          {% set result_class = 'text-emerald-700' %}
+          {% else %}
+          {% set status_label = txt.download_status_failed %}
+          {% set status_badge_class = 'status-badge--transcript-failed' %}
+          {% set result_text = (job.error_code or txt.download_error_unknown) ~ (' · ' ~ (job.error_message or '')) %}
+          {% set result_class = 'text-rose-700' %}
+          {% endif %}
+          {% set requested_text = format_upload_time(job.requested_at, timezone) if job.requested_at else txt.download_detail_none %}
+          {% set updated_text = format_upload_time(job.updated_at, timezone) if job.updated_at else txt.download_detail_none %}
+          {% set finished_text = format_upload_time(job.finished_at, timezone) if job.finished_at else txt.download_detail_none %}
+          {% set error_text = job.error_message or '' %}
+          {% set output_path = job.output_path or '' %}
+          {% set result_short = result_text[:40] ~ ('...' if result_text|length > 40 else '') %}
+          <tr>
+            <td class="px-4 py-3 align-top">
+              <a
+                href="/videos/{{ job.video_id }}"
+                class="block overflow-hidden font-medium leading-snug text-indigo-700 hover:text-indigo-900"
+                style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;"
+                title="{{ job.video_title }}"
+              >
+                {{ job.video_title }}
+              </a>
+              <div class="mt-1 truncate text-xs font-mono text-slate-500" title="{{ job.video_id }}">{{ job.video_id }}</div>
+            </td>
+            <td class="px-4 py-3 align-top text-xs text-slate-600">
+              <div class="truncate" title="q{{ job.quality }} · {{ txt.download_option_overwrite }}: {{ txt.download_yes if job.overwrite else txt.download_no }} · {{ txt.download_option_attempt }}: {{ job.attempt_count }}">
+                q{{ job.quality }} · {{ txt.download_option_overwrite }}: {{ txt.download_yes if job.overwrite else txt.download_no }} · {{ txt.download_option_attempt }}: {{ job.attempt_count }}
+              </div>
+            </td>
+            <td class="px-4 py-3 align-top">
+              <span class="status-badge {{ status_badge_class }} inline-flex rounded-full px-2 py-0.5 text-xs font-medium">{{ status_label }}</span>
+            </td>
+            <td class="px-4 py-3 align-top text-xs text-slate-600">
+              <div class="truncate" title="{{ requested_text }}">{{ requested_text }}</div>
+            </td>
+            <td class="w-[15%] px-4 py-3 align-top text-xs text-slate-600">
+              <div class="truncate font-medium {{ result_class }}" title="{{ result_text }}">{{ result_short }}</div>
+              <button
+                type="button"
+                data-download-detail-open
+                data-video-title="{{ job.video_title }}"
+                data-video-id="{{ job.video_id }}"
+                data-status-label="{{ status_label }}"
+                data-requested-at="{{ requested_text }}"
+                data-updated-at="{{ updated_text }}"
+                data-finished-at="{{ finished_text }}"
+                data-file-size="{{ job.file_size_bytes if job.file_size_bytes is not none else txt.download_detail_none }}"
+                data-output-path="{{ output_path }}"
+                data-output-url="{{ ('/downloads/files/' ~ (job.output_path | urlencode) ~ '?job_id=' ~ job.id) if job.output_path else '' }}"
+                data-error-code="{{ job.error_code or txt.download_detail_none }}"
+                data-error-message="{{ error_text }}"
+                class="mt-2 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              >
+                {{ txt.download_detail_open }}
+              </button>
+            </td>
+            <td class="w-[10%] min-w-[7.5rem] px-4 py-3 align-top">
+              {% if job.status == 'failed' %}
+              <button
+                type="button"
+                data-download-retry-button
+                data-job-id="{{ job.id }}"
+                class="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              >
+                {{ txt.download_retry_button }}
+              </button>
+              {% else %}
+              <span class="text-xs text-slate-400">-</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not jobs %}
+          <tr>
+            <td colspan="6" class="px-4 py-12 text-center text-sm text-slate-500">{{ txt.download_empty }}</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+  </div>
+</div>

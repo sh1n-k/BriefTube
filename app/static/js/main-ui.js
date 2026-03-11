@@ -4,6 +4,9 @@
       const DOWNLOAD_EVENT_CURSOR_KEY = "brieftube.download.lastEventId";
       const DOWNLOAD_PROGRESS_POLL_INTERVAL_MS = 5000;
       const QUEUE_POLL_INTERVAL_MS = 2000;
+      const VIDEO_DETAIL_POLL_INTERVAL_MS = 3000;
+      const CHANNEL_LIST_POLL_INTERVAL_MS = 15000;
+      const LLM_RUNTIME_POLL_INTERVAL_MS = 10000;
       const MATCH_CLASSES = ["bg-amber-50", "ring-1", "ring-inset", "ring-amber-200"];
       const ACTIVE_CLASSES = ["bg-indigo-100", "ring-indigo-300"];
       const themeController = window.BrieftubeTheme || null;
@@ -54,6 +57,16 @@
         if (themeController && typeof themeController.bindThemeControls === "function") {
           themeController.bindThemeControls(scope);
         }
+      }
+
+      function isDocumentVisible() {
+        return document.hidden !== true;
+      }
+
+      function parseHtmlFragment(html) {
+        const template = document.createElement("template");
+        template.innerHTML = String(html || "").trim();
+        return template.content;
       }
 
       function clearMatchStyles(row) {
@@ -1467,7 +1480,9 @@
               showUiToast(DOWNLOAD_UI_TEXT.toastRetryQueued, "success");
               void pollDownloadProgress();
               if (window.location.pathname === "/downloads") {
-                window.setTimeout(() => window.location.reload(), 250);
+                window.setTimeout(() => {
+                  void refreshDownloadHistoryFragment(true);
+                }, 250);
               }
               return;
             }
@@ -1533,6 +1548,9 @@
             const toast = buildDownloadEventToast(events);
             if (toast && toast.message) {
               showUiToast(toast.message, toast.tone);
+            }
+            if (window.location.pathname === "/downloads") {
+              void refreshDownloadHistoryFragment(false);
             }
           }
           setDownloadEventCursor(nextCursor);
@@ -1900,6 +1918,213 @@
         } catch (_err) {
           return null;
         }
+      }
+
+      function hydrateUiScope(scope) {
+        bindThemeControls(scope);
+        bindChannelCompose(scope);
+        bindChannelComposeForms(scope);
+        bindGlobalSearchForms(scope);
+        bindSearchClearButtons(scope);
+        bindChannelSearch(scope);
+        bindChannelManageForms(scope);
+        bindChannelMetaAccordion(scope);
+        bindChannelAvatars(scope);
+        bindChannelReactivateBulkForms(scope);
+        bindPollTriggerButtons(scope);
+        bindVideoManageForms(scope);
+        bindThumbPreviews(scope);
+        bindDigitsOnlyInputs(scope);
+        bindAlertToasts(scope);
+        bindRetentionForms(scope);
+        bindRetentionNotices(scope);
+        bindCopyButtons(scope);
+        bindCollapsibles(scope);
+        bindYouTubeEmbeds(scope);
+        bindVideoDownloadButtons(scope);
+        bindVideoArticleRequestButtons(scope);
+        bindArticlePreviewModals(scope);
+        bindDownloadDetailButtons(scope);
+        bindDownloadRetryButtons(scope);
+        bindCategorySortable(scope);
+        bindChannelMoveCategory(scope);
+        bindCategoryFilterReset(scope);
+      }
+
+      async function fetchAndSwapFragment({
+        url,
+        targetSelector,
+        swap = "outerHTML",
+      }) {
+        const target = document.querySelector(targetSelector);
+        if (!(target instanceof Element)) return false;
+        try {
+          const response = await fetch(url, {
+            method: "GET",
+            headers: {
+              "Accept": "text/html",
+              "X-Requested-With": "BriefTubePoll",
+            },
+          });
+          if (!response.ok) return false;
+          const html = await response.text();
+          if (swap === "innerHTML") {
+            const latestTarget = document.querySelector(targetSelector);
+            if (!(latestTarget instanceof Element)) return false;
+            latestTarget.innerHTML = html;
+            if (typeof htmx !== "undefined" && typeof htmx.process === "function") {
+              htmx.process(latestTarget);
+            }
+            hydrateUiScope(latestTarget);
+            return true;
+          }
+          const fragment = parseHtmlFragment(html);
+          const nextNode = fragment.firstElementChild;
+          const latestTarget = document.querySelector(targetSelector);
+          if (!(latestTarget instanceof Element) || !(nextNode instanceof Element)) return false;
+          latestTarget.replaceWith(nextNode);
+          if (typeof htmx !== "undefined" && typeof htmx.process === "function") {
+            htmx.process(nextNode);
+          }
+          hydrateUiScope(nextNode);
+          return true;
+        } catch (_error) {
+          return false;
+        }
+      }
+
+      let videoDetailRefreshInFlight = false;
+      let videoDetailRefreshStarted = false;
+      let videoDetailRefreshIntervalId = null;
+
+      async function pollVideoDetailFragment() {
+        if (videoDetailRefreshInFlight || !isDocumentVisible()) return;
+        const fragment = document.querySelector("[data-video-detail-fragment]");
+        if (!(fragment instanceof HTMLElement)) return;
+        if (fragment.dataset.videoDetailAutoRefresh !== "1") return;
+        const refreshUrl = fragment.dataset.videoDetailRefreshUrl || "";
+        if (!refreshUrl) return;
+        videoDetailRefreshInFlight = true;
+        try {
+          await fetchAndSwapFragment({
+            url: refreshUrl,
+            targetSelector: "#video-detail-wrap",
+            swap: "innerHTML",
+          });
+        } finally {
+          videoDetailRefreshInFlight = false;
+        }
+      }
+
+      function startVideoDetailAutoRefresh() {
+        if (videoDetailRefreshStarted) return;
+        videoDetailRefreshStarted = true;
+        videoDetailRefreshIntervalId = window.setInterval(() => {
+          void pollVideoDetailFragment();
+        }, VIDEO_DETAIL_POLL_INTERVAL_MS);
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            void pollVideoDetailFragment();
+          }
+        });
+      }
+
+      let channelListRefreshInFlight = false;
+      let channelListRefreshStarted = false;
+      let channelListRefreshIntervalId = null;
+
+      function shouldSkipChannelListAutoRefresh() {
+        const searchInput = document.querySelector("[data-channel-search-input]");
+        if (searchInput instanceof HTMLInputElement && searchInput.value.trim()) {
+          return true;
+        }
+        return Array.from(document.querySelectorAll("[data-channel-select-item]")).some((node) => (
+          node instanceof HTMLInputElement && node.checked
+        ));
+      }
+
+      async function pollChannelListFragment() {
+        if (channelListRefreshInFlight || !isDocumentVisible()) return;
+        const fragment = document.querySelector("[data-channel-list-fragment]");
+        if (!(fragment instanceof HTMLElement)) return;
+        if (fragment.dataset.channelListAutoRefresh !== "1" || shouldSkipChannelListAutoRefresh()) return;
+        const refreshUrl = fragment.dataset.channelListRefreshUrl || "";
+        if (!refreshUrl) return;
+        channelListRefreshInFlight = true;
+        try {
+          await fetchAndSwapFragment({
+            url: refreshUrl,
+            targetSelector: "#channel-list-wrap",
+            swap: "innerHTML",
+          });
+        } finally {
+          channelListRefreshInFlight = false;
+        }
+      }
+
+      function startChannelListAutoRefresh() {
+        if (channelListRefreshStarted) return;
+        channelListRefreshStarted = true;
+        channelListRefreshIntervalId = window.setInterval(() => {
+          void pollChannelListFragment();
+        }, CHANNEL_LIST_POLL_INTERVAL_MS);
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            void pollChannelListFragment();
+          }
+        });
+      }
+
+      let llmRuntimeRefreshInFlight = false;
+      let llmRuntimeRefreshStarted = false;
+      let llmRuntimeRefreshIntervalId = null;
+
+      async function pollLlmRuntimeFragment() {
+        if (llmRuntimeRefreshInFlight || !isDocumentVisible()) return;
+        const fragment = document.querySelector("[data-llm-runtime-status]");
+        if (!(fragment instanceof HTMLElement)) return;
+        if (fragment.dataset.llmRuntimeAutoRefresh !== "1") return;
+        const refreshUrl = fragment.dataset.llmRuntimeRefreshUrl || "";
+        if (!refreshUrl) return;
+        llmRuntimeRefreshInFlight = true;
+        try {
+          await fetchAndSwapFragment({
+            url: refreshUrl,
+            targetSelector: "#llm-runtime-status",
+            swap: "outerHTML",
+          });
+        } finally {
+          llmRuntimeRefreshInFlight = false;
+        }
+      }
+
+      function startLlmRuntimeAutoRefresh() {
+        if (llmRuntimeRefreshStarted) return;
+        llmRuntimeRefreshStarted = true;
+        llmRuntimeRefreshIntervalId = window.setInterval(() => {
+          void pollLlmRuntimeFragment();
+        }, LLM_RUNTIME_POLL_INTERVAL_MS);
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            void pollLlmRuntimeFragment();
+          }
+        });
+      }
+
+      async function refreshDownloadHistoryFragment(forceReloadFallback = false) {
+        const fragment = document.querySelector("[data-download-history-fragment]");
+        if (!(fragment instanceof HTMLElement)) return true;
+        const refreshUrl = fragment.dataset.downloadHistoryRefreshUrl || "";
+        if (!refreshUrl) return true;
+        const updated = await fetchAndSwapFragment({
+          url: refreshUrl,
+          targetSelector: "#download-history-fragment",
+          swap: "outerHTML",
+        });
+        if (!updated && forceReloadFallback && window.location.pathname === "/downloads") {
+          window.location.reload();
+        }
+        return updated;
       }
 
       function flattenSavedValues(value, prefix = "") {
@@ -2808,43 +3033,19 @@
         const themeState = getThemeState();
         applyTheme(themeState.mode, themeState.tone, { persist: false });
         bindSystemThemeObserver();
-        bindThemeControls(document);
-        bindChannelCompose(document);
-        bindChannelComposeForms(document);
-        bindGlobalSearchForms(document);
-        bindSearchClearButtons(document);
-        bindChannelSearch(document);
-        bindChannelManageForms(document);
-        bindChannelMetaAccordion(document);
-        bindChannelAvatars(document);
-        bindChannelReactivateBulkForms(document);
-        bindPollTriggerButtons(document);
-        bindVideoManageForms(document);
-        bindThumbPreviews(document);
-        bindDigitsOnlyInputs(document);
-        bindAlertToasts(document);
-        bindRetentionForms(document);
-        bindRetentionNotices(document);
-        bindCopyButtons(document);
-        bindCollapsibles(document);
+        hydrateUiScope(document);
         bindChannelReactivateToasts();
         bindChannelMetadataToasts();
         bindVideoDownloadBulkToasts();
         bindVideoArticleRequestToasts();
         bindLlmRuntimeToasts();
-        bindYouTubeEmbeds(document);
-        bindVideoDownloadButtons(document);
-        bindVideoArticleRequestButtons(document);
-        bindArticlePreviewModals(document);
-        bindDownloadDetailButtons(document);
-        bindDownloadRetryButtons(document);
         startDownloadProgressPolling();
         bindQueueRetryButtons(document);
         startQueuePolling();
+        startVideoDetailAutoRefresh();
+        startChannelListAutoRefresh();
+        startLlmRuntimeAutoRefresh();
         bindNavTransitions(document);
-        bindCategorySortable(document);
-        bindChannelMoveCategory(document);
-        bindCategoryFilterReset(document);
         bindCategoryRename();
         initChannelImportForm();
         revealPageShell();
@@ -2905,34 +3106,7 @@
         }
       });
       document.addEventListener("htmx:afterSwap", (event) => {
-        bindThemeControls(event.target);
-        bindChannelCompose(event.target);
-        bindChannelComposeForms(event.target);
-        bindGlobalSearchForms(event.target);
-        bindSearchClearButtons(event.target);
-        bindChannelSearch(event.target);
-        bindChannelManageForms(event.target);
-        bindChannelMetaAccordion(event.target);
-        bindChannelAvatars(event.target);
-        bindChannelReactivateBulkForms(event.target);
-        bindPollTriggerButtons(event.target);
-        bindVideoManageForms(event.target);
-        bindThumbPreviews(event.target);
-        bindDigitsOnlyInputs(event.target);
-        bindAlertToasts(event.target);
-        bindRetentionForms(event.target);
-        bindRetentionNotices(event.target);
-        bindCopyButtons(event.target);
-        bindCollapsibles(event.target);
-        bindYouTubeEmbeds(event.target);
-        bindVideoDownloadButtons(event.target);
-        bindVideoArticleRequestButtons(event.target);
-        bindArticlePreviewModals(event.target);
-        bindDownloadDetailButtons(event.target);
-        bindDownloadRetryButtons(event.target);
-        bindCategorySortable(event.target);
-        bindChannelMoveCategory(event.target);
-        bindCategoryFilterReset(event.target);
+        hydrateUiScope(event.target);
         bindCategoryRename();
       });
     })();
