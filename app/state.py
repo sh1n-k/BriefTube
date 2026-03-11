@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import asyncio
 from datetime import datetime, timezone
+from typing import Any
 
 import aiosqlite
 import httpx
@@ -33,3 +34,4 @@ class AppState:
     channel_metadata_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
     notification_queue: asyncio.Queue[dict[str, str]] = field(default_factory=asyncio.Queue)
     rss_cache: dict[str, dict[str, str]] = field(default_factory=dict)
+    ui_cache: dict[str, tuple[float, Any]] = field(default_factory=dict)

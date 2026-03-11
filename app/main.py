@@ -70,6 +70,11 @@ def _resolve_llm_response_capture_dir(env_name: str) -> str | None:
     return None
 
 
+def _should_capture_llm_response_content() -> bool:
+    enabled = str(os.getenv("BRIEFTUBE_LLM_RESPONSE_CAPTURE_INCLUDE_CONTENT", "")).strip().lower()
+    return enabled in {"1", "true", "yes", "on"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config()
@@ -131,6 +136,7 @@ async def lifespan(app: FastAPI):
         llm_client=UnifiedLlmClient(
             timeout_seconds=config.llm_timeout_seconds,
             response_capture_dir=_resolve_llm_response_capture_dir(config.env),
+            capture_full_response_content=_should_capture_llm_response_content(),
         ),
         telegram_notifier=TelegramNotifier(
             token=config.telegram_bot_token,

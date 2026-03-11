@@ -5,7 +5,7 @@ import os
 import sqlite3
 
 from app import repository
-from app.database import open_database
+from app.database import init_database, open_database
 from app.workers.transcript_worker import _compute_retry_delay_seconds
 
 
@@ -19,6 +19,14 @@ def test_compute_retry_delay_seconds_uses_exponential_backoff_with_cap() -> None
 def test_pop_pending_transcript_videos_prioritizes_recent_and_due(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM system_alerts WHERE alert_type = ?",
+            (repository.ALERT_TYPE_LLM_CONFIG_MISSING,),
+        )
+        conn.execute(
+            "DELETE FROM app_settings WHERE key = ?",
+            (repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY,),
+        )
         conn.execute(
             """
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
@@ -526,12 +534,13 @@ def test_ensure_llm_config_missing_alert_is_deduplicated_and_reset(client) -> No
     assert sent_key == "0"
 
 
-def test_transcript_worker_lease_allows_single_owner(client) -> None:
-    db_path = os.environ["DB_PATH"]
+def test_transcript_worker_lease_allows_single_owner(tmp_path) -> None:
+    db_path = tmp_path / "lease.db"
 
     async def _run() -> tuple[bool, bool, bool, bool, bool, bool]:
-        db = await open_database(db_path)
+        db = await open_database(str(db_path))
         try:
+            await init_database(db)
             acquired_a = await repository.acquire_transcript_worker_lease(
                 db,
                 owner_id="owner-a",

@@ -278,7 +278,7 @@ def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_erro
         assert exc.retryable is False
 
 
-def test_restructure_parses_claude_result_string_with_embedded_article_json() -> None:
+def test_restructure_rejects_claude_result_string_with_embedded_article_json() -> None:
     async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
         assert args[0] == "claude"
         payload = {
@@ -297,20 +297,21 @@ def test_restructure_parses_claude_result_string_with_embedded_article_json() ->
         return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
 
     client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
-    article = asyncio.run(
-        client.restructure(
-            source_title="Source",
-            transcript_text="Transcript",
-            settings={
-                "provider_primary": "claude",
-                "provider_fallback": "none",
-                "prompt_template": "{transcript_text}",
-            },
+    try:
+        asyncio.run(
+            client.restructure(
+                source_title="Source",
+                transcript_text="Transcript",
+                settings={
+                    "provider_primary": "claude",
+                    "provider_fallback": "none",
+                    "prompt_template": "{transcript_text}",
+                },
+            )
         )
-    )
-
-    assert article["title"] == "From nested string"
-    assert article["body"] == "Body text"
+        assert False, "expected LlmClientError"
+    except LlmClientError as exc:
+        assert exc.code == "llm_schema_invalid"
 
 
 def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
@@ -385,3 +386,57 @@ def test_runtime_plan_keeps_primary_and_warns_when_fallback_is_gemini() -> None:
     assert plan.blocking_reason is None
     assert plan.providers_to_try == ["codex"]
     assert plan.warnings == ["llm_provider_schema_invalid_gemini"]
+
+
+def test_response_capture_redacts_content_by_default(tmp_path) -> None:
+    capture_dir = tmp_path / "llm-capture"
+
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        output_path = Path(args[args.index("--output-last-message") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "title": "Sensitive title",
+                    "lead": "Sensitive lead",
+                    "body": "Sensitive body",
+                    "fact_box": '{"secret":"value"}',
+                    "timestamps": '["00:00"]',
+                }
+            ),
+            encoding="utf-8",
+        )
+        return CommandExecutionResult(exit_code=0, stdout="stdout body", stderr="stderr body")
+
+    client = UnifiedLlmClient(
+        timeout_seconds=10,
+        runner=fake_runner,
+        command_exists=lambda _: True,
+        response_capture_dir=str(capture_dir),
+    )
+    asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "codex",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+            },
+        )
+    )
+
+    capture_files = list(capture_dir.glob("llm_response_*.jsonl"))
+    assert len(capture_files) == 1
+    payload = json.loads(capture_files[0].read_text(encoding="utf-8").strip())
+    assert payload["stdout"]["text"] == ""
+    assert payload["stderr"]["text"] == ""
+    assert payload["raw_output"]["text"] == ""
+    assert payload["stdout"]["chars"] == len("stdout body")
+    assert payload["raw_output"]["chars"] > 0
+    assert payload["article"] == {
+        "title_chars": len("Sensitive title"),
+        "lead_chars": len("Sensitive lead"),
+        "body_chars": len("Sensitive body"),
+        "fact_box_chars": len('{"secret":"value"}'),
+        "timestamps_chars": len('["00:00"]'),
+    }

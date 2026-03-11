@@ -287,10 +287,10 @@ def test_manual_article_worker_reuses_existing_transcript(tmp_path) -> None:
     assert wake_set is True
 
 
-def test_manual_article_worker_marks_failed_on_fetch_error(tmp_path) -> None:
+def test_manual_article_worker_requeues_transcript_on_fetch_error(tmp_path) -> None:
     db_path = tmp_path / "manual-worker-fail.db"
 
-    async def _run() -> tuple[str, str, str]:
+    async def _run() -> tuple[str, str, int, str, str]:
         db = await open_database(str(db_path))
         await init_database(db)
         await _seed_channel(db)
@@ -328,21 +328,25 @@ def test_manual_article_worker_marks_failed_on_fetch_error(tmp_path) -> None:
             assert job is not None
             cursor = await db.execute(
                 """
-                SELECT transcript_last_error
+                SELECT transcript_retry_count, transcript_last_error, transcript_next_attempt_at
                 FROM videos
                 WHERE video_id = ?
                 """,
                 ("vid-fail-001",),
             )
             error_row = await cursor.fetchone()
+            retry_count = int(error_row["transcript_retry_count"] or 0)
             error_message = str(error_row["transcript_last_error"] or "")
-            return str(video["pipeline_status"]), str(job["status"]), error_message
+            next_attempt_at = str(error_row["transcript_next_attempt_at"] or "")
+            return str(video["pipeline_status"]), str(job["status"]), retry_count, next_attempt_at, error_message
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await db.close()
 
-    pipeline_status, job_status, error_message = asyncio.run(_run())
-    assert pipeline_status == "transcript_failed"
+    pipeline_status, job_status, retry_count, next_attempt_at, error_message = asyncio.run(_run())
+    assert pipeline_status == "transcript_pending"
     assert job_status == "failed"
+    assert retry_count == 1
+    assert next_attempt_at
     assert "manual fetch failed" in error_message

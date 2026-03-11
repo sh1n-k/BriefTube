@@ -208,12 +208,14 @@ class UnifiedLlmClient:
         command_exists: CommandExists | None = None,
         response_capture_dir: str | None = None,
         response_capture_max_chars: int = 200_000,
+        capture_full_response_content: bool = False,
     ):
         self.timeout_seconds = max(1, int(timeout_seconds))
         self._runner = runner or _default_command_runner
         self._command_exists = command_exists or (lambda name: shutil.which(name) is not None)
         self._response_capture_dir = Path(response_capture_dir).expanduser() if response_capture_dir else None
         self._response_capture_max_chars = max(1_000, int(response_capture_max_chars))
+        self._capture_full_response_content = bool(capture_full_response_content)
 
     def resolve_runtime_plan(self, settings: Mapping[str, Any] | None) -> LlmRuntimePlan:
         normalized = normalize_llm_settings(settings)
@@ -581,6 +583,7 @@ class UnifiedLlmClient:
             stdout_text, stdout_truncated, stdout_chars = self._capture_text(stdout)
             stderr_text, stderr_truncated, stderr_chars = self._capture_text(stderr)
             raw_text, raw_truncated, raw_chars = self._capture_text(raw_output)
+            include_content = self._capture_full_response_content
             payload: dict[str, Any] = {
                 "id": str(uuid4()),
                 "captured_at": datetime.now(timezone.utc).isoformat(),
@@ -593,29 +596,39 @@ class UnifiedLlmClient:
                     "error_message": parse_error_message or "",
                 },
                 "stdout": {
-                    "text": stdout_text,
+                    "text": stdout_text if include_content else "",
                     "chars": stdout_chars,
                     "truncated": stdout_truncated,
                 },
                 "stderr": {
-                    "text": stderr_text,
+                    "text": stderr_text if include_content else "",
                     "chars": stderr_chars,
                     "truncated": stderr_truncated,
                 },
                 "raw_output": {
-                    "text": raw_text,
+                    "text": raw_text if include_content else "",
                     "chars": raw_chars,
                     "truncated": raw_truncated,
                 },
             }
             if article is not None:
-                payload["article"] = {
-                    "title": str(article.get("title") or ""),
-                    "lead": str(article.get("lead") or ""),
-                    "body": str(article.get("body") or ""),
-                    "fact_box": str(article.get("fact_box") or "{}"),
-                    "timestamps": str(article.get("timestamps") or "[]"),
-                }
+                payload["article"] = (
+                    {
+                        "title": str(article.get("title") or ""),
+                        "lead": str(article.get("lead") or ""),
+                        "body": str(article.get("body") or ""),
+                        "fact_box": str(article.get("fact_box") or "{}"),
+                        "timestamps": str(article.get("timestamps") or "[]"),
+                    }
+                    if include_content
+                    else {
+                        "title_chars": len(str(article.get("title") or "")),
+                        "lead_chars": len(str(article.get("lead") or "")),
+                        "body_chars": len(str(article.get("body") or "")),
+                        "fact_box_chars": len(str(article.get("fact_box") or "{}")),
+                        "timestamps_chars": len(str(article.get("timestamps") or "[]")),
+                    }
+                )
             with capture_file.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False))
                 handle.write("\n")
@@ -701,14 +714,7 @@ class UnifiedLlmClient:
         try:
             return json.loads(stripped)
         except json.JSONDecodeError:
-            for line in reversed(stripped.splitlines()):
-                candidate = line.strip()
-                if not candidate:
-                    continue
-                try:
-                    return json.loads(candidate)
-                except json.JSONDecodeError:
-                    continue
+            pass
 
         raise LlmClientError(
             "llm_schema_invalid",
@@ -769,14 +775,6 @@ class UnifiedLlmClient:
                         provider=provider,
                         retryable=False,
                     )
-                nested_result_stripped = nested_result.strip()
-                if nested_result_stripped.startswith("{") and nested_result_stripped.endswith("}"):
-                    try:
-                        nested_json = json.loads(nested_result_stripped)
-                    except json.JSONDecodeError:
-                        nested_json = None
-                    if isinstance(nested_json, dict) and self._is_article_payload(nested_json):
-                        return nested_json
 
         if isinstance(data, list):
             for item in data:

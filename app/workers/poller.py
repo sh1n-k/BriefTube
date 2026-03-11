@@ -12,6 +12,7 @@ from app.repositories import channels as channels_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.repository import is_newer_published
+from app.services.rss import RSSParseError
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,13 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
                 channel_id,
                 status_code,
                 extra={"event": "rss.fetch_failed", "worker": "rss", "code": str(status_code or "-")},
+            )
+            continue
+        except RSSParseError:
+            logger.warning(
+                "event=rss.parse_failed worker=rss channel_id=%s",
+                channel_id,
+                extra={"event": "rss.parse_failed", "worker": "rss", "code": "rss_parse_error"},
             )
             continue
         except Exception:

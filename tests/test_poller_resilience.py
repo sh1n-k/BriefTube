@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import httpx
 
 from app.database import open_database
+from app.services.rss import RSSParseError
 from app.workers.poller import poll_once
 
 
@@ -202,3 +203,48 @@ def test_poll_once_applies_inter_channel_delay(client) -> None:
     for j in range(1, len(call_times)):
         gap = call_times[j] - call_times[j - 1]
         assert gap >= 0.5 * 0.7, f"Channel {j} gap {gap:.3f}s < minimum 0.35s"
+
+
+def test_poll_once_does_not_cache_or_insert_on_rss_parse_error(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCparseerror001",
+                "Parse Error Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCparseerror001",
+            ),
+        )
+        conn.commit()
+
+    class FakeRSSService:
+        async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+            raise RSSParseError("RSS response XML parse failed")
+
+    async def _run() -> tuple[int, int, bool]:
+        db = await open_database(db_path)
+        try:
+            state = SimpleNamespace(
+                db=db,
+                rss_cache={},
+                rss_service=FakeRSSService(),
+                started_at=datetime.now(timezone.utc),
+            )
+            inserted = await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                "SELECT COUNT(1) AS cnt FROM videos WHERE channel_id = ?",
+                ("UCparseerror001",),
+            )
+            row = await cursor.fetchone()
+            return inserted, int(row["cnt"] or 0), "UCparseerror001" in state.rss_cache
+        finally:
+            await db.close()
+
+    inserted, video_count, cached = asyncio.run(_run())
+    assert inserted == 0
+    assert video_count == 0
+    assert cached is False

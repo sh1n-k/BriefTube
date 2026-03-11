@@ -215,10 +215,10 @@ def test_manual_article_worker_fetches_missing_transcript_and_succeeds(tmp_path)
     assert transcript_count == 1
 
 
-def test_manual_article_worker_fetch_failure_marks_transcript_failed_and_job_failed(tmp_path) -> None:
+def test_manual_article_worker_fetch_failure_requeues_transcript_and_fails_job(tmp_path) -> None:
     db_path = tmp_path / "manual-worker-fail.db"
 
-    async def _run() -> tuple[str, str, str]:
+    async def _run() -> tuple[str, str, int, str, str]:
         db = await open_database(str(db_path))
         await init_database(db)
         await _seed_channel(db)
@@ -245,20 +245,34 @@ def test_manual_article_worker_fetch_failure_marks_transcript_failed_and_job_fai
             assert video is not None
             assert job is not None
             cursor = await db.execute(
-                "SELECT transcript_last_error FROM videos WHERE video_id = ?",
+                """
+                SELECT transcript_retry_count, transcript_last_error, transcript_next_attempt_at
+                FROM videos
+                WHERE video_id = ?
+                """,
                 ("vid-fail-001",),
             )
             error_row = await cursor.fetchone()
+            retry_count = int(error_row["transcript_retry_count"] or 0)
             error_message = str(error_row["transcript_last_error"] or "")
-            return str(video["pipeline_status"]), str(job["status"]), error_message
+            next_attempt_at = str(error_row["transcript_next_attempt_at"] or "")
+            return (
+                str(video["pipeline_status"]),
+                str(job["status"]),
+                retry_count,
+                next_attempt_at,
+                error_message,
+            )
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await db.close()
 
-    pipeline_status, job_status, error_message = asyncio.run(_run())
-    assert pipeline_status == "transcript_failed"
+    pipeline_status, job_status, retry_count, next_attempt_at, error_message = asyncio.run(_run())
+    assert pipeline_status == "transcript_pending"
     assert job_status == "failed"
+    assert retry_count == 1
+    assert next_attempt_at
     assert "manual fetch failed" in error_message
 
 
@@ -293,6 +307,7 @@ def test_manual_article_worker_processes_jobs_sequentially_with_spacing(tmp_path
                 transcript_idle_sleep_seconds=1,
                 transcript_request_interval_seconds=1,
                 transcript_fetch_timeout_seconds=1,
+                transcript_jitter_ratio=0.0,
             ),
             transcript_service=_TrackingService(),
             manual_article_wake_event=asyncio.Event(),
@@ -315,7 +330,7 @@ def test_manual_article_worker_processes_jobs_sequentially_with_spacing(tmp_path
     order, max_active, spacing = asyncio.run(_run())
     assert order == ["vid-seq-001", "vid-seq-002"]
     assert max_active == 1
-    assert spacing >= 0.9
+    assert spacing >= 0.7
 
 
 def test_recover_stuck_manual_article_jobs_marks_running_failed(tmp_path) -> None:

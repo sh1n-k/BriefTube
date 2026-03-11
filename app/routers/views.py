@@ -24,6 +24,7 @@ from app.services.bulk_channels import (
     parse_takeout_entries,
     resolve_bulk_inputs,
 )
+from app.services.rss import RSSParseError
 from app.services.downloads import is_ffmpeg_available
 from app.services.llm_runtime import LlmRuntimeStatus, is_runtime_ready_for_resume
 from app.services.markdown_render import render_markdown_to_safe_html
@@ -276,6 +277,13 @@ async def _probe_channel_reactivation(
         if status_code is not None:
             return False, f"http_{status_code}"
         return False, "http_unknown"
+    except RSSParseError:
+        logger.debug(
+            "event=channels.reactivate_probe_failed channel_id=%s reason=parse_error",
+            channel_id,
+            extra={"event": "channels.reactivate_probe_failed", "code": "rss_parse_error"},
+        )
+        return False, "error_rss_parse"
     except Exception as exc:
         logger.debug(
             "event=channels.reactivate_probe_failed channel_id=%s reason=exception error_type=%s",

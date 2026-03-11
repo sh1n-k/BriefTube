@@ -12,6 +12,10 @@ NAMESPACES = {
 }
 
 
+class RSSParseError(RuntimeError):
+    pass
+
+
 class RSSService:
     def __init__(self, client: httpx.AsyncClient, timeout_seconds: int = 20):
         self.client = client
@@ -45,8 +49,8 @@ class RSSService:
 
         try:
             root = fromstring(response.text)
-        except ParseError:
-            return [], latest_etag, latest_last_modified
+        except ParseError as exc:
+            raise RSSParseError("RSS response XML parse failed") from exc
 
         entries: list[dict[str, str]] = []
         for entry in root.findall("atom:entry", NAMESPACES):

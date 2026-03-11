@@ -239,6 +239,31 @@ def _parse_float_setting(value: str | None, default: float, min_value: float, ma
     return max(min_value, min(max_value, parsed))
 
 
+async def get_settings_map(
+    db: aiosqlite.Connection,
+    values: Mapping[str, str | None],
+) -> dict[str, str | None]:
+    defaults = {str(key): default for key, default in values.items()}
+    keys = list(defaults.keys())
+    if not keys:
+        return {}
+
+    placeholders = ",".join("?" for _ in keys)
+    cursor = await db.execute(
+        f"""
+        SELECT key, value
+        FROM app_settings
+        WHERE key IN ({placeholders})
+        """,
+        tuple(keys),
+    )
+    rows = await cursor.fetchall()
+    resolved = defaults.copy()
+    for row in rows:
+        resolved[str(row["key"])] = str(row["value"])
+    return resolved
+
+
 def normalize_category_processing_stage(value: str | None, *, default: str = CATEGORY_PROCESSING_STAGE_OFF) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in CATEGORY_PROCESSING_STAGE_OPTIONS:
@@ -1818,7 +1843,7 @@ async def schedule_transcript_retry(
             transcript_last_error = ?,
             transcript_last_error_at = datetime('now')
         WHERE video_id = ?
-          AND pipeline_status IN ('transcript_pending', 'transcript_processing')
+          AND pipeline_status IN ('transcript_pending', 'transcript_processing', 'transcript_failed')
         """,
         (f"+{safe_delay} seconds", safe_error, video_id),
     )
@@ -2394,46 +2419,15 @@ async def release_transcript_worker_lease(db: aiosqlite.Connection, owner_id: st
 
 
 async def get_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, Any]:
-    adaptive_raw = await get_setting(
-        db,
-        "transcript_guard_adaptive_factor",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_adaptive_factor"],
-    )
-    cooldown_raw = await get_setting(
-        db,
-        "transcript_guard_cooldown_until",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_cooldown_until"],
-    )
-    hard_raw = await get_setting(
-        db,
-        "transcript_guard_consecutive_hard_errors",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_consecutive_hard_errors"],
-    )
-    success_raw = await get_setting(
-        db,
-        "transcript_guard_consecutive_successes",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_consecutive_successes"],
-    )
-    breaker_state_raw = await get_setting(
-        db,
-        "transcript_guard_breaker_state",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_breaker_state"],
-    )
-    probe_raw = await get_setting(
-        db,
-        "transcript_guard_half_open_probe_remaining",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_half_open_probe_remaining"],
-    )
-    last_channel_raw = await get_setting(
-        db,
-        "transcript_guard_last_channel_id",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_last_channel_id"],
-    )
-    last_channel_attempt_raw = await get_setting(
-        db,
-        "transcript_guard_last_channel_attempt_at",
-        TRANSCRIPT_GUARD_DEFAULTS["transcript_guard_last_channel_attempt_at"],
-    )
+    settings = await get_settings_map(db, TRANSCRIPT_GUARD_DEFAULTS)
+    adaptive_raw = settings["transcript_guard_adaptive_factor"]
+    cooldown_raw = settings["transcript_guard_cooldown_until"]
+    hard_raw = settings["transcript_guard_consecutive_hard_errors"]
+    success_raw = settings["transcript_guard_consecutive_successes"]
+    breaker_state_raw = settings["transcript_guard_breaker_state"]
+    probe_raw = settings["transcript_guard_half_open_probe_remaining"]
+    last_channel_raw = settings["transcript_guard_last_channel_id"]
+    last_channel_attempt_raw = settings["transcript_guard_last_channel_attempt_at"]
 
     cooldown_until = str(cooldown_raw or "").strip() or None
     breaker_state = str(breaker_state_raw or "closed").strip().lower() or "closed"
@@ -2507,9 +2501,14 @@ async def reset_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, An
 
 async def get_worker_settings(db: aiosqlite.Connection) -> dict[str, bool]:
     result: dict[str, bool] = {}
+    defaults = {
+        key: ("true" if WORKER_SETTING_DEFAULTS.get(worker, True) else "false")
+        for worker, key in WORKER_SETTING_KEY_MAP.items()
+    }
+    settings = await get_settings_map(db, defaults)
     for worker, key in WORKER_SETTING_KEY_MAP.items():
         default = WORKER_SETTING_DEFAULTS.get(worker, True)
-        raw = await get_setting(db, key=key, default="true" if default else "false")
+        raw = settings.get(key)
         result[worker] = _parse_bool_setting(raw, default=default)
     return result
 
@@ -2533,17 +2532,17 @@ async def is_worker_enabled(db: aiosqlite.Connection, worker: str) -> bool:
 
 
 async def get_policy_settings(db: aiosqlite.Connection) -> dict[str, int | str]:
-    lookback_raw = await get_setting(
+    settings = await get_settings_map(
         db,
-        key=RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY,
-        default=str(RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT),
+        {
+            RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY: str(RSS_BOOTSTRAP_LOOKBACK_DAYS_DEFAULT),
+            RETENTION_DAYS_KEY: str(RETENTION_DAYS_DEFAULT),
+            RSS_FEED_MODE_KEY: RSS_FEED_MODE_DEFAULT,
+        },
     )
-    retention_raw = await get_setting(
-        db,
-        key=RETENTION_DAYS_KEY,
-        default=str(RETENTION_DAYS_DEFAULT),
-    )
-    feed_mode_raw = await get_setting(db, key=RSS_FEED_MODE_KEY, default=RSS_FEED_MODE_DEFAULT)
+    lookback_raw = settings[RSS_BOOTSTRAP_LOOKBACK_DAYS_KEY]
+    retention_raw = settings[RETENTION_DAYS_KEY]
+    feed_mode_raw = settings[RSS_FEED_MODE_KEY]
     feed_mode = str(feed_mode_raw).strip().lower() if feed_mode_raw else RSS_FEED_MODE_DEFAULT
     if feed_mode not in RSS_FEED_MODE_OPTIONS:
         feed_mode = RSS_FEED_MODE_DEFAULT
@@ -2602,11 +2601,12 @@ async def set_policy_settings(
 
 
 async def get_videos_per_page_setting(db: aiosqlite.Connection) -> int:
-    raw = await get_setting(
-        db,
-        key=VIDEOS_PER_PAGE_KEY,
-        default=str(VIDEOS_PER_PAGE_DEFAULT),
-    )
+    raw = (
+        await get_settings_map(
+            db,
+            {VIDEOS_PER_PAGE_KEY: str(VIDEOS_PER_PAGE_DEFAULT)},
+        )
+    )[VIDEOS_PER_PAGE_KEY]
     return _parse_int_setting(
         raw,
         default=VIDEOS_PER_PAGE_DEFAULT,
@@ -2627,46 +2627,27 @@ async def set_videos_per_page_setting(db: aiosqlite.Connection, value: int) -> i
 
 
 async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
-    primary_raw = await get_setting(
+    settings = await get_settings_map(
         db,
-        key=LLM_PROVIDER_PRIMARY_KEY,
-        default=LLM_PROVIDER_PRIMARY_DEFAULT,
+        {
+            LLM_PROVIDER_PRIMARY_KEY: LLM_PROVIDER_PRIMARY_DEFAULT,
+            LLM_PROVIDER_FALLBACK_KEY: LLM_PROVIDER_FALLBACK_DEFAULT,
+            LLM_PROMPT_TEMPLATE_KEY: "",
+            LLM_MODEL_CLAUDE_KEY: "",
+            LLM_MODEL_GEMINI_KEY: LLM_GEMINI_MODEL_DEFAULT,
+            LLM_REASONING_EFFORT_CODEX_KEY: "",
+            LLM_REASONING_EFFORT_CLAUDE_KEY: "",
+            LLM_REASONING_EFFORT_GEMINI_KEY: "none",
+        },
     )
-    fallback_raw = await get_setting(
-        db,
-        key=LLM_PROVIDER_FALLBACK_KEY,
-        default=LLM_PROVIDER_FALLBACK_DEFAULT,
-    )
-    prompt_raw = await get_setting(
-        db,
-        key=LLM_PROMPT_TEMPLATE_KEY,
-        default="",
-    )
-    model_claude_raw = await get_setting(
-        db,
-        key=LLM_MODEL_CLAUDE_KEY,
-        default="",
-    )
-    model_gemini_raw = await get_setting(
-        db,
-        key=LLM_MODEL_GEMINI_KEY,
-        default=LLM_GEMINI_MODEL_DEFAULT,
-    )
-    reasoning_effort_codex_raw = await get_setting(
-        db,
-        key=LLM_REASONING_EFFORT_CODEX_KEY,
-        default="",
-    )
-    reasoning_effort_claude_raw = await get_setting(
-        db,
-        key=LLM_REASONING_EFFORT_CLAUDE_KEY,
-        default="",
-    )
-    reasoning_effort_gemini_raw = await get_setting(
-        db,
-        key=LLM_REASONING_EFFORT_GEMINI_KEY,
-        default="none",
-    )
+    primary_raw = settings[LLM_PROVIDER_PRIMARY_KEY]
+    fallback_raw = settings[LLM_PROVIDER_FALLBACK_KEY]
+    prompt_raw = settings[LLM_PROMPT_TEMPLATE_KEY]
+    model_claude_raw = settings[LLM_MODEL_CLAUDE_KEY]
+    model_gemini_raw = settings[LLM_MODEL_GEMINI_KEY]
+    reasoning_effort_codex_raw = settings[LLM_REASONING_EFFORT_CODEX_KEY]
+    reasoning_effort_claude_raw = settings[LLM_REASONING_EFFORT_CLAUDE_KEY]
+    reasoning_effort_gemini_raw = settings[LLM_REASONING_EFFORT_GEMINI_KEY]
 
     primary = normalize_llm_provider(primary_raw, allow_none=False)
     fallback = normalize_llm_provider(fallback_raw, allow_none=True)
@@ -2855,13 +2836,35 @@ async def list_unacknowledged_alert_groups(
     db: aiosqlite.Connection,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
+    safe_limit = max(1, limit)
     cursor = await db.execute(
         """
-        SELECT id, alert_type, channel_id, channel_name, message, created_at
-        FROM system_alerts
-        WHERE acknowledged_at IS NULL
-        ORDER BY created_at DESC, id DESC
+        WITH top_alert_types AS (
+            SELECT
+                alert_type,
+                MAX(created_at) AS latest_created_at
+            FROM system_alerts
+            WHERE acknowledged_at IS NULL
+            GROUP BY alert_type
+            ORDER BY latest_created_at DESC, alert_type DESC
+            LIMIT ?
+        )
+        SELECT
+            s.id,
+            s.alert_type,
+            s.channel_id,
+            s.channel_name,
+            s.message,
+            s.created_at,
+            t.latest_created_at
+        FROM system_alerts s
+        JOIN top_alert_types t
+          ON t.alert_type = s.alert_type
+        WHERE s.acknowledged_at IS NULL
+        ORDER BY t.latest_created_at DESC, s.alert_type DESC, s.created_at DESC, s.id DESC
         """
+        ,
+        (safe_limit,),
     )
     rows = await cursor.fetchall()
     alerts = _rows_to_dicts(rows)
@@ -2874,7 +2877,7 @@ async def list_unacknowledged_alert_groups(
             group = {
                 "alert_type": alert_type,
                 "count": 0,
-                "latest_created_at": str(alert.get("created_at") or ""),
+                "latest_created_at": str(alert.get("latest_created_at") or alert.get("created_at") or ""),
                 "members": [],
             }
             grouped[alert_type] = group
@@ -2895,7 +2898,7 @@ async def list_unacknowledged_alert_groups(
         key=lambda item: (str(item.get("latest_created_at") or ""), str(item.get("alert_type") or "")),
         reverse=True,
     )
-    return groups[: max(1, limit)]
+    return groups[:safe_limit]
 
 
 async def acknowledge_alert(db: aiosqlite.Connection, alert_id: int) -> int:
@@ -3079,6 +3082,7 @@ async def get_manual_article_job(
             j.started_at,
             j.finished_at,
             j.updated_at,
+            v.channel_id,
             v.pipeline_status,
             v.transcript_retry_count,
             v.transcript_target_language,
@@ -3478,22 +3482,18 @@ async def get_download_default_settings(
     *,
     default_output_dir: str | None = None,
 ) -> dict[str, Any]:
-    quality_raw = await get_setting(
-        db,
-        key=DOWNLOAD_DEFAULT_QUALITY_KEY,
-        default=DOWNLOAD_QUALITY_DEFAULT,
-    )
-    overwrite_raw = await get_setting(
-        db,
-        key=DOWNLOAD_DEFAULT_OVERWRITE_KEY,
-        default="false",
-    )
     default_dir_raw = str(default_output_dir or DOWNLOAD_OUTPUT_DIR_DEFAULT).strip() or DOWNLOAD_OUTPUT_DIR_DEFAULT
-    output_dir_raw = await get_setting(
+    settings = await get_settings_map(
         db,
-        key=DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY,
-        default=default_dir_raw,
+        {
+            DOWNLOAD_DEFAULT_QUALITY_KEY: DOWNLOAD_QUALITY_DEFAULT,
+            DOWNLOAD_DEFAULT_OVERWRITE_KEY: "false",
+            DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY: default_dir_raw,
+        },
     )
+    quality_raw = settings[DOWNLOAD_DEFAULT_QUALITY_KEY]
+    overwrite_raw = settings[DOWNLOAD_DEFAULT_OVERWRITE_KEY]
+    output_dir_raw = settings[DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY]
     output_dir_candidate = str(output_dir_raw or "").strip() or default_dir_raw
     output_dir_path = Path(output_dir_candidate).expanduser()
     try:
