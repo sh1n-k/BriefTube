@@ -29,6 +29,7 @@
       hx-get="/views/channel-list?status={{ current_status }}"
       hx-target="#channel-list-wrap"
       hx-swap="innerHTML"
+      hx-push-url="true"
       class="flex items-center justify-between px-3 py-2 text-sm transition-colors {{ 'bg-indigo-50 text-indigo-700 font-medium' if sel_cat_id is none else 'text-slate-600 hover:bg-slate-50' }}"
     >
       <span>{{ txt.category_all }}</span>
@@ -49,6 +50,7 @@
           hx-get="/views/channel-list?status={{ current_status }}&category_id={{ cat.id }}"
           hx-target="#channel-list-wrap"
           hx-swap="innerHTML"
+          hx-push-url="true"
           class="truncate {{ 'text-indigo-700 font-medium' if sel_cat_id == cat.id else 'text-slate-700' }}"
         >
           {{ txt.category_default_name }}
@@ -56,10 +58,11 @@
         <span class="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{{ cat.channel_count }}</span>
       </div>
 
-      <div class="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div class="flex shrink-0 items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
         <button
           type="button"
           title="{{ txt.category_rename_title }}"
+          aria-label="{{ txt.category_rename_title }}"
           data-category-rename-trigger
           data-category-id="{{ cat.id }}"
           data-category-name="{{ cat.name }}"
@@ -79,6 +82,7 @@
         <button
           type="button"
           title="{{ stage_label }}"
+          aria-label="{{ txt.category_processing_stage_cycle_action | replace('{name}', txt.category_default_name) | replace('{stage}', next_stage_label) }}"
           hx-put="/views/categories/{{ cat.id }}/cycle-processing-stage?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
           hx-target="#category-sidebar"
           hx-swap="outerHTML"
@@ -117,6 +121,7 @@
           hx-get="/views/channel-list?status={{ current_status }}&category_id={{ cat.id }}"
           hx-target="#channel-list-wrap"
           hx-swap="innerHTML"
+          hx-push-url="true"
           class="truncate {{ 'text-indigo-700 font-medium' if sel_cat_id == cat.id else 'text-slate-700' }}"
         >
           {{ cat.name }}
@@ -124,10 +129,11 @@
         <span class="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{{ cat.channel_count }}</span>
       </div>
 
-      <div class="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div class="flex shrink-0 items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
         <button
           type="button"
           title="{{ txt.category_rename_title }}"
+          aria-label="{{ txt.category_rename_title }}"
           data-category-rename-trigger
           data-category-id="{{ cat.id }}"
           data-category-name="{{ cat.name }}"
@@ -148,6 +154,7 @@
         <button
           type="button"
           title="{{ stage_label }}"
+          aria-label="{{ txt.category_processing_stage_cycle_action | replace('{name}', cat.name) | replace('{stage}', next_stage_label) }}"
           hx-put="/views/categories/{{ cat.id }}/cycle-processing-stage?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
           hx-target="#category-sidebar"
           hx-swap="outerHTML"
@@ -172,6 +179,7 @@
         <button
           type="button"
           title="{{ txt.category_delete_confirm }}"
+          aria-label="{{ txt.category_delete_confirm }}"
           hx-delete="/views/categories/{{ cat.id }}?status={{ current_status }}{% if sel_cat_id is not none %}&category_id={{ sel_cat_id }}{% endif %}"
           hx-target="#category-sidebar"
           hx-swap="outerHTML"

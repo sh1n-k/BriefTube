@@ -46,6 +46,7 @@ def _parse_optional_int(value: str | None) -> int | None:
 @router.get("/")
 async def home(
     request: Request,
+    q: str = Query(default=""),
     channel_id: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
     pipeline_status: str | None = Query(default=None),
@@ -85,11 +86,14 @@ async def home(
         category_id=normalized_category_id,
         pipeline_status=normalized_pipeline_status,
     )
+    search_results = await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
 
     context = await build_template_context(
         request,
         channels=channels,
         videos=videos,
+        q=q,
+        results=search_results,
         categories_for_filter=categories,
         status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
         pagination={
