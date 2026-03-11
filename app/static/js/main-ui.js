@@ -345,15 +345,95 @@
         root.querySelectorAll("[data-channel-compose-form]").forEach(initChannelComposeForm);
       }
 
+      function toggleDefaultVideoListVisibility(isHidden) {
+        const videoList = document.getElementById("video-list-wrap");
+        if (!(videoList instanceof HTMLElement)) return;
+        videoList.classList.toggle("hidden", isHidden);
+      }
+
+      function syncGlobalSearchUrl(query) {
+        if (!(window.history && typeof window.history.replaceState === "function")) return;
+        const url = new URL(window.location.href);
+        const normalized = String(query || "").trim();
+        if (normalized) {
+          url.searchParams.set("q", normalized);
+        } else {
+          url.searchParams.delete("q");
+        }
+        window.history.replaceState({}, "", url.toString());
+      }
+
+      function initGlobalSearchForm(form) {
+        if (form.dataset.globalSearchBound === "1") return;
+        form.dataset.globalSearchBound = "1";
+
+        const input = form.querySelector("[data-global-search-input]");
+        if (!(input instanceof HTMLInputElement)) return;
+
+        const syncState = () => {
+          const hasQuery = input.value.trim().length > 0;
+          form.dataset.searchActive = hasQuery ? "1" : "0";
+          toggleDefaultVideoListVisibility(hasQuery);
+          syncGlobalSearchUrl(input.value);
+        };
+
+        input.addEventListener("input", syncState);
+        input.addEventListener("search", syncState);
+        syncState();
+      }
+
+      function bindGlobalSearchForms(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-global-search-form]").forEach(initGlobalSearchForm);
+      }
+
+      function initSearchClearButton(button) {
+        if (button.dataset.searchClearBound === "1") return;
+        button.dataset.searchClearBound = "1";
+
+        button.addEventListener("click", () => {
+          const form = document.querySelector("[data-global-search-form]");
+          if (!(form instanceof HTMLFormElement)) return;
+          const input = form.querySelector("[data-global-search-input]");
+          if (!(input instanceof HTMLInputElement)) return;
+          const results = document.querySelector("[data-search-results]");
+          input.value = "";
+          toggleDefaultVideoListVisibility(false);
+          if (results instanceof HTMLElement) {
+            results.innerHTML = "";
+          }
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.focus();
+        });
+      }
+
+      function bindSearchClearButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-search-clear]").forEach(initSearchClearButton);
+      }
+
       function ensureUiToastStack() {
         let stack = document.getElementById("ui-toast-stack");
         if (!stack) {
           stack = document.createElement("div");
           stack.id = "ui-toast-stack";
           stack.className = "pointer-events-none fixed bottom-4 right-4 z-[60] flex w-full max-w-xs flex-col gap-2";
+          stack.setAttribute("role", "status");
+          stack.setAttribute("aria-live", "polite");
+          stack.setAttribute("aria-atomic", "false");
+          stack.setAttribute("aria-relevant", "additions");
           document.body.appendChild(stack);
         }
         return stack;
+      }
+
+      function buildSaveToastMessage(baseMessage, payload) {
+        if (!baseMessage) return "";
+        const details = payload ? flattenSavedValues(payload) : [];
+        if (details.length !== 1) return baseMessage;
+        const [detail] = details;
+        if (!detail || detail.length > 36) return baseMessage;
+        return `${baseMessage} (${detail})`;
       }
 
       function showUiToast(message, tone = "success") {
@@ -366,12 +446,71 @@
             ? "border-sky-300 bg-sky-50 text-sky-800"
             : "border-emerald-300 bg-emerald-50 text-emerald-800";
         node.className = `pointer-events-auto rounded-lg border px-3 py-2 text-sm shadow-lg transition-all duration-200 ${toneClass}`;
+        node.setAttribute("role", tone === "error" ? "alert" : "status");
         node.textContent = message;
         stack.appendChild(node);
         setTimeout(() => {
           node.classList.add("opacity-0", "translate-y-1");
           setTimeout(() => node.remove(), 250);
         }, 2000);
+      }
+
+      function initPollTriggerButton(button) {
+        if (button.dataset.pollTriggerBound === "1") return;
+        button.dataset.pollTriggerBound = "1";
+
+        const label = button.querySelector("[data-poll-label]");
+        const defaultLabel = label?.textContent || button.textContent || "";
+        const busyLabel = button.dataset.busyLabel || defaultLabel;
+
+        const setBusy = (isBusy) => {
+          button.disabled = isBusy;
+          button.setAttribute("aria-busy", isBusy ? "true" : "false");
+          if (label) {
+            label.textContent = isBusy ? busyLabel : defaultLabel;
+          }
+        };
+
+        button.addEventListener("htmx:beforeRequest", (event) => {
+          if (event.target === button) {
+            setBusy(true);
+          }
+        });
+        button.addEventListener("htmx:afterRequest", (event) => {
+          if (event.target !== button) return;
+          setBusy(false);
+          if (!event.detail.successful) return;
+          const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
+          if (payload?.triggered) {
+            showUiToast(button.dataset.toastSuccess || "Poll requested.", "success");
+            return;
+          }
+          if (payload?.reason === "rss_worker_disabled") {
+            showUiToast(button.dataset.toastDisabled || "Poll is unavailable.", "info");
+            return;
+          }
+          showUiToast(button.dataset.toastFailed || "Failed to request poll.", "error");
+        });
+        button.addEventListener("htmx:responseError", (event) => {
+          if (event.target !== button) return;
+          setBusy(false);
+          showUiToast(button.dataset.toastFailed || "Failed to request poll.", "error");
+        });
+        button.addEventListener("htmx:sendError", (event) => {
+          if (event.target !== button) return;
+          setBusy(false);
+          showUiToast(button.dataset.toastFailed || "Failed to request poll.", "error");
+        });
+        button.addEventListener("htmx:timeout", (event) => {
+          if (event.target !== button) return;
+          setBusy(false);
+          showUiToast(button.dataset.toastFailed || "Failed to request poll.", "error");
+        });
+      }
+
+      function bindPollTriggerButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-poll-trigger]").forEach(initPollTriggerButton);
       }
 
       const UI_BOOTSTRAP = window.BRIEFTUBE_UI_BOOTSTRAP || {};
@@ -2672,11 +2811,14 @@
         bindThemeControls(document);
         bindChannelCompose(document);
         bindChannelComposeForms(document);
+        bindGlobalSearchForms(document);
+        bindSearchClearButtons(document);
         bindChannelSearch(document);
         bindChannelManageForms(document);
         bindChannelMetaAccordion(document);
         bindChannelAvatars(document);
         bindChannelReactivateBulkForms(document);
+        bindPollTriggerButtons(document);
         bindVideoManageForms(document);
         bindThumbPreviews(document);
         bindDigitsOnlyInputs(document);
@@ -2737,8 +2879,7 @@
         const baseMessage = source?.getAttribute("data-save-toast");
         if (baseMessage) {
           const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
-          const details = payload ? flattenSavedValues(payload).join(", ") : "";
-          const message = details ? `${baseMessage} (${details})` : baseMessage;
+          const message = buildSaveToastMessage(baseMessage, payload);
           showUiToast(message, "success");
         }
       });
@@ -2767,11 +2908,14 @@
         bindThemeControls(event.target);
         bindChannelCompose(event.target);
         bindChannelComposeForms(event.target);
+        bindGlobalSearchForms(event.target);
+        bindSearchClearButtons(event.target);
         bindChannelSearch(event.target);
         bindChannelManageForms(event.target);
         bindChannelMetaAccordion(event.target);
         bindChannelAvatars(event.target);
         bindChannelReactivateBulkForms(event.target);
+        bindPollTriggerButtons(event.target);
         bindVideoManageForms(event.target);
         bindThumbPreviews(event.target);
         bindDigitsOnlyInputs(event.target);

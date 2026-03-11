@@ -124,7 +124,7 @@ def test_search_returns_results(e2e_page: Page) -> None:
 
     results_container = page.locator("#search-results")
     # The fragment should contain a heading with the query
-    expect(results_container.locator("h3")).to_contain_text('Results for "블록체인"')
+    expect(results_container.locator("h3")).to_contain_text('"블록체인" 검색 결과')
     # At least one result item
     result_items = results_container.locator("ul > li")
     expect(result_items.first).to_be_visible()
@@ -153,15 +153,15 @@ def test_search_highlights_matching_text(e2e_page: Page) -> None:
 
 
 def test_search_no_results(e2e_page: Page) -> None:
-    """Non-existent keyword shows the 'No matches found.' empty state."""
+    """Non-existent keyword shows the localized empty state."""
     page = e2e_page
     _go_home(page)
     _submit_search(page, "존재하지않는검색어xyz")
 
     results_container = page.locator("#search-results")
-    # The template renders "No matches found." inside <li> when results are empty
+    # The template renders the localized empty message inside <li> when results are empty
     empty_message = results_container.locator("li")
-    expect(empty_message).to_contain_text("No matches found.")
+    expect(empty_message).to_contain_text("일치하는 결과가 없습니다.")
 
 
 def test_search_links_to_video_detail(e2e_page: Page) -> None:

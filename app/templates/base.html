@@ -934,14 +934,14 @@
 </head>
 <body class="bg-slate-100 text-slate-900" style="scrollbar-gutter: stable;">
   <header class="bg-gradient-to-r from-indigo-700 to-indigo-600 shadow-md">
-    <div class="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
+    <div class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
       <a href="/" class="flex items-center gap-2 text-white">
         <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
         <span class="text-xl font-bold tracking-tight">{{ txt.brand }}</span>
       </a>
-      <nav class="flex items-center gap-1 text-sm">
+      <nav class="flex flex-wrap items-center justify-end gap-1 text-sm sm:w-auto">
         {% set path = request.url.path %}
         <a href="/"
            data-nav-transition

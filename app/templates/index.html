@@ -2,7 +2,7 @@
 {% block title %}BriefTube - {{ txt.nav_videos }}{% endblock %}
 {% block content %}
 <section class="min-w-0 space-y-4">
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h1 class="text-xl font-semibold text-slate-900">{{ txt.index_videos }}</h1>
         <p class="mt-1 text-sm text-slate-500">{{ txt.index_videos_subtitle }}</p>
@@ -10,26 +10,42 @@
       <button
         hx-post="/api/poll/trigger"
         hx-swap="none"
-        class="inline-flex items-center gap-1.5 rounded-md bg-teal-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+        type="button"
+        data-poll-trigger
+        data-busy-label="{{ txt.index_poll_now_busy }}"
+        data-toast-success="{{ txt.index_poll_now_success }}"
+        data-toast-disabled="{{ txt.index_poll_now_disabled }}"
+        data-toast-failed="{{ txt.index_poll_now_failed }}"
+        class="inline-flex items-center justify-center gap-1.5 self-start rounded-md bg-teal-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/>
         </svg>
-        {{ txt.index_poll_now }}
+        <span data-poll-label>{{ txt.index_poll_now }}</span>
       </button>
     </div>
 
-    <form hx-get="/views/search-results" hx-target="#search-results">
+    <form
+      hx-get="/views/search-results"
+      hx-target="#search-results"
+      hx-trigger="submit, input changed delay:300ms from:input[name='q'], search from:input[name='q']"
+      data-global-search-form
+    >
       <div class="relative">
         <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
         </svg>
         <input name="q" placeholder="{{ txt.index_search_placeholder }}"
+               value="{{ q if q is defined else '' }}"
+               data-global-search-input
+               aria-label="{{ txt.index_search_label }}"
                class="w-full rounded-md border border-slate-300 bg-white py-2 pl-10 pr-3 text-sm shadow-sm placeholder-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
       </div>
     </form>
 
-    <div id="search-results"></div>
+    <div id="search-results" data-search-results>
+      {% include "fragments/search_results.html" %}
+    </div>
 
     {% include "fragments/video_list.html" %}
 </section>

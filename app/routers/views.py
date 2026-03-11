@@ -126,7 +126,7 @@ def _reactivate_toast_header(message: str, tone: str) -> dict[str, str]:
             "tone": tone,
         }
     }
-    return {"HX-Trigger": json.dumps(payload)}
+    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
 
 
 def _video_list_push_url(

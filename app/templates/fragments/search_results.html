@@ -1,15 +1,27 @@
 {% if q %}
-<div class="rounded-lg border border-indigo-200 bg-indigo-50/30 p-4">
-  <h3 class="mb-3 text-sm font-semibold text-slate-700">Results for "{{ q }}"</h3>
+<div class="rounded-lg border border-indigo-200 bg-indigo-50/30 p-4" role="region" aria-live="polite">
+  <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h3 class="text-sm font-semibold text-slate-700">{{ txt.search_results_title.format(query=q) }}</h3>
+      <p class="mt-1 text-xs text-slate-500">{{ txt.search_results_hint }}</p>
+    </div>
+    <button
+      type="button"
+      data-search-clear
+      class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+    >
+      {{ txt.search_results_clear }}
+    </button>
+  </div>
   <ul class="space-y-2">
     {% for item in results %}
     <li class="rounded-lg border border-slate-200 bg-white p-3 transition hover:border-indigo-300 hover:shadow-sm">
       <div class="flex items-center gap-2">
         <a class="font-medium text-indigo-700 hover:text-indigo-900" href="/videos/{{ item.video_id }}">{{ item.video_title }}</a>
         {% if item.source == 'transcript' %}
-          <span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">transcript</span>
+          <span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">{{ txt.search_results_source_transcript }}</span>
         {% elif item.source == 'article' %}
-          <span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-700">article</span>
+          <span class="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-700">{{ txt.search_results_source_article }}</span>
         {% else %}
           <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{{ item.source }}</span>
         {% endif %}
@@ -17,7 +29,7 @@
       <p class="mt-1 text-sm text-slate-600 line-clamp-2">{{ item.snippet }}...</p>
     </li>
     {% else %}
-    <li class="py-4 text-center text-sm text-slate-400">No matches found.</li>
+    <li class="py-4 text-center text-sm text-slate-400">{{ txt.search_results_empty }}</li>
     {% endfor %}
   </ul>
 </div>
