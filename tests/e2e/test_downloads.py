@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from pathlib import Path
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -30,7 +31,7 @@ VIDEO_TITLES = [f"Download Test Video {i}" for i in range(1, 6)]
 # VIDEO_IDS[4] → no download job (used for download-from-video-detail test)
 
 
-def _seed_downloads(db_path: str) -> dict[str, int]:
+def _seed_downloads(db_path: str, *, succeeded_output_path: str) -> dict[str, int | str]:
     """Seed channel, videos, and download jobs. Returns job IDs by status."""
     seed_channel(db_path, CHANNEL_ID, CHANNEL_NAME)
     for vid, title in zip(VIDEO_IDS, VIDEO_TITLES):
@@ -56,7 +57,7 @@ def _seed_downloads(db_path: str) -> dict[str, int]:
         VIDEO_TITLES[2],
         status="succeeded",
         quality="1080",
-        output_path="/tmp/downloads/test_video_3.mp4",
+        output_path=succeeded_output_path,
         file_size_bytes=104857600,
     )
     failed_id = seed_download_job(
@@ -73,6 +74,7 @@ def _seed_downloads(db_path: str) -> dict[str, int]:
         "running": running_id,
         "succeeded": succeeded_id,
         "failed": failed_id,
+        "succeeded_output_path": succeeded_output_path,
     }
 
 
@@ -86,10 +88,14 @@ def _reset_download_seed(db_path: str) -> None:
 
 
 @pytest.fixture()
-def downloads_seeded(e2e_server: dict) -> dict[str, int]:
+def downloads_seeded(e2e_server: dict) -> dict[str, int | str]:
     """Seed isolated download data for each test."""
     _reset_download_seed(e2e_server["db_path"])
-    return _seed_downloads(e2e_server["db_path"])
+    succeeded_output_path = str(Path(e2e_server["download_dir"]) / "test_video_3.mp4")
+    return _seed_downloads(
+        e2e_server["db_path"],
+        succeeded_output_path=succeeded_output_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +195,7 @@ def test_downloads_status_filter_succeeded(e2e_page: Page, downloads_seeded: dic
     # Output path should be visible in the result column
     result_cell = rows.first.locator(".text-emerald-700")
     expect(result_cell).to_be_visible()
-    expect(result_cell).to_contain_text("/tmp/downloads/test_video_3.mp4")
+    expect(result_cell).to_have_attribute("title", str(downloads_seeded["succeeded_output_path"]))
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -19,11 +18,18 @@ ENV_ALLOWLIST_KEYS = (
     "HOME",
     "LANG",
     "LC_ALL",
+    "LOCALAPPDATA",
+    "PATHEXT",
     "PYTHONPATH",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
     "TMPDIR",
+    "USERPROFILE",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "REQUESTS_CA_BUNDLE",
+    "COMSPEC",
 )
 
 
@@ -150,7 +156,7 @@ def e2e_server(tmp_path_factory: pytest.TempPathFactory):
         "process": proc,
     }
 
-    proc.send_signal(signal.SIGTERM)
+    proc.terminate()
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
