@@ -18,7 +18,12 @@ LLM_PROVIDER_NONE = "none"
 LLM_PROVIDER_OPTIONS = {LLM_PROVIDER_CODEX, LLM_PROVIDER_CLAUDE, LLM_PROVIDER_GEMINI}
 LLM_PROVIDER_FALLBACK_OPTIONS = {LLM_PROVIDER_NONE, *LLM_PROVIDER_OPTIONS}
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = 20_000
-LLM_CODEX_MODEL_FIXED = "gpt-5.3-codex"
+LLM_CODEX_MODEL_DEFAULT = "gpt-5.3-codex"
+LLM_CODEX_MODEL_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("gpt-5.3-codex", "GPT-5.3 Codex"),
+    ("gpt-5.4", "GPT-5.4"),
+)
+LLM_CODEX_MODEL_VALUES = {value for value, _label in LLM_CODEX_MODEL_OPTIONS}
 LLM_GEMINI_MODEL_DEFAULT = "gemini-3.1-pro-preview"
 LLM_REASONING_EFFORT_OPTIONS = {"low", "medium", "high"}
 LLM_REASONING_EFFORT_GEMINI_OPTIONS = {"none", "low", "medium", "high"}
@@ -103,6 +108,13 @@ def normalize_llm_provider(value: str | None, *, allow_none: bool = False) -> st
     return LLM_PROVIDER_NONE if allow_none else LLM_PROVIDER_CODEX
 
 
+def normalize_codex_model(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in LLM_CODEX_MODEL_VALUES:
+        return normalized
+    return LLM_CODEX_MODEL_DEFAULT
+
+
 def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
     payload = raw or {}
     primary = normalize_llm_provider(str(payload.get("provider_primary") or ""))
@@ -113,11 +125,14 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
 
     model_payload = payload.get("llm_model")
     if isinstance(model_payload, Mapping):
+        codex_model_raw = model_payload.get("codex", "")
         claude_model_raw = model_payload.get("claude", "")
         gemini_model_raw = model_payload.get("gemini", "")
     else:
+        codex_model_raw = payload.get("llm_model_codex", "")
         claude_model_raw = payload.get("llm_model_claude", "")
         gemini_model_raw = payload.get("llm_model_gemini", "")
+    codex_model = normalize_codex_model(codex_model_raw)
     claude_model = str(claude_model_raw or "").strip()
     gemini_model = str(gemini_model_raw or "").strip()
     if not gemini_model:
@@ -141,7 +156,7 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         provider_fallback=fallback,
         prompt_template=prompt_template,
         llm_model={
-            "codex": LLM_CODEX_MODEL_FIXED,
+            "codex": codex_model,
             "claude": claude_model,
             "gemini": gemini_model,
         },
@@ -354,7 +369,7 @@ class UnifiedLlmClient:
             return await self._invoke_codex(
                 prompt,
                 source_title=source_title,
-                model=settings.llm_model.get("codex", LLM_CODEX_MODEL_FIXED),
+                model=settings.llm_model.get("codex", LLM_CODEX_MODEL_DEFAULT),
                 reasoning_effort=settings.llm_reasoning_effort.get("codex", ""),
             )
         if provider == LLM_PROVIDER_CLAUDE:
@@ -404,7 +419,7 @@ class UnifiedLlmClient:
                 "exec",
                 "--skip-git-repo-check",
                 "-m",
-                model or LLM_CODEX_MODEL_FIXED,
+                normalize_codex_model(model),
                 "--output-schema",
                 str(schema_file),
                 "--output-last-message",

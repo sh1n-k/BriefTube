@@ -4,7 +4,12 @@ import asyncio
 import json
 from pathlib import Path
 
-from app.services.llm import CommandExecutionResult, LlmClientError, UnifiedLlmClient
+from app.services.llm import (
+    LLM_CODEX_MODEL_DEFAULT,
+    CommandExecutionResult,
+    LlmClientError,
+    UnifiedLlmClient,
+)
 
 
 def test_runtime_not_ready_when_prompt_is_empty() -> None:
@@ -40,7 +45,7 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
     async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
         assert args[0] == "codex"
         assert args[-1] == "-"
-        assert args[args.index("-m") + 1] == "gpt-5.3-codex"
+        assert args[args.index("-m") + 1] == LLM_CODEX_MODEL_DEFAULT
         assert "-c" not in args
         assert stdin_text == "Title=Source\nBody=Transcript"
 
@@ -78,9 +83,45 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
     assert article["lead"] == "Lead"
     assert article["body"] == "Body"
     assert article["_llm_provider"] == "codex"
-    assert article["_llm_model"] == "gpt-5.3-codex"
+    assert article["_llm_model"] == LLM_CODEX_MODEL_DEFAULT
     assert article["_llm_reasoning_effort"] == ""
     assert article["_llm_generated_at"]
+
+
+def test_restructure_codex_uses_selected_model_from_settings() -> None:
+    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+        assert args[0] == "codex"
+        assert args[args.index("-m") + 1] == "gpt-5.4"
+        output_path = Path(args[args.index("--output-last-message") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "title": "Article title",
+                    "lead": "Lead",
+                    "body": "Body",
+                    "fact_box": "{}",
+                    "timestamps": "[]",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "codex",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+                "llm_model": {"codex": "gpt-5.4"},
+            },
+        )
+    )
+
+    assert article["_llm_model"] == "gpt-5.4"
 
 
 def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:

@@ -127,7 +127,7 @@
       class="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
       hx-put="/api/settings/llm"
       hx-swap="none"
-      hx-trigger="change from:select[name='llm_provider_primary'], change from:select[name='llm_provider_fallback'], change from:select[name='llm_reasoning_effort_codex'], change from:select[name='llm_reasoning_effort_claude'], change from:select[name='llm_reasoning_effort_gemini'], input changed delay:1s from:textarea[name='llm_prompt_template'], input changed delay:1s from:input[name='llm_model_claude'], input changed delay:1s from:input[name='llm_model_gemini']"
+      hx-trigger="change from:select[name='llm_provider_primary'], change from:select[name='llm_provider_fallback'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], change from:select[name='llm_reasoning_effort_claude'], change from:select[name='llm_reasoning_effort_gemini'], input changed delay:1s from:textarea[name='llm_prompt_template'], input changed delay:1s from:input[name='llm_model_claude'], input changed delay:1s from:input[name='llm_model_gemini']"
       data-save-toast="{{ txt.settings_saved_toast }}"
     >
       <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_title }}</h2>
@@ -150,13 +150,14 @@
         <div class="mt-3 space-y-3">
           <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
             <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
-            <input
-              type="text"
+            <select
               name="llm_model_codex"
-              value="{{ llm_settings.llm_model.codex }}"
-              readonly
-              class="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm font-mono text-slate-600"
-            />
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+            >
+              {% for model_value, model_label in codex_model_options %}
+              <option value="{{ model_value }}" {% if llm_settings.llm_model.codex == model_value %}selected{% endif %}>{{ model_label }}</option>
+              {% endfor %}
+            </select>
             <select
               name="llm_reasoning_effort_codex"
               class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"

@@ -250,7 +250,7 @@ def test_settings_llm_update(client: TestClient) -> None:
             "provider_fallback": "none",
             "prompt_template": "Title={source_title}\\nBody={transcript_text}",
             "llm_model": {
-                "codex": "ignored-model",
+                "codex": "gpt-5.4",
                 "claude": "sonnet",
                 "gemini": "gemini-3.1-pro-preview",
             },
@@ -266,7 +266,7 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert response.json()["llm_settings"]["provider_fallback"] == "none"
     assert response.json()["llm_settings"]["prompt_template"] == "Title={source_title}\\nBody={transcript_text}"
     assert response.json()["llm_settings"]["llm_model"] == {
-        "codex": "gpt-5.3-codex",
+        "codex": "gpt-5.4",
         "claude": "sonnet",
         "gemini": "gemini-3.1-pro-preview",
     }
@@ -281,7 +281,7 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert after.json()["llm_settings"]["provider_primary"] == "claude"
     assert after.json()["llm_settings"]["provider_fallback"] == "none"
     assert after.json()["llm_settings"]["llm_model"] == {
-        "codex": "gpt-5.3-codex",
+        "codex": "gpt-5.4",
         "claude": "sonnet",
         "gemini": "gemini-3.1-pro-preview",
     }
@@ -343,6 +343,19 @@ def test_settings_llm_rejects_non_object_llm_model(client: TestClient) -> None:
     assert response.json()["detail"] == "llm_model must be object"
 
 
+def test_settings_llm_rejects_invalid_codex_model(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_model": {
+                "codex": "custom-codex-model",
+            }
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "llm_model.codex must be one of: gpt-5.3-codex, gpt-5.4"
+
+
 def test_settings_llm_rejects_invalid_reasoning_effort_value(client: TestClient) -> None:
     response = client.put(
         "/api/settings/llm",
@@ -391,7 +404,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
             "llm_provider_primary": "codex",
             "llm_provider_fallback": "claude",
             "llm_prompt_template": "Body={transcript_text}",
-            "llm_model_codex": "custom-codex-model",
+            "llm_model_codex": "gpt-5.4",
             "llm_model_claude": "sonnet",
             "llm_model_gemini": "gemini-3.1-pro-preview",
             "llm_reasoning_effort_codex": "medium",
@@ -402,7 +415,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
     assert response.status_code == 200
     llm_settings = response.json()["llm_settings"]
     assert llm_settings["llm_model"] == {
-        "codex": "gpt-5.3-codex",
+        "codex": "gpt-5.4",
         "claude": "sonnet",
         "gemini": "gemini-3.1-pro-preview",
     }
