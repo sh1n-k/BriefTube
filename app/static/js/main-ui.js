@@ -1951,10 +1951,32 @@
         bindCategoryFilterReset(scope);
       }
 
+      function preserveVideoDetailPlayerCard(currentRoot, nextRoot) {
+        if (!(currentRoot instanceof Element) || !(nextRoot instanceof Element)) return;
+        const currentFragment = currentRoot.matches("[data-video-detail-fragment]")
+          ? currentRoot
+          : currentRoot.querySelector("[data-video-detail-fragment]");
+        const nextFragment = nextRoot.matches("[data-video-detail-fragment]")
+          ? nextRoot
+          : nextRoot.querySelector("[data-video-detail-fragment]");
+        if (!(currentFragment instanceof HTMLElement) || !(nextFragment instanceof HTMLElement)) return;
+
+        const currentVideoId = String(currentFragment.dataset.videoDetailId || "").trim();
+        const nextVideoId = String(nextFragment.dataset.videoDetailId || "").trim();
+        if (!currentVideoId || currentVideoId !== nextVideoId) return;
+
+        const currentPlayerCard = currentFragment.querySelector("[data-detail-player-card]");
+        const nextPlayerCard = nextFragment.querySelector("[data-detail-player-card]");
+        if (!(currentPlayerCard instanceof HTMLElement) || !(nextPlayerCard instanceof HTMLElement)) return;
+
+        nextPlayerCard.replaceWith(currentPlayerCard);
+      }
+
       async function fetchAndSwapFragment({
         url,
         targetSelector,
         swap = "outerHTML",
+        beforeSwap = null,
       }) {
         const target = document.querySelector(targetSelector);
         if (!(target instanceof Element)) return false;
@@ -1971,7 +1993,15 @@
           if (swap === "innerHTML") {
             const latestTarget = document.querySelector(targetSelector);
             if (!(latestTarget instanceof Element)) return false;
-            latestTarget.innerHTML = html;
+            if (typeof beforeSwap === "function") {
+              const fragment = parseHtmlFragment(html);
+              const nextNode = fragment.firstElementChild;
+              if (!(nextNode instanceof Element)) return false;
+              beforeSwap({ target: latestTarget, nextNode });
+              latestTarget.replaceChildren(nextNode);
+            } else {
+              latestTarget.innerHTML = html;
+            }
             if (typeof htmx !== "undefined" && typeof htmx.process === "function") {
               htmx.process(latestTarget);
             }
@@ -1982,6 +2012,9 @@
           const nextNode = fragment.firstElementChild;
           const latestTarget = document.querySelector(targetSelector);
           if (!(latestTarget instanceof Element) || !(nextNode instanceof Element)) return false;
+          if (typeof beforeSwap === "function") {
+            beforeSwap({ target: latestTarget, nextNode });
+          }
           latestTarget.replaceWith(nextNode);
           if (typeof htmx !== "undefined" && typeof htmx.process === "function") {
             htmx.process(nextNode);
@@ -2010,6 +2043,9 @@
             url: refreshUrl,
             targetSelector: "#video-detail-wrap",
             swap: "innerHTML",
+            beforeSwap: ({ target, nextNode }) => {
+              preserveVideoDetailPlayerCard(target, nextNode);
+            },
           });
         } finally {
           videoDetailRefreshInFlight = false;
