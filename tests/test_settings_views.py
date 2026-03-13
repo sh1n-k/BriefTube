@@ -97,7 +97,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'data-open-llm-prompt-modal' in response.text
     assert 'data-llm-prompt-editor' in response.text
     assert response.text.index('data-settings-section="workers"') < response.text.index('data-settings-section="language"')
-    assert response.text.index('data-settings-section="telegram"') < response.text.index('data-settings-section="language"')
+    assert response.text.index('data-settings-section="llm"') < response.text.index('data-settings-section="telegram"')
+    assert response.text.index('data-settings-section="telegram"') < response.text.index('data-settings-section="transcript-headers"')
     assert response.text.index('data-settings-section="transcript-headers"') < response.text.index('data-settings-section="transcript-guard"')
     assert len(re.findall(r'type="number"', response.text)) >= 3
 
