@@ -131,6 +131,7 @@ Windows PowerShell:
 | `LOG_DEPENDENCY_LEVEL` | 외부 라이브러리 로그 레벨 | `WARNING` |
 
 로그 파일 최대 사용량은 대략 `LOG_FILE_MAX_BYTES * (LOG_FILE_BACKUP_COUNT + 1)` 입니다.
+Telegram 봇 토큰과 채팅 ID는 설정 페이지에서도 SQLite에 저장할 수 있습니다. 다만 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 또는 config 파일 값이 있으면 그 값이 우선 적용됩니다.
 전체 설정 키는 `app/config.py`의 `AppConfig`를 참조합니다.
 
 ## 테스트

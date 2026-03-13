@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.services.llm import LlmRuntimePlan
 from app.services.transcript_headers import (
@@ -43,6 +44,18 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
             "claude": "",
             "gemini": "none",
         },
+    }
+    assert initial.json()["telegram_settings"] == {
+        "configured": False,
+        "override_active": False,
+        "bot_token_stored": False,
+        "chat_id_stored": False,
+        "stored_bot_token_preview": "",
+        "stored_chat_id_preview": "",
+        "effective_bot_token_preview": "",
+        "effective_chat_id_preview": "",
+        "bot_token_source": "none",
+        "chat_id_source": "none",
     }
     assert initial.json()["videos_per_page"] == 8
     assert initial.json()["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
@@ -123,6 +136,110 @@ def test_settings_workers_update(client: TestClient) -> None:
     poll = client.post("/api/poll/trigger")
     assert poll.status_code == 200
     assert poll.json() == {"ok": True, "triggered": False, "reason": "rss_worker_disabled"}
+
+
+def test_settings_telegram_update_masks_values_and_configures_runtime(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/telegram",
+        json={
+            "bot_token": "123456:ABCDEFSECRET",
+            "chat_id": "-1001234567890",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["telegram_settings"]
+    assert payload["configured"] is True
+    assert payload["bot_token_stored"] is True
+    assert payload["chat_id_stored"] is True
+    assert payload["stored_bot_token_preview"] == "1234…CRET"
+    assert payload["stored_chat_id_preview"] == "-100…7890"
+    assert payload["effective_bot_token_preview"] == "1234…CRET"
+    assert payload["effective_chat_id_preview"] == "-100…7890"
+    assert payload["bot_token_source"] == "db"
+    assert payload["chat_id_source"] == "db"
+    assert "ABCDEFSECRET" not in json.dumps(response.json(), ensure_ascii=False)
+
+    after = client.get("/api/settings")
+    assert after.status_code == 200
+    assert after.json()["telegram_settings"]["configured"] is True
+    assert "ABCDEFSECRET" not in json.dumps(after.json(), ensure_ascii=False)
+    assert client.app.state.runtime.telegram_notifier.is_configured() is True
+    assert client.app.state.runtime.telegram_notifier.chat_id == "-1001234567890"
+    assert "123456:ABCDEFSECRET" in client.app.state.runtime.telegram_notifier.url
+
+
+def test_settings_telegram_clear_removes_stored_values(client: TestClient) -> None:
+    seed = client.put(
+        "/api/settings/telegram",
+        json={"bot_token": "123456:ABCDEFSECRET", "chat_id": "-1001234567890"},
+    )
+    assert seed.status_code == 200
+
+    response = client.put(
+        "/api/settings/telegram",
+        json={"clear_bot_token": True, "clear_chat_id": True},
+    )
+    assert response.status_code == 200
+    payload = response.json()["telegram_settings"]
+    assert payload["configured"] is False
+    assert payload["bot_token_stored"] is False
+    assert payload["chat_id_stored"] is False
+    assert payload["bot_token_source"] == "none"
+    assert payload["chat_id_source"] == "none"
+    assert client.app.state.runtime.telegram_notifier.is_configured() is False
+
+
+def test_settings_telegram_env_override_takes_priority(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token-1234")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "env-chat-5678")
+
+    response = client.put(
+        "/api/settings/telegram",
+        json={"bot_token": "db-token-9999", "chat_id": "db-chat-9999"},
+    )
+    assert response.status_code == 200
+    payload = response.json()["telegram_settings"]
+    assert payload["configured"] is True
+    assert payload["override_active"] is True
+    assert payload["bot_token_source"] == "env"
+    assert payload["chat_id_source"] == "env"
+    assert payload["effective_bot_token_preview"] == "env-…1234"
+    assert payload["effective_chat_id_preview"] == "env-…5678"
+    assert payload["stored_bot_token_preview"] == "db-t…9999"
+    assert payload["stored_chat_id_preview"] == "db-c…9999"
+    assert client.app.state.runtime.telegram_notifier.chat_id == "env-chat-5678"
+    assert "env-token-1234" in client.app.state.runtime.telegram_notifier.url
+
+
+def test_settings_telegram_partial_env_does_not_mix_with_db(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed = client.put(
+        "/api/settings/telegram",
+        json={"bot_token": "db-token-9999", "chat_id": "db-chat-9999"},
+    )
+    assert seed.status_code == 200
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token-only")
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+
+    response = client.get("/api/settings")
+    assert response.status_code == 200
+    payload = response.json()["telegram_settings"]
+    assert payload["configured"] is True
+    assert payload["bot_token_source"] == "db"
+    assert payload["chat_id_source"] == "db"
+    assert payload["effective_bot_token_preview"] == "db-t…9999"
+    assert payload["effective_chat_id_preview"] == "db-c…9999"
+
+
+def test_settings_telegram_rejects_empty_payload(client: TestClient) -> None:
+    response = client.put("/api/settings/telegram", json={})
+    assert response.status_code == 400
 
 
 def test_settings_policy_update(client: TestClient) -> None:

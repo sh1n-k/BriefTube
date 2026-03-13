@@ -18,5 +18,8 @@ set_policy_settings = legacy.set_policy_settings
 get_videos_per_page_setting = legacy.get_videos_per_page_setting
 set_videos_per_page_setting = legacy.set_videos_per_page_setting
 
+get_telegram_settings = legacy.get_telegram_settings
+set_telegram_settings = legacy.set_telegram_settings
+
 get_llm_settings = legacy.get_llm_settings
 set_llm_settings = legacy.set_llm_settings

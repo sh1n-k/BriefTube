@@ -1,0 +1,116 @@
+<form
+  id="telegram-settings-card"
+  class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+  hx-put="/api/settings/telegram"
+  hx-target="#telegram-settings-card"
+  hx-swap="outerHTML"
+  data-save-toast="{{ txt.settings_saved_toast }}"
+  data-settings-section="telegram"
+>
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div>
+      <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_telegram_title }}</h2>
+      <p class="mt-1 text-sm text-slate-500">{{ txt.settings_telegram_desc }}</p>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs">
+        <span class="rounded-full px-2.5 py-1 font-medium {% if telegram_settings.configured %}bg-emerald-100 text-emerald-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+          {% if telegram_settings.configured %}
+            {{ txt.settings_telegram_status_ready }}
+          {% else %}
+            {{ txt.settings_telegram_status_missing }}
+          {% endif %}
+        </span>
+        {% if telegram_settings.override_active %}
+        <span class="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
+          {{ txt.settings_telegram_override_badge }}
+        </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="shrink-0">
+      <button
+        type="submit"
+        class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+      >
+        {{ txt.settings_telegram_save }}
+      </button>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-4 lg:grid-cols-2">
+    <div class="rounded-md border border-slate-200 bg-slate-50 p-4">
+      <label class="block text-sm font-medium text-slate-700">{{ txt.settings_telegram_bot_token_label }}</label>
+      <input
+        type="password"
+        name="telegram_bot_token"
+        value=""
+        placeholder="{{ txt.settings_telegram_input_placeholder }}"
+        autocomplete="new-password"
+        spellcheck="false"
+        class="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+      />
+      <p class="mt-2 text-xs text-slate-500">
+        {{ txt.settings_telegram_stored_preview_label }}:
+        {{ telegram_settings.stored_bot_token_preview if telegram_settings.stored_bot_token_preview else txt.settings_telegram_source_none }}
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        {{ txt.settings_telegram_effective_preview_label }}:
+        {{ telegram_settings.effective_bot_token_preview if telegram_settings.effective_bot_token_preview else txt.settings_telegram_source_none }}
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        {{ txt.settings_telegram_source_label }}:
+        {% if telegram_settings.bot_token_source == 'env' %}
+          {{ txt.settings_telegram_source_env }}
+        {% elif telegram_settings.bot_token_source == 'db' %}
+          {{ txt.settings_telegram_source_db }}
+        {% elif telegram_settings.bot_token_source == 'config' %}
+          {{ txt.settings_telegram_source_config }}
+        {% else %}
+          {{ txt.settings_telegram_source_none }}
+        {% endif %}
+      </p>
+      <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" name="telegram_clear_bot_token" value="on" />
+        <span>{{ txt.settings_telegram_clear_bot_token }}</span>
+      </label>
+    </div>
+
+    <div class="rounded-md border border-slate-200 bg-slate-50 p-4">
+      <label class="block text-sm font-medium text-slate-700">{{ txt.settings_telegram_chat_id_label }}</label>
+      <input
+        type="text"
+        name="telegram_chat_id"
+        value=""
+        placeholder="{{ txt.settings_telegram_input_placeholder }}"
+        autocomplete="off"
+        spellcheck="false"
+        class="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+      />
+      <p class="mt-2 text-xs text-slate-500">
+        {{ txt.settings_telegram_stored_preview_label }}:
+        {{ telegram_settings.stored_chat_id_preview if telegram_settings.stored_chat_id_preview else txt.settings_telegram_source_none }}
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        {{ txt.settings_telegram_effective_preview_label }}:
+        {{ telegram_settings.effective_chat_id_preview if telegram_settings.effective_chat_id_preview else txt.settings_telegram_source_none }}
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        {{ txt.settings_telegram_source_label }}:
+        {% if telegram_settings.chat_id_source == 'env' %}
+          {{ txt.settings_telegram_source_env }}
+        {% elif telegram_settings.chat_id_source == 'db' %}
+          {{ txt.settings_telegram_source_db }}
+        {% elif telegram_settings.chat_id_source == 'config' %}
+          {{ txt.settings_telegram_source_config }}
+        {% else %}
+          {{ txt.settings_telegram_source_none }}
+        {% endif %}
+      </p>
+      <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" name="telegram_clear_chat_id" value="on" />
+        <span>{{ txt.settings_telegram_clear_chat_id }}</span>
+      </label>
+    </div>
+  </div>
+
+  <p class="mt-3 text-xs text-slate-500">{{ txt.settings_telegram_help }}</p>
+</form>

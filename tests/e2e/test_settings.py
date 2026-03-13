@@ -76,6 +76,9 @@ def test_settings_page_loads(page: Page) -> None:
 
     # Workers section
     expect(page.locator("input[name='rss'][type='checkbox']")).to_be_visible()
+    expect(page.locator("[data-settings-section='telegram']")).to_be_visible()
+    expect(page.locator("input[name='telegram_bot_token']")).to_be_visible()
+    expect(page.locator("input[name='telegram_chat_id']")).to_be_visible()
 
     # Videos per page
     expect(page.locator("input[name='videos_per_page']")).to_be_visible()
@@ -278,6 +281,22 @@ def test_settings_download_quality(page: Page) -> None:
 
     toast = page.locator("#ui-toast-stack div").first
     expect(toast).to_be_visible(timeout=5_000)
+
+
+def test_settings_telegram_save(page: Page) -> None:
+    """Saving Telegram credentials shows a toast and updates the card immediately."""
+    _goto_settings(page)
+
+    page.locator("input[name='telegram_bot_token']").fill("123456:ABCDEFSECRET")
+    page.locator("input[name='telegram_chat_id']").fill("-1001234567890")
+    page.locator("[data-settings-section='telegram'] button[type='submit']").click()
+
+    toast = page.locator("#ui-toast-stack div").first
+    expect(toast).to_be_visible(timeout=5_000)
+
+    expect(page.locator("text=저장된 값:").filter(has_text="1234…CRET").first).to_be_visible()
+    expect(page.locator("text=저장된 값:").filter(has_text="-100…7890").first).to_be_visible()
+    expect(page.locator("text=현재 적용값:").filter(has_text="1234…CRET").first).to_be_visible()
 
 
 # ---------------------------------------------------------------------------

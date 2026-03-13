@@ -18,6 +18,13 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "목록 설정" in response.text
     assert "수집/보관 정책" in response.text
     assert "워커 제어" in response.text
+    assert "Telegram 알림" in response.text
+    assert "봇 토큰과 채팅 ID를 SQLite에 저장합니다." in response.text
+    assert 'hx-put="/api/settings/telegram"' in response.text
+    assert 'name="telegram_bot_token"' in response.text
+    assert 'name="telegram_chat_id"' in response.text
+    assert 'name="telegram_clear_bot_token"' in response.text
+    assert 'name="telegram_clear_chat_id"' in response.text
     assert "영상 다운로드" in response.text
     assert "LLM 재구조화" in response.text
     assert "재구조화 프롬프트 템플릿" in response.text
@@ -90,8 +97,64 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'data-open-llm-prompt-modal' in response.text
     assert 'data-llm-prompt-editor' in response.text
     assert response.text.index('data-settings-section="workers"') < response.text.index('data-settings-section="language"')
+    assert response.text.index('data-settings-section="telegram"') < response.text.index('data-settings-section="language"')
     assert response.text.index('data-settings-section="transcript-headers"') < response.text.index('data-settings-section="transcript-guard"')
     assert len(re.findall(r'type="number"', response.text)) >= 3
+
+
+def test_settings_page_masks_stored_telegram_values(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES('telegram_bot_token', '123456:ABCDEFSECRET')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES('telegram_chat_id', '-1001234567890')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """
+        )
+        conn.commit()
+
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert "1234…CRET" in response.text
+    assert "-100…7890" in response.text
+    assert "123456:ABCDEFSECRET" not in response.text
+    assert "-1001234567890" not in response.text
+
+
+def test_settings_page_ignores_invalid_oversized_telegram_values(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES('telegram_bot_token', ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            ("x" * 600,),
+        )
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES('telegram_chat_id', ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            ("y" * 200,),
+        )
+        conn.commit()
+
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert "현재 미설정" in response.text
+    assert ("x" * 50) not in response.text
+    assert ("y" * 50) not in response.text
 
 
 def test_settings_page_guard_cooldown_until_respects_timezone_setting(client: TestClient) -> None:

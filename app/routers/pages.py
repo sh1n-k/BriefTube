@@ -18,6 +18,7 @@ from app.routers.template_context import build_template_context
 from app.services.article_render import render_fact_box_to_safe_html
 from app.services.downloads import is_ffmpeg_available
 from app.services.markdown_render import render_markdown_to_safe_html
+from app.services.telegram import build_telegram_settings_payload
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
     TRANSCRIPT_REQUEST_HEADER_KEYS,
@@ -202,6 +203,12 @@ async def settings_page(request: Request):
         default_output_dir=request.app.state.runtime.config.download_dir,
     )
     llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
+    telegram_raw_settings = await settings_repo.get_telegram_settings(request.app.state.runtime.db)
+    telegram_settings = build_telegram_settings_payload(
+        request.app.state.runtime.config,
+        stored_bot_token=telegram_raw_settings["bot_token"],
+        stored_chat_id=telegram_raw_settings["chat_id"],
+    )
     compact = compact_header_overrides(transcript_header_overrides, strict=False)
     values = merge_with_default_headers(compact)
     defaults = default_transcript_request_headers()
@@ -222,6 +229,7 @@ async def settings_page(request: Request):
         },
         download_defaults=download_defaults,
         llm_settings=llm_settings,
+        telegram_settings=telegram_settings,
         ffmpeg_available=is_ffmpeg_available(),
         guard_reset_done=reset_done,
     )

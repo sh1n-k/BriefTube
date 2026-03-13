@@ -20,13 +20,14 @@ from app.logging_setup import configure_logging
 from app.repositories import channels as channels_repo
 from app.repositories import llm as llm_repo
 from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
 from app.services.rss import RSSService
 from app.services.transcript_headers import merge_with_default_headers
-from app.services.telegram import TelegramNotifier
+from app.services.telegram import TelegramNotifier, configure_telegram_notifier
 from app.services.transcript import TranscriptService
 from app.state import AppState
 from app.workers.llm_worker import run_llm_queue_worker
@@ -139,11 +140,18 @@ async def lifespan(app: FastAPI):
             capture_full_response_content=_should_capture_llm_response_content(),
         ),
         telegram_notifier=TelegramNotifier(
-            token=config.telegram_bot_token,
-            chat_id=config.telegram_chat_id,
+            token="",
+            chat_id="",
             client=http_client,
         ),
         started_at=datetime.now(timezone.utc),
+    )
+    telegram_settings = await settings_repo.get_telegram_settings(db)
+    configure_telegram_notifier(
+        runtime.telegram_notifier,
+        config,
+        stored_bot_token=telegram_settings["bot_token"],
+        stored_chat_id=telegram_settings["chat_id"],
     )
     transcript_header_overrides = await transcripts_repo.get_transcript_request_header_overrides(db)
     runtime.transcript_service.apply_transcript_request_headers(

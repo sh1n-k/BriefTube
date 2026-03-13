@@ -81,9 +81,13 @@ VIDEOS_PER_PAGE_DEFAULT = 8
 DOWNLOAD_DEFAULT_QUALITY_KEY = "download_default_quality"
 DOWNLOAD_DEFAULT_OVERWRITE_KEY = "download_default_overwrite"
 DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY = "download_output_dir"
+TELEGRAM_BOT_TOKEN_KEY = "telegram_bot_token"
+TELEGRAM_CHAT_ID_KEY = "telegram_chat_id"
 DOWNLOAD_QUALITY_DEFAULT = "1080"
 DOWNLOAD_OUTPUT_DIR_DEFAULT = "./downloads"
 DOWNLOAD_QUALITY_OPTIONS = {"2160", "1440", "1080", "720", "480"}
+TELEGRAM_BOT_TOKEN_MAX_LENGTH = 512
+TELEGRAM_CHAT_ID_MAX_LENGTH = 128
 DOWNLOAD_STATUS_PENDING = "pending"
 DOWNLOAD_STATUS_RUNNING = "running"
 DOWNLOAD_STATUS_SUCCEEDED = "succeeded"
@@ -309,6 +313,18 @@ def _validate_llm_prompt_template(value: str | None) -> str:
     if prompt.strip() and "{transcript_text}" not in prompt:
         raise ValueError("prompt_template must include {transcript_text}")
     return prompt
+
+
+def _validate_telegram_setting(
+    value: str | None,
+    *,
+    key_name: str,
+    max_length: int,
+) -> str:
+    normalized = str(value or "").strip()
+    if len(normalized) > max_length:
+        raise ValueError(f"{key_name} is too long (max {max_length})")
+    return normalized
 
 
 def _validate_llm_model_settings(value: Mapping[str, Any]) -> dict[str, str]:
@@ -2632,6 +2648,80 @@ async def set_videos_per_page_setting(db: aiosqlite.Connection, value: int) -> i
     )
     await set_setting(db, key=VIDEOS_PER_PAGE_KEY, value=str(normalized))
     return normalized
+
+
+async def get_telegram_settings(db: aiosqlite.Connection) -> dict[str, str]:
+    settings = await get_settings_map(
+        db,
+        {
+            TELEGRAM_BOT_TOKEN_KEY: "",
+            TELEGRAM_CHAT_ID_KEY: "",
+        },
+    )
+    try:
+        bot_token = _validate_telegram_setting(
+            settings[TELEGRAM_BOT_TOKEN_KEY],
+            key_name="bot_token",
+            max_length=TELEGRAM_BOT_TOKEN_MAX_LENGTH,
+        )
+    except ValueError:
+        bot_token = ""
+    try:
+        chat_id = _validate_telegram_setting(
+            settings[TELEGRAM_CHAT_ID_KEY],
+            key_name="chat_id",
+            max_length=TELEGRAM_CHAT_ID_MAX_LENGTH,
+        )
+    except ValueError:
+        chat_id = ""
+    return {
+        "bot_token": bot_token,
+        "chat_id": chat_id,
+    }
+
+
+async def set_telegram_settings(
+    db: aiosqlite.Connection,
+    *,
+    bot_token: str | None = None,
+    chat_id: str | None = None,
+    clear_bot_token: bool = False,
+    clear_chat_id: bool = False,
+) -> dict[str, str]:
+    if clear_bot_token and bot_token is not None and str(bot_token).strip():
+        raise ValueError("bot_token cannot be provided when clear_bot_token is true")
+    if clear_chat_id and chat_id is not None and str(chat_id).strip():
+        raise ValueError("chat_id cannot be provided when clear_chat_id is true")
+
+    current = await get_telegram_settings(db)
+    next_bot_token = str(current["bot_token"])
+    next_chat_id = str(current["chat_id"])
+
+    if clear_bot_token:
+        next_bot_token = ""
+    elif bot_token is not None:
+        candidate = _validate_telegram_setting(
+            bot_token,
+            key_name="bot_token",
+            max_length=TELEGRAM_BOT_TOKEN_MAX_LENGTH,
+        )
+        if candidate:
+            next_bot_token = candidate
+
+    if clear_chat_id:
+        next_chat_id = ""
+    elif chat_id is not None:
+        candidate = _validate_telegram_setting(
+            chat_id,
+            key_name="chat_id",
+            max_length=TELEGRAM_CHAT_ID_MAX_LENGTH,
+        )
+        if candidate:
+            next_chat_id = candidate
+
+    await set_setting(db, key=TELEGRAM_BOT_TOKEN_KEY, value=next_bot_token)
+    await set_setting(db, key=TELEGRAM_CHAT_ID_KEY, value=next_chat_id)
+    return await get_telegram_settings(db)
 
 
 async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
