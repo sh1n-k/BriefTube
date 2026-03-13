@@ -20,6 +20,7 @@ from app.repositories import videos as videos_repo
 from app.routers import views_downloads
 from app.routers.pages import build_video_detail_context
 from app.routers.template_context import build_template_context
+from app.services.article_render import render_fact_box_to_safe_html
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
     parse_takeout_entries,
@@ -1269,9 +1270,7 @@ async def video_detail(video_id: str, request: Request):
     if detail and str(detail.get("article_title") or "").strip():
         article_lead_html = render_markdown_to_safe_html(str(detail.get("lead") or ""))
         article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
-        fact_box = str(detail.get("fact_box") or "")
-        if fact_box and fact_box not in {"{}", ""}:
-            article_fact_box_html = render_markdown_to_safe_html(fact_box)
+        article_fact_box_html = render_fact_box_to_safe_html(str(detail.get("fact_box") or ""))
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,

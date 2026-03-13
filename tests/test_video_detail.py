@@ -203,6 +203,52 @@ def test_detail_article_modal_contract_and_raw_body_preview(client: TestClient) 
     assert "문서 보기 버튼으로 렌더링된 기사를 확인할 수 있습니다." in html or "Use the view button to read the rendered article." in html
 
 
+def test_detail_fact_box_json_renders_as_structured_content(client: TestClient) -> None:
+    _seed_video(
+        fact_box=json.dumps(
+            {
+                "source_title": "Embracing Failing",
+                "central_claim": "실패를 예상하고 반복 학습하는 태도가 중요하다.",
+                "key_lessons": [
+                    "에러는 읽고 이해해야 한다.",
+                    "직접 부딪히는 시간이 장기적으로 차이를 만든다.",
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    response = client.get("/videos/vid-001")
+
+    assert response.status_code == 200
+    html = response.text
+    assert '{"source_title"' not in html
+    assert "원본 제목" in html
+    assert "핵심 주장" in html
+    assert "핵심 교훈" in html
+    assert "Embracing Failing" in html
+    assert "실패를 예상하고 반복 학습하는 태도가 중요하다." in html
+    assert "에러는 읽고 이해해야 한다." in html
+    assert 'class="fact-box-grid"' in html
+
+
+def test_detail_fragment_fact_box_json_renders_as_structured_content(client: TestClient) -> None:
+    _seed_video(
+        fact_box='{"named_examples":["A","B"],"explicit_uncertainties":"기억이 불완전하다."}'
+    )
+
+    response = client.get("/views/videos/vid-001/detail-fragment")
+
+    assert response.status_code == 200
+    html = response.text
+    assert '{"named_examples"' not in html
+    assert "대표 사례" in html
+    assert "불확실한 점" in html
+    assert ">A<" in html
+    assert ">B<" in html
+    assert "기억이 불완전하다." in html
+
+
 def test_detail_copy_button_attrs(client: TestClient) -> None:
     """copy 버튼 data 속성 존재"""
     _seed_video()

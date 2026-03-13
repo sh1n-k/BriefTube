@@ -344,17 +344,21 @@ def test_settings_llm_runtime_status(page: Page) -> None:
 # 13. test_settings_channel_manage_link
 # ---------------------------------------------------------------------------
 
-def test_settings_channel_manage_link(page: Page) -> None:
-    """The channel manage link navigates to /channels."""
+def test_settings_llm_prompt_modal(page: Page) -> None:
+    """LLM prompt preview opens a large modal editor and closes cleanly."""
     _goto_settings(page)
 
-    channel_link = page.locator("a[href='/channels']").first
-    expect(channel_link).to_be_visible()
+    open_button = page.locator("[data-open-llm-prompt-modal]")
+    expect(open_button).to_be_visible()
 
-    channel_link.click()
-    page.wait_for_load_state("networkidle")
+    open_button.click()
 
-    expect(page).to_have_url(f"{page._e2e_base_url}/channels")
+    modal = page.locator("#llm-prompt-modal")
+    expect(modal).to_be_visible()
+    expect(page.locator("textarea[data-llm-prompt-editor]")).to_be_visible()
+
+    page.locator("[data-close-llm-prompt-modal]").click()
+    expect(modal).to_be_hidden()
 
 
 # ---------------------------------------------------------------------------

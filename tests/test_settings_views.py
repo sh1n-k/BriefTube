@@ -38,6 +38,7 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'name="llm_reasoning_effort_claude"' in response.text
     assert 'name="llm_reasoning_effort_gemini"' in response.text
     assert 'name="llm_prompt_template"' in response.text
+    assert response.text.count('name="llm_prompt_template"') == 1
     assert 'hx-put="/api/settings/llm"' in response.text
     assert "Provider별 모델/사고 수준" in response.text
     assert "Codex 모델은 GPT-5.3 Codex 또는 GPT-5.4를 선택할 수 있습니다." in response.text
@@ -69,8 +70,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'id="channel-list-wrap"' not in response.text
     assert 'href="/settings"' in response.text
     assert response.text.count('href="/settings"') == 1
-    assert 'href="/channels"' in response.text
-    assert "채널 등록/일괄 추가는 채널 관리 페이지에서 진행합니다." in response.text
+    assert "채널 관리로 이동" not in response.text
+    assert "채널 등록/일괄 추가는 채널 관리 페이지에서 진행합니다." not in response.text
     assert "자막 요청 헤더" in response.text
     assert "Firefox(Windows) 한국어 프로필을 기본으로 사용합니다." in response.text
     assert "고정 키별 값 입력 (빈 값 저장 시 기본값 복원)" in response.text
@@ -83,6 +84,13 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'placeholder="ko-KR,ko;q=0.9,en-US;q=0.6,en;q=0.3"' in response.text
     assert "자막 보호 상태" in response.text
     assert "주의 구역: 자막 보호 상태 초기화" in response.text
+    assert "전체 편집" in response.text
+    assert "재구조화 프롬프트 전체 편집" in response.text
+    assert 'id="llm-prompt-modal"' in response.text
+    assert 'data-open-llm-prompt-modal' in response.text
+    assert 'data-llm-prompt-editor' in response.text
+    assert response.text.index('data-settings-section="workers"') < response.text.index('data-settings-section="language"')
+    assert response.text.index('data-settings-section="transcript-headers"') < response.text.index('data-settings-section="transcript-guard"')
     assert len(re.findall(r'type="number"', response.text)) >= 3
 
 

@@ -14,13 +14,35 @@
   </div>
   {% endif %}
 
-  <a href="/channels" class="block rounded-lg border border-indigo-200 bg-indigo-50 p-5 shadow-sm hover:bg-indigo-100">
-    <h2 class="text-sm font-semibold text-indigo-800">{{ txt.settings_channel_manage_title }}</h2>
-    <p class="mt-1 text-sm text-indigo-700">{{ txt.settings_channel_manage_desc }}</p>
-    <span class="mt-3 inline-flex items-center gap-1 text-sm font-medium text-indigo-800">
-      {{ txt.settings_channel_manage_button }}
-    </span>
-  </a>
+  <form
+    class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+    hx-put="/api/settings/workers"
+    hx-swap="none"
+    hx-trigger="change delay:200ms from:input[type='checkbox']"
+    data-save-toast="{{ txt.settings_saved_toast }}"
+    data-settings-section="workers"
+  >
+    <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_workers_title }}</h2>
+    <p class="mt-1 text-sm text-slate-500">{{ txt.settings_workers_desc }}</p>
+    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+        <input type="checkbox" name="rss" {% if worker_settings.rss %}checked{% endif %} />
+        <span>{{ txt.settings_worker_rss }}</span>
+      </label>
+      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+        <input type="checkbox" name="transcript" {% if worker_settings.transcript %}checked{% endif %} />
+        <span>{{ txt.settings_worker_transcript }}</span>
+      </label>
+      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+        <input type="checkbox" name="llm" {% if worker_settings.llm %}checked{% endif %} />
+        <span>{{ txt.settings_worker_llm }}</span>
+      </label>
+      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+        <input type="checkbox" name="notifier" {% if worker_settings.notifier %}checked{% endif %} />
+        <span>{{ txt.settings_worker_notifier }}</span>
+      </label>
+    </div>
+  </form>
 
   <div class="grid gap-4 lg:grid-cols-2">
     <form
@@ -29,6 +51,7 @@
       hx-swap="none"
       hx-trigger="change from:select[name='language']"
       data-save-toast="{{ txt.settings_saved_toast }}"
+      data-settings-section="language"
     >
       <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_language_title }}</h2>
       <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_language_label }}</label>
@@ -125,142 +148,6 @@
 
     <form
       class="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
-      hx-put="/api/settings/llm"
-      hx-swap="none"
-      hx-trigger="change from:select[name='llm_provider_primary'], change from:select[name='llm_provider_fallback'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], change from:select[name='llm_reasoning_effort_claude'], change from:select[name='llm_reasoning_effort_gemini'], input changed delay:1s from:textarea[name='llm_prompt_template'], input changed delay:1s from:input[name='llm_model_claude'], input changed delay:1s from:input[name='llm_model_gemini']"
-      data-save-toast="{{ txt.settings_saved_toast }}"
-    >
-      <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_title }}</h2>
-      <p class="mt-1 text-sm text-slate-500">{{ txt.settings_llm_desc }}</p>
-      <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_llm_provider_primary_label }}</label>
-      <select name="llm_provider_primary" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-        <option value="codex" {% if llm_settings.provider_primary == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
-        <option value="claude" {% if llm_settings.provider_primary == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
-        <option value="gemini" {% if llm_settings.provider_primary == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
-      </select>
-      <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_llm_provider_fallback_label }}</label>
-      <select name="llm_provider_fallback" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-        <option value="none" {% if llm_settings.provider_fallback == 'none' %}selected{% endif %}>{{ txt.settings_llm_provider_none }}</option>
-        <option value="codex" {% if llm_settings.provider_fallback == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
-        <option value="claude" {% if llm_settings.provider_fallback == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
-        <option value="gemini" {% if llm_settings.provider_fallback == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
-      </select>
-      <div class="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-        <p class="text-sm font-medium text-slate-700">{{ txt.settings_llm_model_effort_title }}</p>
-        <div class="mt-3 space-y-3">
-          <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
-            <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
-            <select
-              name="llm_model_codex"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-            >
-              {% for model_value, model_label in codex_model_options %}
-              <option value="{{ model_value }}" {% if llm_settings.llm_model.codex == model_value %}selected{% endif %}>{{ model_label }}</option>
-              {% endfor %}
-            </select>
-            <select
-              name="llm_reasoning_effort_codex"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="" {% if not llm_settings.llm_reasoning_effort.codex %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
-              <option value="low" {% if llm_settings.llm_reasoning_effort.codex == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
-              <option value="medium" {% if llm_settings.llm_reasoning_effort.codex == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
-              <option value="high" {% if llm_settings.llm_reasoning_effort.codex == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
-            </select>
-          </div>
-          <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
-            <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_claude }}</span>
-            <input
-              type="text"
-              name="llm_model_claude"
-              value="{{ llm_settings.llm_model.claude }}"
-              placeholder="{{ txt.settings_llm_model_claude_placeholder }}"
-              spellcheck="false"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-            />
-            <select
-              name="llm_reasoning_effort_claude"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="" {% if not llm_settings.llm_reasoning_effort.claude %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
-              <option value="low" {% if llm_settings.llm_reasoning_effort.claude == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
-              <option value="medium" {% if llm_settings.llm_reasoning_effort.claude == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
-              <option value="high" {% if llm_settings.llm_reasoning_effort.claude == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
-            </select>
-          </div>
-          <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
-            <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_gemini }}</span>
-            <input
-              type="text"
-              name="llm_model_gemini"
-              value="{{ llm_settings.llm_model.gemini }}"
-              placeholder="{{ txt.settings_llm_model_gemini_placeholder }}"
-              spellcheck="false"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-            />
-            <select
-              name="llm_reasoning_effort_gemini"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="none" {% if llm_settings.llm_reasoning_effort.gemini == 'none' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_none }}</option>
-              <option value="low" {% if llm_settings.llm_reasoning_effort.gemini == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
-              <option value="medium" {% if llm_settings.llm_reasoning_effort.gemini == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
-              <option value="high" {% if llm_settings.llm_reasoning_effort.gemini == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
-            </select>
-          </div>
-        </div>
-        <p class="mt-2 text-xs text-slate-500">{{ txt.settings_llm_model_effort_help }}</p>
-      </div>
-      <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_llm_prompt_label }}</label>
-      <textarea
-        name="llm_prompt_template"
-        rows="5"
-        spellcheck="false"
-        placeholder="{{ txt.settings_llm_prompt_placeholder }}"
-        class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-      >{{ llm_settings.prompt_template }}</textarea>
-      <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_prompt_help }}</p>
-      {% include "fragments/llm_runtime_status.html" %}
-    </form>
-  </div>
-
-  <form
-    class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
-    hx-put="/api/settings/transcript-request-headers"
-    hx-swap="none"
-    data-save-toast="{{ txt.settings_saved_toast }}"
-  >
-    <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_transcript_headers_title }}</h2>
-    <p class="mt-1 text-sm text-slate-500">{{ txt.settings_transcript_headers_desc }}</p>
-    <p class="mt-2 text-xs text-slate-500">{{ txt.settings_transcript_headers_label }}</p>
-    <div class="mt-3 space-y-3">
-      {% for key in transcript_request_headers["keys"] %}
-      <div class="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center">
-        <label class="text-sm font-medium text-slate-700">{{ key }}</label>
-        <input
-          type="text"
-          name="{{ transcript_request_headers['field_names'][key] }}"
-          value="{{ transcript_request_headers['values'][key] }}"
-          placeholder="{{ transcript_request_headers['defaults'][key] }}"
-          spellcheck="false"
-          class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-        />
-      </div>
-      {% endfor %}
-    </div>
-    <div class="mt-3 flex justify-end">
-      <button
-        type="submit"
-        class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-      >
-        {{ txt.settings_transcript_headers_save }}
-      </button>
-    </div>
-  </form>
-
-  <div class="grid gap-4 lg:grid-cols-2">
-    <form
-      class="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
       hx-put="/api/settings/videos-per-page"
       hx-swap="none"
       hx-trigger="input changed delay:1s from:input[name='videos_per_page']"
@@ -326,38 +213,173 @@
         </option>
       </select>
     </form>
+
+    <form
+      class="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2"
+      id="llm-settings-form"
+      hx-put="/api/settings/llm"
+      hx-swap="none"
+      hx-trigger="change from:select[name='llm_provider_primary'], change from:select[name='llm_provider_fallback'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], change from:select[name='llm_reasoning_effort_claude'], change from:select[name='llm_reasoning_effort_gemini'], input changed delay:1s from:textarea[name='llm_prompt_template'], input changed delay:1s from:input[name='llm_model_claude'], input changed delay:1s from:input[name='llm_model_gemini']"
+      data-save-toast="{{ txt.settings_saved_toast }}"
+      data-settings-section="llm"
+    >
+      <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_title }}</h2>
+      <p class="mt-1 text-sm text-slate-500">{{ txt.settings_llm_desc }}</p>
+      {% include "fragments/llm_runtime_status.html" %}
+
+      <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <div class="min-w-0">
+          <label class="block text-sm text-slate-600">{{ txt.settings_llm_provider_primary_label }}</label>
+          <select name="llm_provider_primary" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+            <option value="codex" {% if llm_settings.provider_primary == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
+            <option value="claude" {% if llm_settings.provider_primary == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
+            <option value="gemini" {% if llm_settings.provider_primary == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
+          </select>
+
+          <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_llm_provider_fallback_label }}</label>
+          <select name="llm_provider_fallback" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+            <option value="none" {% if llm_settings.provider_fallback == 'none' %}selected{% endif %}>{{ txt.settings_llm_provider_none }}</option>
+            <option value="codex" {% if llm_settings.provider_fallback == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
+            <option value="claude" {% if llm_settings.provider_fallback == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
+            <option value="gemini" {% if llm_settings.provider_fallback == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
+          </select>
+
+          <div class="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+            <p class="text-sm font-medium text-slate-700">{{ txt.settings_llm_model_effort_title }}</p>
+            <div class="mt-3 space-y-3">
+              <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
+                <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
+                <select
+                  name="llm_model_codex"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+                >
+                  {% for model_value, model_label in codex_model_options %}
+                  <option value="{{ model_value }}" {% if llm_settings.llm_model.codex == model_value %}selected{% endif %}>{{ model_label }}</option>
+                  {% endfor %}
+                </select>
+                <select
+                  name="llm_reasoning_effort_codex"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="" {% if not llm_settings.llm_reasoning_effort.codex %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
+                  <option value="low" {% if llm_settings.llm_reasoning_effort.codex == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
+                  <option value="medium" {% if llm_settings.llm_reasoning_effort.codex == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
+                  <option value="high" {% if llm_settings.llm_reasoning_effort.codex == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
+                </select>
+              </div>
+
+              <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
+                <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_claude }}</span>
+                <input
+                  type="text"
+                  name="llm_model_claude"
+                  value="{{ llm_settings.llm_model.claude }}"
+                  placeholder="{{ txt.settings_llm_model_claude_placeholder }}"
+                  spellcheck="false"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+                />
+                <select
+                  name="llm_reasoning_effort_claude"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="" {% if not llm_settings.llm_reasoning_effort.claude %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
+                  <option value="low" {% if llm_settings.llm_reasoning_effort.claude == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
+                  <option value="medium" {% if llm_settings.llm_reasoning_effort.claude == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
+                  <option value="high" {% if llm_settings.llm_reasoning_effort.claude == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
+                </select>
+              </div>
+
+              <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
+                <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_gemini }}</span>
+                <input
+                  type="text"
+                  name="llm_model_gemini"
+                  value="{{ llm_settings.llm_model.gemini }}"
+                  placeholder="{{ txt.settings_llm_model_gemini_placeholder }}"
+                  spellcheck="false"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+                />
+                <select
+                  name="llm_reasoning_effort_gemini"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="none" {% if llm_settings.llm_reasoning_effort.gemini == 'none' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_none }}</option>
+                  <option value="low" {% if llm_settings.llm_reasoning_effort.gemini == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
+                  <option value="medium" {% if llm_settings.llm_reasoning_effort.gemini == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
+                  <option value="high" {% if llm_settings.llm_reasoning_effort.gemini == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
+                </select>
+              </div>
+            </div>
+            <p class="mt-2 text-xs text-slate-500">{{ txt.settings_llm_model_effort_help }}</p>
+          </div>
+        </div>
+
+        <div class="min-w-0">
+          <label class="block text-sm font-medium text-slate-700" for="llm-prompt-template">{{ txt.settings_llm_prompt_label }}</label>
+          <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_prompt_help }}</p>
+          <div class="relative mt-3">
+            <textarea
+              id="llm-prompt-template"
+              name="llm_prompt_template"
+              rows="15"
+              spellcheck="false"
+              placeholder="{{ txt.settings_llm_prompt_placeholder }}"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 pr-16 text-sm font-mono"
+              data-llm-prompt-inline-editor
+            >{{ llm_settings.prompt_template }}</textarea>
+            <button
+              type="button"
+              class="absolute bottom-3 right-3 rounded-md border border-slate-300 bg-white px-2.5 py-2 text-slate-700 shadow-sm hover:bg-slate-100"
+              data-open-llm-prompt-modal
+              aria-label="{{ txt.settings_llm_prompt_expand_button }}"
+              title="{{ txt.settings_llm_prompt_expand_button }}"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3.75H3.75v4.5m0-4.5 6 6m4.5-6h4.5v4.5m0-4.5-6 6m6 4.5v4.5h-4.5m4.5-4.5-6-6m-4.5 6-6 6m0-4.5v4.5h4.5"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
   </div>
 
   <form
     class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
-    hx-put="/api/settings/workers"
+    hx-put="/api/settings/transcript-request-headers"
     hx-swap="none"
-    hx-trigger="change delay:200ms from:input[type='checkbox']"
     data-save-toast="{{ txt.settings_saved_toast }}"
+    data-settings-section="transcript-headers"
   >
-    <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_workers_title }}</h2>
-    <p class="mt-1 text-sm text-slate-500">{{ txt.settings_workers_desc }}</p>
-    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-        <input type="checkbox" name="rss" {% if worker_settings.rss %}checked{% endif %} />
-        <span>{{ txt.settings_worker_rss }}</span>
-      </label>
-      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-        <input type="checkbox" name="transcript" {% if worker_settings.transcript %}checked{% endif %} />
-        <span>{{ txt.settings_worker_transcript }}</span>
-      </label>
-      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-        <input type="checkbox" name="llm" {% if worker_settings.llm %}checked{% endif %} />
-        <span>{{ txt.settings_worker_llm }}</span>
-      </label>
-      <label class="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-        <input type="checkbox" name="notifier" {% if worker_settings.notifier %}checked{% endif %} />
-        <span>{{ txt.settings_worker_notifier }}</span>
-      </label>
+    <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_transcript_headers_title }}</h2>
+    <p class="mt-1 text-sm text-slate-500">{{ txt.settings_transcript_headers_desc }}</p>
+    <p class="mt-2 text-xs text-slate-500">{{ txt.settings_transcript_headers_label }}</p>
+    <div class="mt-3 space-y-3">
+      {% for key in transcript_request_headers["keys"] %}
+      <div class="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center">
+        <label class="text-sm font-medium text-slate-700">{{ key }}</label>
+        <input
+          type="text"
+          name="{{ transcript_request_headers['field_names'][key] }}"
+          value="{{ transcript_request_headers['values'][key] }}"
+          placeholder="{{ transcript_request_headers['defaults'][key] }}"
+          spellcheck="false"
+          class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+        />
+      </div>
+      {% endfor %}
+    </div>
+    <div class="mt-3 flex justify-end">
+      <button
+        type="submit"
+        class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+      >
+        {{ txt.settings_transcript_headers_save }}
+      </button>
     </div>
   </form>
 
-  <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-settings-section="transcript-guard">
     <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_guard_title }}</h2>
     <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
       <div class="rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -395,6 +417,36 @@
 </section>
 
 <div
+  id="llm-prompt-modal"
+  class="fixed inset-0 z-[90] hidden items-center justify-center bg-slate-900/60 p-4"
+  aria-hidden="true"
+>
+  <div class="flex max-h-[94vh] w-full max-w-6xl flex-col rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h3 class="text-base font-semibold text-slate-900">{{ txt.settings_llm_prompt_modal_title }}</h3>
+        <p class="mt-1 text-sm text-slate-500">{{ txt.settings_llm_prompt_modal_desc }}</p>
+      </div>
+      <button
+        type="button"
+        class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+        data-close-llm-prompt-modal
+      >
+        {{ txt.settings_llm_prompt_modal_close }}
+      </button>
+    </div>
+
+    <textarea
+      rows="28"
+      spellcheck="false"
+      placeholder="{{ txt.settings_llm_prompt_placeholder }}"
+      class="mt-4 min-h-[78vh] w-full flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+      data-llm-prompt-editor
+    >{{ llm_settings.prompt_template }}</textarea>
+  </div>
+</div>
+
+<div
   id="guard-reset-modal"
   class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4"
   aria-hidden="true"
@@ -430,6 +482,61 @@
 
 <script>
   (() => {
+    const promptOpenButton = document.querySelector("[data-open-llm-prompt-modal]");
+    const promptModal = document.getElementById("llm-prompt-modal");
+    const promptCloseButton = document.querySelector("[data-close-llm-prompt-modal]");
+    const promptEditor = document.querySelector("[data-llm-prompt-editor]");
+    const promptInlineEditor = document.querySelector("[data-llm-prompt-inline-editor]");
+
+    const syncPromptEditors = (source) => {
+      if (!(source instanceof HTMLTextAreaElement)) return;
+      const nextValue = source.value;
+      if (promptInlineEditor instanceof HTMLTextAreaElement && source !== promptInlineEditor) {
+        const changed = promptInlineEditor.value !== nextValue;
+        promptInlineEditor.value = nextValue;
+        if (changed) {
+          promptInlineEditor.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+      if (promptEditor instanceof HTMLTextAreaElement && source !== promptEditor) {
+        promptEditor.value = nextValue;
+      }
+    };
+
+    const openPromptModal = () => {
+      if (!promptModal) return;
+      promptModal.classList.remove("hidden");
+      promptModal.classList.add("flex");
+      promptModal.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+      syncPromptEditors(promptInlineEditor instanceof HTMLTextAreaElement ? promptInlineEditor : promptEditor);
+      if (promptEditor) {
+        promptEditor.focus();
+        promptEditor.setSelectionRange(promptEditor.value.length, promptEditor.value.length);
+      }
+    };
+
+    const closePromptModal = () => {
+      if (!promptModal) return;
+      promptModal.classList.add("hidden");
+      promptModal.classList.remove("flex");
+      promptModal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      syncPromptEditors(promptEditor instanceof HTMLTextAreaElement ? promptEditor : promptInlineEditor);
+    };
+
+    if (promptOpenButton && promptModal && promptCloseButton && promptEditor && promptInlineEditor) {
+      promptOpenButton.addEventListener("click", openPromptModal);
+      promptCloseButton.addEventListener("click", closePromptModal);
+      promptInlineEditor.addEventListener("input", () => syncPromptEditors(promptInlineEditor));
+      promptEditor.addEventListener("input", () => syncPromptEditors(promptEditor));
+      promptModal.addEventListener("click", (event) => {
+        if (event.target === promptModal) {
+          closePromptModal();
+        }
+      });
+    }
+
     const openButton = document.getElementById("open-guard-reset-modal");
     const modal = document.getElementById("guard-reset-modal");
     const cancelButton = document.getElementById("cancel-guard-reset");
@@ -460,6 +567,9 @@
       }
     });
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && promptModal && !promptModal.classList.contains("hidden")) {
+        closePromptModal();
+      }
       if (event.key === "Escape" && !modal.classList.contains("hidden")) {
         closeModal();
       }
