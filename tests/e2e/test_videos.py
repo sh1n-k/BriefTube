@@ -350,7 +350,7 @@ def test_video_detail_page(e2e_page: Page, seeded_server: dict) -> None:
     expect(meta_card).to_contain_text(re.compile(r"(Alpha|Beta) Channel"))
 
     # Status badge
-    expect(meta_card.locator(".status-badge")).to_be_visible()
+    expect(page.locator("[data-detail-status-card] .status-badge")).to_be_visible()
 
 
 @pytest.mark.e2e
@@ -402,13 +402,13 @@ def test_video_detail_article_section(e2e_page: Page, seeded_server: dict) -> No
 
 @pytest.mark.e2e
 def test_video_detail_auto_refresh_preserves_player_card(e2e_page: Page, seeded_server: dict) -> None:
-    """기사 대기 중 자동 갱신이 돌아도 player card DOM은 유지된다."""
+    """기사 대기 중 자동 갱신은 dynamic bundle만 교체하고 player card DOM은 유지된다."""
     page = e2e_page
     video_id = "ALPHA_LP_01"
     page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
     page.wait_for_selector("#video-detail-wrap")
 
-    fragment = page.locator("[data-video-detail-fragment]")
+    fragment = page.locator("[data-video-detail-dynamic-fragment]")
     expect(fragment).to_have_attribute("data-video-detail-auto-refresh", "1")
 
     player_card = page.locator("[data-detail-player-card]")
@@ -423,6 +423,26 @@ def test_video_detail_auto_refresh_preserves_player_card(e2e_page: Page, seeded_
     )
     expect(page.locator("[data-detail-article-card]")).to_contain_text(
         re.compile(r"(아직 준비되지 않았습니다|Not ready)"),
+    )
+
+
+@pytest.mark.e2e
+def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(e2e_page: Page, seeded_server: dict) -> None:
+    """서버 응답이 같으면 dynamic bundle을 다시 갈아끼우지 않는다."""
+    page = e2e_page
+    video_id = "ALPHA_LP_01"
+    page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
+    page.wait_for_selector("#video-detail-wrap")
+
+    article_card = page.locator("[data-detail-article-card]")
+    expect(article_card).to_be_visible()
+    article_card.evaluate("(node) => node.setAttribute('data-refresh-stability-marker', 'kept')")
+
+    page.wait_for_timeout(3500)
+
+    expect(page.locator("[data-detail-article-card]")).to_have_attribute(
+        "data-refresh-stability-marker",
+        "kept",
     )
 
 
@@ -444,7 +464,7 @@ def test_video_detail_status_badge_styles(e2e_page: Page, seeded_server: dict) -
     for video_id, expected_class in test_cases:
         page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
         page.wait_for_selector("#video-detail-wrap")
-        badge = page.locator("[data-detail-meta-card] .status-badge")
+        badge = page.locator("[data-detail-status-card] .status-badge")
         expect(badge).to_be_visible()
         expect(badge).to_have_class(re.compile(re.escape(expected_class)))
 

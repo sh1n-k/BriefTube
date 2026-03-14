@@ -1951,32 +1951,12 @@
         bindCategoryFilterReset(scope);
       }
 
-      function preserveVideoDetailPlayerCard(currentRoot, nextRoot) {
-        if (!(currentRoot instanceof Element) || !(nextRoot instanceof Element)) return;
-        const currentFragment = currentRoot.matches("[data-video-detail-fragment]")
-          ? currentRoot
-          : currentRoot.querySelector("[data-video-detail-fragment]");
-        const nextFragment = nextRoot.matches("[data-video-detail-fragment]")
-          ? nextRoot
-          : nextRoot.querySelector("[data-video-detail-fragment]");
-        if (!(currentFragment instanceof HTMLElement) || !(nextFragment instanceof HTMLElement)) return;
-
-        const currentVideoId = String(currentFragment.dataset.videoDetailId || "").trim();
-        const nextVideoId = String(nextFragment.dataset.videoDetailId || "").trim();
-        if (!currentVideoId || currentVideoId !== nextVideoId) return;
-
-        const currentPlayerCard = currentFragment.querySelector("[data-detail-player-card]");
-        const nextPlayerCard = nextFragment.querySelector("[data-detail-player-card]");
-        if (!(currentPlayerCard instanceof HTMLElement) || !(nextPlayerCard instanceof HTMLElement)) return;
-
-        nextPlayerCard.replaceWith(currentPlayerCard);
-      }
-
       async function fetchAndSwapFragment({
         url,
         targetSelector,
         swap = "outerHTML",
         beforeSwap = null,
+        shouldSwap = null,
       }) {
         const target = document.querySelector(targetSelector);
         if (!(target instanceof Element)) return false;
@@ -1993,11 +1973,24 @@
           if (swap === "innerHTML") {
             const latestTarget = document.querySelector(targetSelector);
             if (!(latestTarget instanceof Element)) return false;
+            const fragment = parseHtmlFragment(html);
+            const nextNode = fragment.firstElementChild;
+            const currentNode = latestTarget.childElementCount === 1
+              ? latestTarget.firstElementChild
+              : null;
+            if (
+              currentNode instanceof Element &&
+              nextNode instanceof Element &&
+              typeof shouldSwap === "function" &&
+              shouldSwap({ target: latestTarget, currentNode, nextNode }) === false
+            ) {
+              return true;
+            }
             if (typeof beforeSwap === "function") {
-              const fragment = parseHtmlFragment(html);
-              const nextNode = fragment.firstElementChild;
               if (!(nextNode instanceof Element)) return false;
               beforeSwap({ target: latestTarget, nextNode });
+            }
+            if (nextNode instanceof Element) {
               latestTarget.replaceChildren(nextNode);
             } else {
               latestTarget.innerHTML = html;
@@ -2012,6 +2005,12 @@
           const nextNode = fragment.firstElementChild;
           const latestTarget = document.querySelector(targetSelector);
           if (!(latestTarget instanceof Element) || !(nextNode instanceof Element)) return false;
+          if (
+            typeof shouldSwap === "function" &&
+            shouldSwap({ target: latestTarget, currentNode: latestTarget, nextNode }) === false
+          ) {
+            return true;
+          }
           if (typeof beforeSwap === "function") {
             beforeSwap({ target: latestTarget, nextNode });
           }
@@ -2032,7 +2031,7 @@
 
       async function pollVideoDetailFragment() {
         if (videoDetailRefreshInFlight || !isDocumentVisible()) return;
-        const fragment = document.querySelector("[data-video-detail-fragment]");
+        const fragment = document.querySelector("[data-video-detail-dynamic-fragment]");
         if (!(fragment instanceof HTMLElement)) return;
         if (fragment.dataset.videoDetailAutoRefresh !== "1") return;
         const refreshUrl = fragment.dataset.videoDetailRefreshUrl || "";
@@ -2041,10 +2040,18 @@
         try {
           await fetchAndSwapFragment({
             url: refreshUrl,
-            targetSelector: "#video-detail-wrap",
-            swap: "innerHTML",
-            beforeSwap: ({ target, nextNode }) => {
-              preserveVideoDetailPlayerCard(target, nextNode);
+            targetSelector: "#video-detail-dynamic-wrap",
+            swap: "outerHTML",
+            shouldSwap: ({ currentNode, nextNode }) => {
+              if (!(currentNode instanceof HTMLElement) || !(nextNode instanceof HTMLElement)) return true;
+              const currentFragment = currentNode.matches("[data-video-detail-dynamic-fragment]")
+                ? currentNode
+                : currentNode.querySelector("[data-video-detail-dynamic-fragment]");
+              const nextFragment = nextNode.matches("[data-video-detail-dynamic-fragment]")
+                ? nextNode
+                : nextNode.querySelector("[data-video-detail-dynamic-fragment]");
+              if (!(currentFragment instanceof HTMLElement) || !(nextFragment instanceof HTMLElement)) return true;
+              return currentFragment.dataset.videoDetailRefreshKey !== nextFragment.dataset.videoDetailRefreshKey;
             },
           });
         } finally {

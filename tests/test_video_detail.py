@@ -103,14 +103,14 @@ def test_detail_youtube_link(client: TestClient) -> None:
 
 
 def test_detail_youtube_embed_card_order(client: TestClient) -> None:
-    """메타데이터 카드와 기사 카드 사이에 플레이어 카드가 배치된다."""
+    """메타데이터 카드와 dynamic bundle 사이에 플레이어 카드가 배치된다."""
     _seed_video()
     response = client.get("/videos/vid-001")
     html = response.text
     meta_idx = html.index("data-detail-meta-card")
     player_idx = html.index("data-detail-player-card")
-    article_idx = html.index("data-detail-article-card")
-    assert meta_idx < player_idx < article_idx
+    dynamic_idx = html.index("data-video-detail-dynamic-fragment")
+    assert meta_idx < player_idx < dynamic_idx
 
 
 def test_detail_youtube_embed_contract(client: TestClient) -> None:
@@ -237,7 +237,7 @@ def test_detail_fragment_fact_box_json_renders_as_structured_content(client: Tes
         fact_box='{"named_examples":["A","B"],"explicit_uncertainties":"기억이 불완전하다."}'
     )
 
-    response = client.get("/views/videos/vid-001/detail-fragment")
+    response = client.get("/views/videos/vid-001/dynamic-fragment")
 
     assert response.status_code == 200
     html = response.text
@@ -285,7 +285,7 @@ def test_detail_page_disables_auto_refresh_when_article_is_ready(client: TestCli
     response = client.get("/videos/vid-001")
 
     assert response.status_code == 200
-    assert 'data-video-detail-refresh-url="/views/videos/vid-001/detail-fragment"' in response.text
+    assert 'data-video-detail-refresh-url="/views/videos/vid-001/dynamic-fragment"' in response.text
     assert 'data-video-detail-auto-refresh="0"' in response.text
 
 
@@ -297,13 +297,29 @@ def test_detail_fragment_enables_auto_refresh_for_incomplete_article(client: Tes
         raw_text="Pending transcript",
     )
 
-    response = client.get("/views/videos/vid-pending-001/detail-fragment")
+    response = client.get("/views/videos/vid-pending-001/dynamic-fragment")
 
     assert response.status_code == 200
     html = response.text
     assert "<html" not in html.lower()
-    assert 'data-video-detail-refresh-url="/views/videos/vid-pending-001/detail-fragment"' in html
+    assert 'data-video-detail-refresh-url="/views/videos/vid-pending-001/dynamic-fragment"' in html
     assert 'data-video-detail-auto-refresh="1"' in html
+
+
+def test_detail_fragment_disables_auto_refresh_for_terminal_failed_status(client: TestClient) -> None:
+    _seed_video(
+        video_id="vid-failed-001",
+        pipeline_status="no_subtitle",
+        article_title=None,
+        raw_text=None,
+        language=None,
+        source_type=None,
+    )
+
+    response = client.get("/views/videos/vid-failed-001/dynamic-fragment")
+
+    assert response.status_code == 200
+    assert 'data-video-detail-auto-refresh="0"' in response.text
 
 
 def test_detail_page_shows_llm_article_metadata(client: TestClient) -> None:

@@ -18,7 +18,7 @@ from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers import views_downloads
-from app.routers.pages import build_video_detail_context
+from app.routers.pages import build_video_detail_context, build_video_detail_dynamic_context
 from app.routers.template_context import build_template_context
 from app.services.article_render import render_fact_box_to_safe_html
 from app.services.bulk_channels import (
@@ -1047,6 +1047,19 @@ async def video_detail_fragment(video_id: str, request: Request):
     )
 
 
+@router.get("/videos/{video_id}/dynamic-fragment")
+async def video_detail_dynamic_fragment(video_id: str, request: Request):
+    context = await build_video_detail_dynamic_context(
+        request,
+        video_id=video_id,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/video_detail_dynamic.html",
+        context=context,
+    )
+
+
 @router.post("/videos/delete-selected")
 async def delete_selected_videos(request: Request):
     form = await request.form()
@@ -1261,28 +1274,11 @@ async def article_request_single_video(video_id: str, request: Request):
 
 @router.get("/video-detail/{video_id}")
 async def video_detail(video_id: str, request: Request):
-    detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
-    if detail:
-        await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
-    article_body_html = ""
-    article_lead_html = ""
-    article_fact_box_html = ""
-    if detail and str(detail.get("article_title") or "").strip():
-        article_lead_html = render_markdown_to_safe_html(str(detail.get("lead") or ""))
-        article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
-        article_fact_box_html = render_fact_box_to_safe_html(str(detail.get("fact_box") or ""))
-    download_defaults = await downloads_repo.get_download_default_settings(
-        request.app.state.runtime.db,
-        default_output_dir=request.app.state.runtime.config.download_dir,
-    )
-    context = await build_template_context(
+    context = await build_video_detail_context(
         request,
-        video=detail,
-        article_lead_html=article_lead_html,
-        article_body_html=article_body_html,
-        article_fact_box_html=article_fact_box_html,
-        download_defaults=download_defaults,
-        ffmpeg_available=is_ffmpeg_available(),
+        video_id=video_id,
+        transcript_retry_done=False,
+        mark_viewed=True,
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
