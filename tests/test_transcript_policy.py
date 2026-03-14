@@ -574,3 +574,30 @@ def test_transcript_worker_lease_allows_single_owner(tmp_path) -> None:
     assert released_b is False
     assert released_a is True
     assert acquired_b_after_release is True
+
+
+def test_transcript_worker_lease_succeeds_with_dedicated_connection_while_shared_connection_has_transaction(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "lease-dedicated.db"
+
+    async def _run() -> bool:
+        shared_db = await open_database(str(db_path))
+        worker_db = await open_database(str(db_path))
+        try:
+            await init_database(shared_db)
+            await shared_db.execute("BEGIN")
+            await shared_db.execute("SELECT 1")
+            acquired = await repository.acquire_transcript_worker_lease(
+                worker_db,
+                owner_id="owner-dedicated",
+                ttl_seconds=60,
+            )
+            await shared_db.rollback()
+            return acquired
+        finally:
+            await worker_db.close()
+            await shared_db.close()
+
+    acquired = asyncio.run(_run())
+    assert acquired is True
