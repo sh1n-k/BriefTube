@@ -1864,6 +1864,18 @@ async def mark_transcript_processing(db: aiosqlite.Connection, video_id: str) ->
     return cursor.rowcount
 
 
+async def recover_stuck_transcript_jobs(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_pending'
+        WHERE pipeline_status = 'transcript_processing'
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
 async def save_transcript(
     db: aiosqlite.Connection,
     video_id: str,

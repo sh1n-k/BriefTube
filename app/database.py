@@ -581,12 +581,5 @@ async def recover_stuck_jobs(db: aiosqlite.Connection) -> int:
         WHERE pipeline_status = 'llm_processing'
         """
     )
-    transcript_cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'transcript_pending'
-        WHERE pipeline_status = 'transcript_processing'
-        """
-    )
     await db.commit()
-    return int(llm_cursor.rowcount or 0) + int(transcript_cursor.rowcount or 0)
+    return int(llm_cursor.rowcount or 0)

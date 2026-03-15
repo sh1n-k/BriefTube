@@ -5,7 +5,7 @@ import os
 import sqlite3
 
 from app import repository
-from app.database import init_database, open_database
+from app.database import init_database, open_database, recover_stuck_jobs
 from app.workers.transcript_worker import _compute_retry_delay_seconds
 
 
@@ -104,6 +104,96 @@ def test_schedule_transcript_retry_updates_retry_count_and_next_attempt(client) 
     retry_count, next_attempt_at = asyncio.run(_run())
     assert retry_count == 1
     assert next_attempt_at is not None
+
+
+def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> None:
+    db_path = tmp_path / "recover-stuck-jobs.db"
+
+    async def _run() -> tuple[int, str, str]:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            await db.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                ("UCrecover001", "Recover Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover001"),
+            )
+            await db.execute(
+                """
+                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+                VALUES
+                  (?, ?, ?, ?, 'llm_processing'),
+                  (?, ?, ?, ?, 'transcript_processing')
+                """,
+                (
+                    "vid-recover-llm",
+                    "UCrecover001",
+                    "recover llm",
+                    "2026-02-10T00:00:00+00:00",
+                    "vid-recover-transcript",
+                    "UCrecover001",
+                    "recover transcript",
+                    "2026-02-10T00:00:00+00:00",
+                ),
+            )
+            await db.commit()
+            recovered = await recover_stuck_jobs(db)
+            cursor = await db.execute(
+                """
+                SELECT video_id, pipeline_status
+                FROM videos
+                WHERE video_id IN ('vid-recover-llm', 'vid-recover-transcript')
+                ORDER BY video_id
+                """
+            )
+            rows = await cursor.fetchall()
+            return recovered, str(rows[0]["pipeline_status"]), str(rows[1]["pipeline_status"])
+        finally:
+            await db.close()
+
+    recovered, llm_status, transcript_status = asyncio.run(_run())
+    assert recovered == 1
+    assert llm_status == "llm_pending"
+    assert transcript_status == "transcript_processing"
+
+
+def test_recover_stuck_transcript_jobs_requeues_processing_rows(tmp_path) -> None:
+    db_path = tmp_path / "recover-stuck-transcript-jobs.db"
+
+    async def _run() -> tuple[int, str]:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            await db.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                ("UCrecover002", "Recover Channel 2", "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover002"),
+            )
+            await db.execute(
+                """
+                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+                VALUES (?, ?, ?, ?, 'transcript_processing')
+                """,
+                ("vid-recover-transcript-only", "UCrecover002", "recover transcript only", "2026-02-10T00:00:00+00:00"),
+            )
+            await db.commit()
+            recovered = await repository.recover_stuck_transcript_jobs(db)
+            cursor = await db.execute(
+                "SELECT pipeline_status FROM videos WHERE video_id = ?",
+                ("vid-recover-transcript-only",),
+            )
+            row = await cursor.fetchone()
+            return recovered, str(row["pipeline_status"])
+        finally:
+            await db.close()
+
+    recovered, transcript_status = asyncio.run(_run())
+    assert recovered == 1
+    assert transcript_status == "transcript_pending"
 
 
 def test_schedule_transcript_retry_persists_last_error(client) -> None:
@@ -601,3 +691,46 @@ def test_transcript_worker_lease_succeeds_with_dedicated_connection_while_shared
 
     acquired = asyncio.run(_run())
     assert acquired is True
+
+
+def test_lease_heartbeat_loop_renews_before_stop(tmp_path, monkeypatch) -> None:
+    from app.workers import transcript_worker
+
+    db_path = tmp_path / "lease-heartbeat.db"
+
+    async def _run() -> int:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            await repository.acquire_transcript_worker_lease(
+                db,
+                owner_id="owner-heartbeat",
+                ttl_seconds=60,
+            )
+            stop_event = asyncio.Event()
+            lost_event = asyncio.Event()
+            renew_calls = {"count": 0}
+            original = repository.renew_transcript_worker_lease
+
+            async def _wrapped_renew(*args, **kwargs):
+                renew_calls["count"] += 1
+                stop_event.set()
+                return await original(*args, **kwargs)
+
+            monkeypatch.setattr(transcript_worker.transcripts_repo, "renew_transcript_worker_lease", _wrapped_renew)
+
+            await transcript_worker._lease_heartbeat_loop(
+                db=db,
+                owner_id="owner-heartbeat",
+                ttl_seconds=60,
+                renew_interval_seconds=0.01,
+                stop_event=stop_event,
+                lost_event=lost_event,
+            )
+            assert lost_event.is_set() is False
+            return renew_calls["count"]
+        finally:
+            await db.close()
+
+    renew_count = asyncio.run(_run())
+    assert renew_count >= 1

@@ -215,6 +215,46 @@ def test_manual_article_worker_fetches_missing_transcript_and_succeeds(tmp_path)
     assert transcript_count == 1
 
 
+def test_manual_article_worker_persists_guard_state_after_fetch(tmp_path) -> None:
+    db_path = tmp_path / "manual-worker-guard-state.db"
+
+    async def _run() -> tuple[str | None, str | None]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_channel(db)
+        await _insert_video(db, video_id="vid-guard-001", pipeline_status="transcript_failed")
+        job_id = await _insert_pending_job(db, video_id="vid-guard-001")
+
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(
+                transcript_idle_sleep_seconds=1,
+                transcript_request_interval_seconds=1,
+                transcript_fetch_timeout_seconds=1,
+            ),
+            transcript_service=_SuccessTranscriptService(),
+            manual_article_wake_event=asyncio.Event(),
+            llm_wake_event=asyncio.Event(),
+        )
+
+        task = asyncio.create_task(run_manual_article_worker(state))
+        try:
+            await _wait_for_job_status(db, job_id=job_id, expected="succeeded")
+            guard_state = await transcripts_repo.get_transcript_guard_state(db)
+            return (
+                str(guard_state.get("last_channel_id") or "") or None,
+                str(guard_state.get("last_channel_attempt_at") or "") or None,
+            )
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    last_channel_id, last_channel_attempt_at = asyncio.run(_run())
+    assert last_channel_id == "UCmanualworker002"
+    assert last_channel_attempt_at
+
+
 def test_manual_article_worker_fetch_failure_requeues_transcript_and_fails_job(tmp_path) -> None:
     db_path = tmp_path / "manual-worker-fail.db"
 

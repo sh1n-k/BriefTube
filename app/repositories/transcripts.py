@@ -8,6 +8,7 @@ list_queue_items = legacy.list_queue_items
 queue_status = legacy.queue_status
 pop_pending_transcript_videos = legacy.pop_pending_transcript_videos
 mark_transcript_processing = legacy.mark_transcript_processing
+recover_stuck_transcript_jobs = legacy.recover_stuck_transcript_jobs
 save_transcript = legacy.save_transcript
 mark_no_subtitle = legacy.mark_no_subtitle
 schedule_transcript_retry = legacy.schedule_transcript_retry

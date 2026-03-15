@@ -11,6 +11,7 @@ from app.workers.transcript_worker import (
     _compute_retry_delay_seconds,
     _close_breaker,
     _open_breaker,
+    _reopen_breaker_after_half_open_retryable_failure,
 )
 
 
@@ -95,6 +96,28 @@ def test_half_open_failure_keeps_cooldown_at_max() -> None:
     )
     # hard_errors=6 → 300 * 2^5 = 9600 → cap 3600
     assert cooldown == 3600
+
+
+def test_reopen_breaker_after_half_open_retryable_failure_preserves_hard_error_level() -> None:
+    guard = TranscriptGuardState(
+        breaker_state=TranscriptBreakerState.HALF_OPEN,
+        consecutive_hard_errors=5,
+        cooldown_until=None,
+        half_open_probe_remaining=1,
+    )
+
+    cooldown = _reopen_breaker_after_half_open_retryable_failure(
+        guard,
+        hard_cooldown_base_seconds=300,
+        hard_cooldown_max_seconds=3600,
+        half_open_probe_count=2,
+    )
+
+    assert cooldown == 3600
+    assert guard.breaker_state == TranscriptBreakerState.OPEN
+    assert guard.cooldown_until is not None
+    assert guard.half_open_probe_remaining == 2
+    assert guard.consecutive_hard_errors == 5
 
 
 def test_adaptive_decay_rate_returns_steeper_rate_for_high_factor() -> None:

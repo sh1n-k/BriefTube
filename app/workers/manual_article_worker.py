@@ -174,7 +174,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                 guard.breaker_state = TranscriptBreakerState.HALF_OPEN
                 guard.cooldown_until = None
                 guard.half_open_probe_remaining = max(1, half_open_probe_count)
-                await _save_guard_state(state, guard)
+                await _save_guard_state(state.db, guard)
                 logger.info(
                     "event=manual_article.breaker_half_open probes=%s",
                     guard.half_open_probe_remaining,
@@ -244,11 +244,11 @@ async def run_manual_article_worker(state: AppState) -> None:
                         await _sleep_with_wake(state, idle_sleep_seconds)
                         continue
                     guard.half_open_probe_remaining -= 1
-                    await _save_guard_state(state, guard)
+                    await _save_guard_state(state.db, guard)
                 try:
                     guard.last_channel_id = channel_id or guard.last_channel_id
                     guard.last_channel_attempt_at = datetime.now(timezone.utc)
-                    await _save_guard_state(state, guard)
+                    await _save_guard_state(state.db, guard)
                     raw_text, language, source_type = await asyncio.wait_for(
                         state.transcript_service.fetch_transcript(
                             video_id,
@@ -280,7 +280,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                             guard.consecutive_successes = 0
                             decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
-                        await _save_guard_state(state, guard)
+                        await _save_guard_state(state.db, guard)
                         await manual_articles_repo.mark_manual_article_job_failed(
                             state.db,
                             job_id=active_job_id,
@@ -313,7 +313,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                             cooldown_seconds=breaker_cooldown_seconds,
                             half_open_probe_count=half_open_probe_count,
                         )
-                        await _save_guard_state(state, guard)
+                        await _save_guard_state(state.db, guard)
                         if channel_id:
                             await transcripts_repo.defer_channel_transcript_retries(
                                 state.db,
@@ -370,7 +370,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                             adaptive_max_factor,
                             guard.adaptive_factor * general_error_slowdown_multiplier,
                         )
-                    await _save_guard_state(state, guard)
+                    await _save_guard_state(state.db, guard)
 
                     if error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT and next_retry_count <= retry_max_attempts:
                         next_delay_seconds = _compute_retry_delay_seconds(
@@ -448,7 +448,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                     guard.consecutive_successes = 0
                     decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
                     guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
-                await _save_guard_state(state, guard)
+                await _save_guard_state(state.db, guard)
 
                 await transcripts_repo.save_transcript(
                     state.db,

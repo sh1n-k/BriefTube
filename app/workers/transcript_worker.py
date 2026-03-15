@@ -232,6 +232,82 @@ def _close_breaker(guard: TranscriptGuardState, *, half_open_probe_count: int) -
     guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
 
 
+def _reopen_breaker_after_half_open_retryable_failure(
+    guard: TranscriptGuardState,
+    *,
+    hard_cooldown_base_seconds: int,
+    hard_cooldown_max_seconds: int,
+    half_open_probe_count: int,
+) -> int:
+    preserved_hard_errors = max(1, guard.consecutive_hard_errors)
+    cooldown_seconds = _compute_hard_cooldown_seconds(
+        hard_cooldown_base_seconds,
+        hard_cooldown_max_seconds,
+        preserved_hard_errors,
+    )
+    _open_breaker(
+        guard,
+        cooldown_seconds=cooldown_seconds,
+        half_open_probe_count=half_open_probe_count,
+    )
+    return cooldown_seconds
+
+
+async def _lease_heartbeat_loop(
+    *,
+    db,
+    owner_id: str,
+    ttl_seconds: int,
+    renew_interval_seconds: float,
+    stop_event: asyncio.Event,
+    lost_event: asyncio.Event,
+) -> None:
+    safe_interval = max(0.1, float(renew_interval_seconds))
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=safe_interval)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            renewed = await transcripts_repo.renew_transcript_worker_lease(
+                db,
+                owner_id=owner_id,
+                ttl_seconds=ttl_seconds,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            lost_event.set()
+            logger.exception(
+                "event=transcript.lease_renew_failed worker=transcript owner=%s",
+                owner_id,
+                extra={"event": "transcript.lease_renew_failed", "worker": "transcript"},
+            )
+            return
+        if not renewed:
+            lost_event.set()
+            logger.warning(
+                "event=transcript.lease_lost worker=transcript owner=%s",
+                owner_id,
+                extra={"event": "transcript.lease_lost", "worker": "transcript"},
+            )
+            return
+
+
+async def _recover_runtime_stuck_transcript_jobs(db) -> int:
+    recovered = await transcripts_repo.recover_stuck_transcript_jobs(db)
+    if recovered > 0:
+        logger.warning(
+            "event=transcript.runtime_recover worker=transcript recovered=%s",
+            recovered,
+            extra={"event": "transcript.runtime_recover", "worker": "transcript"},
+        )
+    return recovered
+
+
 async def run_transcript_fetcher(state: AppState) -> None:
     fetch_batch_size = max(1, int(state.config.transcript_fetch_batch_size))
     request_interval_seconds = max(1, int(state.config.transcript_request_interval_seconds))
@@ -266,7 +342,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
     lease_owner_id = f"transcript-{os.getpid()}-{uuid.uuid4().hex[:10]}"
     lease_held = False
     lease_renew_interval_seconds = max(1.0, lease_ttl_seconds / 3.0)
-    next_lease_renew_monotonic_at = 0.0
+    runtime_recovery_pending = True
+    lease_stop_event = asyncio.Event()
+    lease_lost_event = asyncio.Event()
+    lease_heartbeat_task: asyncio.Task[None] | None = None
 
     worker_db = await open_database(state.config.db_path)
 
@@ -294,8 +373,27 @@ async def run_transcript_fetcher(state: AppState) -> None:
         )
 
         while True:
+            if lease_enabled and lease_lost_event.is_set():
+                if lease_heartbeat_task is not None:
+                    lease_stop_event.set()
+                    lease_heartbeat_task.cancel()
+                    await asyncio.gather(lease_heartbeat_task, return_exceptions=True)
+                    lease_heartbeat_task = None
+                lease_stop_event = asyncio.Event()
+                lease_lost_event = asyncio.Event()
+                lease_held = False
+                await asyncio.sleep(idle_sleep_seconds)
+                continue
+
             if not await settings_repo.is_worker_enabled(worker_db, "transcript"):
                 if lease_enabled and lease_held:
+                    if lease_heartbeat_task is not None:
+                        lease_stop_event.set()
+                        lease_heartbeat_task.cancel()
+                        await asyncio.gather(lease_heartbeat_task, return_exceptions=True)
+                        lease_heartbeat_task = None
+                    lease_stop_event = asyncio.Event()
+                    lease_lost_event = asyncio.Event()
                     try:
                         await transcripts_repo.release_transcript_worker_lease(worker_db, lease_owner_id)
                     except Exception:
@@ -328,33 +426,27 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     if not lease_held:
                         await asyncio.sleep(idle_sleep_seconds)
                         continue
-                    next_lease_renew_monotonic_at = now_mono + lease_renew_interval_seconds
+                    lease_stop_event = asyncio.Event()
+                    lease_lost_event = asyncio.Event()
+                    lease_heartbeat_task = asyncio.create_task(
+                        _lease_heartbeat_loop(
+                            db=worker_db,
+                            owner_id=lease_owner_id,
+                            ttl_seconds=lease_ttl_seconds,
+                            renew_interval_seconds=lease_renew_interval_seconds,
+                            stop_event=lease_stop_event,
+                            lost_event=lease_lost_event,
+                        ),
+                        name="transcript_lease_heartbeat",
+                    )
+                    if runtime_recovery_pending:
+                        await _recover_runtime_stuck_transcript_jobs(worker_db)
+                        runtime_recovery_pending = False
                     logger.info(
                         "event=transcript.lease_acquired worker=transcript owner=%s",
                         lease_owner_id,
                         extra={"event": "transcript.lease_acquired", "worker": "transcript"},
                     )
-                elif now_mono >= next_lease_renew_monotonic_at:
-                    try:
-                        renewed = await transcripts_repo.renew_transcript_worker_lease(
-                            worker_db,
-                            owner_id=lease_owner_id,
-                            ttl_seconds=lease_ttl_seconds,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "event=transcript.lease_renew_failed worker=transcript owner=%s",
-                            lease_owner_id,
-                            extra={"event": "transcript.lease_renew_failed", "worker": "transcript"},
-                        )
-                        lease_held = False
-                        await asyncio.sleep(idle_sleep_seconds)
-                        continue
-                    if not renewed:
-                        lease_held = False
-                        await asyncio.sleep(idle_sleep_seconds)
-                        continue
-                    next_lease_renew_monotonic_at = now_mono + lease_renew_interval_seconds
 
             now_utc = datetime.now(timezone.utc)
             if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until and now_utc < guard.cooldown_until:
@@ -410,7 +502,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 for video in pending:
                     if not await settings_repo.is_worker_enabled(worker_db, "transcript"):
                         break
-                    if lease_enabled and not lease_held:
+                    if lease_enabled and (not lease_held or lease_lost_event.is_set()):
                         break
                     if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until:
                         if datetime.now(timezone.utc) < guard.cooldown_until:
@@ -584,6 +676,63 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 )
                             continue
 
+                        if (
+                            guard.breaker_state == TranscriptBreakerState.HALF_OPEN
+                            and error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT
+                        ):
+                            guard.consecutive_successes = 0
+                            if adaptive_enabled:
+                                guard.adaptive_factor = min(
+                                    adaptive_max_factor,
+                                    guard.adaptive_factor * general_error_slowdown_multiplier,
+                                )
+                            probe_cooldown_seconds = _reopen_breaker_after_half_open_retryable_failure(
+                                guard,
+                                hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+                                hard_cooldown_max_seconds=hard_cooldown_max_seconds,
+                                half_open_probe_count=half_open_probe_count,
+                            )
+                            await _save_guard_state(worker_db, guard)
+                            next_delay_seconds = max(
+                                _compute_retry_delay_seconds(
+                                    retry_base_delay_seconds,
+                                    retry_max_delay_seconds,
+                                    current_retry_count,
+                                ),
+                                probe_cooldown_seconds,
+                            )
+                            if next_retry_count > retry_max_attempts:
+                                await transcripts_repo.mark_transcript_failed(
+                                    worker_db,
+                                    video_id=video_id,
+                                    retry_count=next_retry_count,
+                                    error_message=error_message,
+                                )
+                            else:
+                                await transcripts_repo.schedule_transcript_retry(
+                                    worker_db,
+                                    video_id=video_id,
+                                    delay_seconds=next_delay_seconds,
+                                    error_message=error_message,
+                                )
+                            logger.warning(
+                                (
+                                    "event=transcript.half_open_retryable_failure worker=transcript video_id=%s "
+                                    "retry=%s cooldown=%ss factor=%.2f error=%s"
+                                ),
+                                video_id,
+                                next_retry_count,
+                                probe_cooldown_seconds,
+                                guard.adaptive_factor,
+                                error_message,
+                                extra={
+                                    "event": "transcript.half_open_retryable_failure",
+                                    "worker": "transcript",
+                                    "category": "retryable_transient",
+                                },
+                            )
+                            continue
+
                         guard.consecutive_successes = 0
                         guard.consecutive_hard_errors = 0
                         if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
@@ -654,6 +803,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 )
                 await asyncio.sleep(idle_sleep_seconds)
     finally:
+        if lease_heartbeat_task is not None:
+            lease_stop_event.set()
+            lease_heartbeat_task.cancel()
+            await asyncio.gather(lease_heartbeat_task, return_exceptions=True)
         if lease_enabled and lease_held:
             try:
                 await transcripts_repo.release_transcript_worker_lease(worker_db, lease_owner_id)
