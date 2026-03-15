@@ -5,6 +5,7 @@
 {% set inactive_count = counts.get("inactive", 0) %}
 {% set batch_limit = reactivate_batch_limit if reactivate_batch_limit is defined else 50 %}
 {% set probe_timeout_seconds = reactivate_probe_timeout_seconds if reactivate_probe_timeout_seconds is defined else 20 %}
+{% set probe_delay_seconds = reactivate_probe_delay_seconds if reactivate_probe_delay_seconds is defined else 0 %}
 {% set refresh_params = "status=" ~ current_status %}
 {% if selected_cat_id is not none %}
   {% set refresh_params = refresh_params ~ "&category_id=" ~ selected_cat_id %}
@@ -79,6 +80,7 @@
       data-channel-reactivate-bulk-form
       data-reactivate-batch-limit="{{ batch_limit }}"
       data-reactivate-timeout-seconds="{{ probe_timeout_seconds }}"
+      data-reactivate-delay-seconds="{{ probe_delay_seconds }}"
       {% endif %}
       {% if current_status == 'active' %}data-save-toast="{{ txt.channel_delete_success }}"{% endif %}
     >

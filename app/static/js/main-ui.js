@@ -722,6 +722,7 @@
         };
         const limit = parsePositiveInt(form.dataset.reactivateBatchLimit, 50);
         const timeoutSeconds = parsePositiveInt(form.dataset.reactivateTimeoutSeconds, 20);
+        const probeDelaySeconds = parsePositiveInt(form.dataset.reactivateDelaySeconds, 0);
 
         const clearPendingState = () => {
           delete form.dataset.reactivateInFlight;
@@ -770,7 +771,7 @@
           if (form.dataset.reactivateDialogOpen === "1") return;
           form.dataset.reactivateDialogOpen = "1";
 
-          const maxWaitSeconds = selectedCount * timeoutSeconds;
+          const maxWaitSeconds = (selectedCount * timeoutSeconds) + (Math.max(0, selectedCount - 1) * probeDelaySeconds);
           openChannelReactivateConfirmModal({
             title: CHANNEL_REACTIVATE_UI_TEXT.confirmTitle,
             description: formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmDesc, { count: selectedCount }),

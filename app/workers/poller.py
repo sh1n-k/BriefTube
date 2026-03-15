@@ -16,6 +16,8 @@ from app.services.rss import RSSParseError
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
+RSS_404_DEACTIVATE_THRESHOLD = 3
+RSS_404_DEACTIVATE_MIN_AGE = timedelta(hours=6)
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:
@@ -130,26 +132,60 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
             if status_code == 404:
-                await channels_repo.deactivate_channel(state.db, channel_id)
-                await alerts_repo.create_system_alert(
+                observed_at = datetime.now(timezone.utc)
+                tracking = await channels_repo.record_channel_rss_404(
                     state.db,
-                    alert_type=alerts_repo.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND,
-                    channel_id=channel_id,
-                    channel_name=channel_name,
-                    message="RSS feed returned 404 Not Found. Channel was deactivated automatically.",
-                )
-                state.rss_cache.pop(channel_id, None)
-                logger.warning(
-                    "event=rss.feed_missing worker=rss channel_id=%s channel_name=%s action=deactivate",
                     channel_id,
-                    channel_name,
-                    extra={
-                        "event": "rss.feed_missing",
-                        "worker": "rss",
-                        "category": "rss_channel_not_found",
-                        "code": "404",
-                    },
+                    observed_at=observed_at.isoformat(),
                 )
+                consecutive_404_count = int((tracking or {}).get("rss_consecutive_404_count") or 0)
+                first_404_at = _parse_iso_datetime(str((tracking or {}).get("rss_404_first_at") or ""))
+                should_deactivate = (
+                    consecutive_404_count >= RSS_404_DEACTIVATE_THRESHOLD
+                    and first_404_at is not None
+                    and (observed_at - first_404_at) >= RSS_404_DEACTIVATE_MIN_AGE
+                )
+                if should_deactivate:
+                    await channels_repo.deactivate_channel(state.db, channel_id)
+                    await alerts_repo.create_system_alert(
+                        state.db,
+                        alert_type=alerts_repo.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND,
+                        channel_id=channel_id,
+                        channel_name=channel_name,
+                        message=(
+                            "RSS feed returned repeated 404 responses. "
+                            "Channel was deactivated automatically after confirmation."
+                        ),
+                    )
+                    state.rss_cache.pop(channel_id, None)
+                    logger.warning(
+                        "event=rss.feed_missing worker=rss channel_id=%s channel_name=%s action=deactivate consecutive_404=%s first_404_at=%s",
+                        channel_id,
+                        channel_name,
+                        consecutive_404_count,
+                        first_404_at.isoformat(),
+                        extra={
+                            "event": "rss.feed_missing",
+                            "worker": "rss",
+                            "category": "rss_channel_not_found",
+                            "code": "404",
+                        },
+                    )
+                else:
+                    logger.warning(
+                        "event=rss.feed_missing_suspected worker=rss channel_id=%s channel_name=%s action=track_only consecutive_404=%s threshold=%s first_404_at=%s",
+                        channel_id,
+                        channel_name,
+                        consecutive_404_count,
+                        RSS_404_DEACTIVATE_THRESHOLD,
+                        first_404_at.isoformat() if first_404_at is not None else "-",
+                        extra={
+                            "event": "rss.feed_missing_suspected",
+                            "worker": "rss",
+                            "category": "rss_channel_not_found",
+                            "code": "404",
+                        },
+                    )
                 continue
             logger.warning(
                 "event=rss.fetch_failed worker=rss channel_id=%s status=%s",
@@ -173,6 +209,8 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
             )
             continue
 
+        if int(channel.get("rss_consecutive_404_count") or 0) > 0 or channel.get("rss_404_first_at"):
+            await channels_repo.clear_channel_rss_404_state(state.db, channel_id)
         state.rss_cache[channel_id] = {
             "etag": new_etag or "",
             "last_modified": new_last_modified or "",

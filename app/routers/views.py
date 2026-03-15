@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import logging
@@ -112,13 +113,18 @@ async def _resolve_channel_management_state(
     return channel_status, channels, channel_counts
 
 
-def _channel_management_ui_context(request: Request) -> dict[str, int]:
+def _channel_management_ui_context(request: Request) -> dict[str, int | float]:
+    probe_delay_seconds = min(
+        0.5,
+        max(0.0, float(request.app.state.runtime.config.rss_inter_channel_delay_seconds)),
+    )
     return {
         "reactivate_batch_limit": REACTIVATE_BATCH_LIMIT,
         "reactivate_probe_timeout_seconds": max(
             1,
             int(request.app.state.runtime.config.rss_timeout_seconds),
         ),
+        "reactivate_probe_delay_seconds": probe_delay_seconds,
     }
 
 
@@ -300,6 +306,7 @@ async def _probe_channel_reactivation(
         "last_modified": new_last_modified or "",
         "feed_mode": feed_mode,
     }
+    await channels_repo.clear_channel_rss_404_state(request.app.state.runtime.db, channel_id)
     logger.debug(
         "event=channels.reactivate_probe_ok channel_id=%s feed_mode=%s new_etag=%s new_last_modified=%s",
         channel_id,
@@ -818,7 +825,13 @@ async def reactivate_selected_channels(request: Request):
             )
             success_ids: list[str] = []
             failed: list[tuple[str, str]] = []
-            for channel_id in channel_ids:
+            probe_delay_seconds = min(
+                0.5,
+                max(0.0, float(request.app.state.runtime.config.rss_inter_channel_delay_seconds)),
+            )
+            for index, channel_id in enumerate(channel_ids):
+                if index > 0 and probe_delay_seconds > 0:
+                    await asyncio.sleep(probe_delay_seconds)
                 ok, reason_code = await _probe_channel_reactivation(
                     request,
                     channel_id,

@@ -67,6 +67,9 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     next_runtime_warning_log_at = now + 60.0
 
             if runtime_reason:
+                if pending_count <= 0:
+                    await _sleep_with_wake(state, 10)
+                    continue
                 if _is_schema_invalid_issue(runtime_reason):
                     alert_created = await llm_repo.ensure_llm_schema_invalid_alert(state.db)
                 else:

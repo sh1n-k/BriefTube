@@ -244,6 +244,10 @@ async def channel_page(
             1,
             int(request.app.state.runtime.config.rss_timeout_seconds),
         ),
+        reactivate_probe_delay_seconds=min(
+            0.5,
+            max(0.0, float(request.app.state.runtime.config.rss_inter_channel_delay_seconds)),
+        ),
     )
     return request.app.state.templates.TemplateResponse(request=request, name="channels.html", context=context)
 

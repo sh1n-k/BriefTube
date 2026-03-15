@@ -471,6 +471,10 @@ def _normalize_optional_int(value: object | None) -> int | None:
         return None
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _next_metadata_backoff_minutes(
     *,
     retry_count: int,
@@ -646,6 +650,8 @@ async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
             rss_url,
             is_active,
             last_seen_published_at,
+            rss_consecutive_404_count,
+            rss_404_first_at,
             channel_handle,
             channel_url_canonical,
             channel_thumbnail_url,
@@ -694,6 +700,8 @@ async def list_channels_for_management(
             c.rss_url,
             c.is_active,
             c.last_seen_published_at,
+            c.rss_consecutive_404_count,
+            c.rss_404_first_at,
             c.category_id,
             c.channel_handle,
             c.channel_url_canonical,
@@ -813,14 +821,18 @@ async def add_channel(
             channel_name,
             rss_url,
             is_active,
+            rss_consecutive_404_count,
+            rss_404_first_at,
             category_id,
             created_at
         )
-        VALUES (?, ?, ?, 1, ?, datetime('now'))
+        VALUES (?, ?, ?, 1, 0, NULL, ?, datetime('now'))
         ON CONFLICT(channel_id) DO UPDATE SET
             channel_name=excluded.channel_name,
             rss_url=excluded.rss_url,
             is_active=1,
+            rss_consecutive_404_count=0,
+            rss_404_first_at=NULL,
             created_at=COALESCE(channels.created_at, datetime('now'))
         """,
         (
@@ -897,6 +909,8 @@ async def add_channel(
             rss_url,
             is_active,
             last_seen_published_at,
+            rss_consecutive_404_count,
+            rss_404_first_at,
             category_id,
             channel_handle,
             channel_url_canonical,
@@ -931,6 +945,8 @@ async def get_channel_by_id(db: aiosqlite.Connection, channel_id: str) -> dict[s
             rss_url,
             is_active,
             last_seen_published_at,
+            rss_consecutive_404_count,
+            rss_404_first_at,
             category_id,
             channel_handle,
             channel_url_canonical,
@@ -1241,7 +1257,14 @@ async def deactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
 
 async def reactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
     cursor = await db.execute(
-        "UPDATE channels SET is_active = 1 WHERE channel_id = ?",
+        """
+        UPDATE channels
+        SET
+            is_active = 1,
+            rss_consecutive_404_count = 0,
+            rss_404_first_at = NULL
+        WHERE channel_id = ?
+        """,
         (channel_id,),
     )
     await db.commit()
@@ -1254,7 +1277,14 @@ async def reactivate_channels(db: aiosqlite.Connection, channel_ids: list[str]) 
         return 0
     placeholders = ",".join(["?"] * len(normalized))
     cursor = await db.execute(
-        f"UPDATE channels SET is_active = 1 WHERE channel_id IN ({placeholders})",
+        f"""
+        UPDATE channels
+        SET
+            is_active = 1,
+            rss_consecutive_404_count = 0,
+            rss_404_first_at = NULL
+        WHERE channel_id IN ({placeholders})
+        """,
         tuple(normalized),
     )
     await db.commit()
@@ -1270,6 +1300,8 @@ async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]
             rss_url,
             is_active,
             last_seen_published_at,
+            rss_consecutive_404_count,
+            rss_404_first_at,
             metadata_fetched_at,
             metadata_fetch_status,
             metadata_next_fetch_at,
@@ -1281,6 +1313,70 @@ async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]
     )
     rows = await cursor.fetchall()
     return _rows_to_dicts(rows)
+
+
+async def record_channel_rss_404(
+    db: aiosqlite.Connection,
+    channel_id: str,
+    *,
+    observed_at: str | None = None,
+) -> dict[str, Any] | None:
+    normalized_channel_id = str(channel_id or "").strip()
+    if not normalized_channel_id:
+        return None
+    safe_observed_at = _normalize_optional_text(observed_at, max_length=64) or _utc_now_iso()
+    await db.execute(
+        """
+        UPDATE channels
+        SET
+            rss_consecutive_404_count = CASE
+                WHEN COALESCE(rss_consecutive_404_count, 0) <= 0 THEN 1
+                ELSE COALESCE(rss_consecutive_404_count, 0) + 1
+            END,
+            rss_404_first_at = CASE
+                WHEN COALESCE(rss_consecutive_404_count, 0) <= 0
+                     OR rss_404_first_at IS NULL
+                     OR trim(rss_404_first_at) = ''
+                THEN ?
+                ELSE rss_404_first_at
+            END
+        WHERE channel_id = ?
+        """,
+        (safe_observed_at, normalized_channel_id),
+    )
+    await db.commit()
+    cursor = await db.execute(
+        """
+        SELECT rss_consecutive_404_count, rss_404_first_at
+        FROM channels
+        WHERE channel_id = ?
+        LIMIT 1
+        """,
+        (normalized_channel_id,),
+    )
+    return _row_to_dict(await cursor.fetchone())
+
+
+async def clear_channel_rss_404_state(db: aiosqlite.Connection, channel_id: str) -> int:
+    normalized_channel_id = str(channel_id or "").strip()
+    if not normalized_channel_id:
+        return 0
+    cursor = await db.execute(
+        """
+        UPDATE channels
+        SET
+            rss_consecutive_404_count = 0,
+            rss_404_first_at = NULL
+        WHERE channel_id = ?
+          AND (
+              COALESCE(rss_consecutive_404_count, 0) != 0
+              OR (rss_404_first_at IS NOT NULL AND trim(rss_404_first_at) != '')
+          )
+        """,
+        (normalized_channel_id,),
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def update_channel_watermark(db: aiosqlite.Connection, channel_id: str, published_at: str) -> None:

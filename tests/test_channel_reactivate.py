@@ -14,18 +14,29 @@ def _seed_channel(
     channel_name: str,
     *,
     is_active: int,
+    rss_consecutive_404_count: int = 0,
+    rss_404_first_at: str | None = None,
 ) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO channels(
+                channel_id,
+                channel_name,
+                rss_url,
+                is_active,
+                rss_consecutive_404_count,
+                rss_404_first_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 channel_id,
                 channel_name,
                 f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
                 is_active,
+                rss_consecutive_404_count,
+                rss_404_first_at,
             ),
         )
         conn.commit()
@@ -100,7 +111,14 @@ def test_reactivate_single_channel_success_after_rss_probe(
     monkeypatch,
 ) -> None:
     db_path = os.environ["DB_PATH"]
-    _seed_channel(db_path, "UCinactive101", "Inactive 101", is_active=0)
+    _seed_channel(
+        db_path,
+        "UCinactive101",
+        "Inactive 101",
+        is_active=0,
+        rss_consecutive_404_count=2,
+        rss_404_first_at="2026-02-27T00:00:00+00:00",
+    )
 
     async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
         assert channel_id == "UCinactive101"
@@ -121,10 +139,16 @@ def test_reactivate_single_channel_success_after_rss_probe(
 
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT is_active FROM channels WHERE channel_id='UCinactive101'"
+            """
+            SELECT is_active, rss_consecutive_404_count, rss_404_first_at
+            FROM channels
+            WHERE channel_id='UCinactive101'
+            """
         ).fetchone()
     assert row is not None
     assert int(row[0]) == 1
+    assert int(row[1]) == 0
+    assert row[2] is None
 
 
 def test_reactivate_single_channel_keeps_inactive_on_rss_failure(

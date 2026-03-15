@@ -23,11 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 async def open_database(db_path: str) -> aiosqlite.Connection:
-    db = await aiosqlite.connect(db_path)
+    db = await aiosqlite.connect(db_path, timeout=5.0)
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA foreign_keys = ON;")
     await db.execute("PRAGMA journal_mode = WAL;")
     await db.execute("PRAGMA synchronous = NORMAL;")
+    await db.execute("PRAGMA busy_timeout = 5000;")
     return db
 
 
@@ -478,6 +479,12 @@ async def _ensure_download_columns(db: aiosqlite.Connection) -> None:
 async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
     if not await _column_exists(db, "channels", "last_seen_published_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN last_seen_published_at TEXT")
+    if not await _column_exists(db, "channels", "rss_consecutive_404_count"):
+        await db.execute(
+            "ALTER TABLE channels ADD COLUMN rss_consecutive_404_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if not await _column_exists(db, "channels", "rss_404_first_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_404_first_at TEXT")
     if not await _column_exists(db, "channels", "created_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN created_at TEXT")
     await db.execute(
@@ -485,6 +492,20 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         UPDATE channels
         SET created_at = datetime('now')
         WHERE created_at IS NULL OR trim(created_at) = ''
+        """
+    )
+    await db.execute(
+        """
+        UPDATE channels
+        SET rss_consecutive_404_count = 0
+        WHERE rss_consecutive_404_count IS NULL OR rss_consecutive_404_count < 0
+        """
+    )
+    await db.execute(
+        """
+        UPDATE channels
+        SET rss_404_first_at = NULL
+        WHERE COALESCE(rss_consecutive_404_count, 0) = 0
         """
     )
     if not await _column_exists(db, "channels", "channel_handle"):
