@@ -424,6 +424,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         await asyncio.sleep(idle_sleep_seconds)
                         continue
                     if not lease_held:
+                        logger.debug(
+                            "event=transcript.lease_not_acquired worker=transcript owner=%s",
+                            lease_owner_id,
+                            extra={"event": "transcript.lease_not_acquired", "worker": "transcript"},
+                        )
                         await asyncio.sleep(idle_sleep_seconds)
                         continue
                     lease_stop_event = asyncio.Event()
@@ -481,6 +486,12 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     remaining_channel_wait = remaining
 
             try:
+                logger.debug(
+                    "event=transcript.polling_pending worker=transcript breaker=%s avoid=%s",
+                    guard.breaker_state.value,
+                    avoid_channel_id or "-",
+                    extra={"event": "transcript.polling_pending", "worker": "transcript"},
+                )
                 pending = await transcripts_repo.pop_pending_transcript_videos(
                     worker_db,
                     limit=fetch_batch_size,
@@ -496,6 +507,12 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     sleep_seconds = idle_sleep_seconds
                     if remaining_channel_wait > 0:
                         sleep_seconds = min(sleep_seconds, max(1.0, remaining_channel_wait))
+                    logger.debug(
+                        "event=transcript.no_pending worker=transcript sleep=%.1fs avoid_channel=%s",
+                        sleep_seconds,
+                        avoid_channel_id or "-",
+                        extra={"event": "transcript.no_pending", "worker": "transcript"},
+                    )
                     await asyncio.sleep(sleep_seconds)
                     continue
 
@@ -553,6 +570,13 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             thumbnail_path=None,
                         )
 
+                        logger.info(
+                            "event=transcript.fetch_succeeded worker=transcript video_id=%s language=%s source=%s",
+                            video_id,
+                            language or "-",
+                            source_type,
+                            extra={"event": "transcript.fetch_succeeded", "worker": "transcript"},
+                        )
                         guard.consecutive_successes += 1
                         guard.consecutive_hard_errors = 0
                         if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:

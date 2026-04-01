@@ -25,6 +25,10 @@ def _format_batch_message(batch: list[dict[str, str]]) -> str:
 
 
 async def run_telegram_notifier(state: AppState) -> None:
+    logger.info(
+        "event=notifier.worker_started worker=notifier",
+        extra={"event": "notifier.worker_started", "worker": "notifier"},
+    )
     while True:
         if not state.telegram_notifier.is_configured():
             await asyncio.sleep(5)

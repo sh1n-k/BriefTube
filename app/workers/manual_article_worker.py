@@ -146,7 +146,10 @@ async def run_manual_article_worker(state: AppState) -> None:
     persisted = await transcripts_repo.get_transcript_guard_state(state.db)
     guard = TranscriptGuardState.from_repository(persisted)
     guard.half_open_probe_remaining = max(1, guard.half_open_probe_remaining)
-
+    logger.info(
+        "event=manual_article.worker_started worker=manual_article",
+        extra={"event": "manual_article.worker_started", "worker": "manual_article"},
+    )
     while True:
         try:
             if not await settings_repo.is_worker_enabled(state.db, "transcript"):

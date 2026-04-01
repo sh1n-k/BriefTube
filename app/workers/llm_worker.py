@@ -37,6 +37,10 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
 async def run_llm_queue_worker(state: AppState) -> None:
     next_missing_config_log_at = 0.0
     next_runtime_warning_log_at = 0.0
+    logger.info(
+        "event=llm.worker_started worker=llm",
+        extra={"event": "llm.worker_started", "worker": "llm"},
+    )
     while True:
         if not await settings_repo.is_worker_enabled(state.db, "llm"):
             await _sleep_with_wake(state, 5)
