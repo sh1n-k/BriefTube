@@ -50,6 +50,8 @@ class AppConfig:
     log_file_name: str = "brieftube.log"
     log_file_max_bytes: int = 10 * 1024 * 1024
     log_file_backup_count: int = 10
+    rss_channel_deactivate_after_fails: int = 3
+    rss_consecutive_error_abort_threshold: int = 5
     log_noise_window_seconds: int = 60
     log_noise_suppress_threshold: int = 1
     log_dependency_level: str = "WARNING"
@@ -232,6 +234,12 @@ def load_config() -> AppConfig:
                 base.transcript_worker_lease_ttl_seconds,
             )
         ),
+        rss_channel_deactivate_after_fails=int(
+            file_values.get("rss_channel_deactivate_after_fails", base.rss_channel_deactivate_after_fails)
+        ),
+        rss_consecutive_error_abort_threshold=int(
+            file_values.get("rss_consecutive_error_abort_threshold", base.rss_consecutive_error_abort_threshold)
+        ),
         log_level=str(file_values.get("log_level", base.log_level)),
         log_to_file=_parse_env_bool(file_values.get("log_to_file", base.log_to_file)),
         log_dir=str(file_values.get("log_dir", base.log_dir)),
@@ -367,6 +375,12 @@ def load_config() -> AppConfig:
             cfg.transcript_worker_lease_ttl_seconds,
         )
     )
+    cfg.rss_channel_deactivate_after_fails = int(
+        os.getenv("RSS_CHANNEL_DEACTIVATE_AFTER_FAILS", cfg.rss_channel_deactivate_after_fails)
+    )
+    cfg.rss_consecutive_error_abort_threshold = int(
+        os.getenv("RSS_CONSECUTIVE_ERROR_ABORT_THRESHOLD", cfg.rss_consecutive_error_abort_threshold)
+    )
     cfg.log_level = os.getenv("LOG_LEVEL", cfg.log_level).strip().upper() or "AUTO"
     cfg.log_to_file = _parse_env_bool(os.getenv("LOG_TO_FILE", str(cfg.log_to_file)))
     cfg.log_dir = os.getenv("LOG_DIR", cfg.log_dir)
@@ -407,6 +421,8 @@ def load_config() -> AppConfig:
     cfg.transcript_breaker_half_open_probe_count = max(1, cfg.transcript_breaker_half_open_probe_count)
     cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
     cfg.rss_inter_channel_delay_seconds = max(0.0, min(30.0, cfg.rss_inter_channel_delay_seconds))
+    cfg.rss_channel_deactivate_after_fails = max(1, min(20, cfg.rss_channel_deactivate_after_fails))
+    cfg.rss_consecutive_error_abort_threshold = max(2, min(50, cfg.rss_consecutive_error_abort_threshold))
     cfg.download_max_concurrent = max(1, min(3, cfg.download_max_concurrent))
     cfg.download_timeout_seconds = max(30, cfg.download_timeout_seconds)
     cfg.log_file_max_bytes = max(1024, cfg.log_file_max_bytes)

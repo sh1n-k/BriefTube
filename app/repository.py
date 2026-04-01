@@ -1387,6 +1387,72 @@ async def update_channel_watermark(db: aiosqlite.Connection, channel_id: str, pu
     await db.commit()
 
 
+async def pick_next_rss_channel(db: aiosqlite.Connection) -> dict[str, Any] | None:
+    """is_active=1인 채널 중 rss_last_polled_at이 가장 오래된(또는 NULL) 채널 1개 반환"""
+    cursor = await db.execute(
+        """
+        SELECT
+            channel_id,
+            channel_name,
+            rss_url,
+            is_active,
+            last_seen_published_at,
+            rss_fail_streak,
+            rss_last_polled_at,
+            created_at
+        FROM channels
+        WHERE is_active = 1
+        ORDER BY
+            CASE WHEN rss_last_polled_at IS NULL THEN 0 ELSE 1 END,
+            rss_last_polled_at ASC,
+            created_at ASC
+        LIMIT 1
+        """,
+    )
+    row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def mark_rss_poll_success(db: aiosqlite.Connection, channel_id: str) -> None:
+    """폴링 성공 시 fail streak 리셋 및 last_polled_at 업데이트"""
+    await db.execute(
+        "UPDATE channels SET rss_fail_streak = 0, rss_last_polled_at = datetime('now') WHERE channel_id = ?",
+        (channel_id,),
+    )
+    await db.commit()
+
+
+async def increment_rss_fail_streak(db: aiosqlite.Connection, channel_id: str) -> int:
+    """폴링 실패 시 streak 증가, 업데이트된 값 반환"""
+    await db.execute(
+        "UPDATE channels SET rss_fail_streak = rss_fail_streak + 1, rss_last_polled_at = datetime('now') WHERE channel_id = ?",
+        (channel_id,),
+    )
+    await db.commit()
+    cursor = await db.execute(
+        "SELECT rss_fail_streak FROM channels WHERE channel_id = ?",
+        (channel_id,),
+    )
+    row = await cursor.fetchone()
+    return int(row["rss_fail_streak"]) if row else 0
+
+
+async def touch_rss_last_polled_at(db: aiosqlite.Connection, channel_id: str) -> None:
+    """비 404 에러 시 rss_last_polled_at만 갱신 (fail streak 미변경)"""
+    await db.execute(
+        "UPDATE channels SET rss_last_polled_at = datetime('now') WHERE channel_id = ?",
+        (channel_id,),
+    )
+    await db.commit()
+
+
+async def count_active_channels(db: aiosqlite.Connection) -> int:
+    """활성 채널 수 반환"""
+    cursor = await db.execute("SELECT COUNT(*) FROM channels WHERE is_active = 1")
+    row = await cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
 async def insert_video_if_absent(
     db: aiosqlite.Connection,
     video_id: str,

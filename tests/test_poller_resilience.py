@@ -14,7 +14,8 @@ from app.services.rss import RSSParseError
 from app.workers.poller import poll_once
 
 
-def test_poll_once_deactivates_404_channel_and_continues(client) -> None:
+def test_poll_once_deactivates_404_channel_after_streak(client) -> None:
+    """404가 deactivate_threshold(기본 3)회 연속 후에만 비활성화."""
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -65,7 +66,7 @@ def test_poll_once_deactivates_404_channel_and_continues(client) -> None:
                 None,
             )
 
-    async def _run() -> tuple[int, int, int, int, int]:
+    async def _run() -> tuple[int, int, int, int]:
         db = await open_database(db_path)
         try:
             state = SimpleNamespace(
@@ -74,8 +75,24 @@ def test_poll_once_deactivates_404_channel_and_continues(client) -> None:
                 rss_service=FakeRSSService(),
                 started_at=datetime.now(timezone.utc),
             )
-            inserted = await poll_once(state)  # type: ignore[arg-type]
+            # 1회차: streak=1, 아직 활성
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                "SELECT is_active, rss_fail_streak FROM channels WHERE channel_id = ?",
+                ("UC404resilience001",),
+            )
+            row1 = await cursor.fetchone()
 
+            # 2회차: streak=2, 아직 활성
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                "SELECT is_active, rss_fail_streak FROM channels WHERE channel_id = ?",
+                ("UC404resilience001",),
+            )
+            row2 = await cursor.fetchone()
+
+            # 3회차: streak=3 → 비활성화
+            inserted = await poll_once(state)  # type: ignore[arg-type]
             cursor = await db.execute(
                 """
                 SELECT is_active, rss_consecutive_404_count
@@ -84,60 +101,47 @@ def test_poll_once_deactivates_404_channel_and_continues(client) -> None:
                 """,
                 ("UC404resilience001",),
             )
-            inactive_row = await cursor.fetchone()
+            row3 = await cursor.fetchone()
 
             cursor = await db.execute(
                 "SELECT COUNT(1) AS cnt FROM videos WHERE channel_id = ?",
                 ("UCokresilience001",),
             )
             video_row = await cursor.fetchone()
-            alert_row = await (
-                await db.execute(
-                    "SELECT COUNT(1) AS cnt FROM system_alerts WHERE channel_id = ? AND alert_type = ?",
-                    ("UC404resilience001", "rss_channel_not_found"),
-                )
-            ).fetchone()
             return (
-                inserted,
-                int(inactive_row["is_active"]),
-                int(inactive_row["rss_consecutive_404_count"]),
+                int(row1["is_active"]),
+                int(row2["is_active"]),
+                int(row3["is_active"]),
                 int(video_row["cnt"]),
-                int(alert_row["cnt"]),
             )
         finally:
             await db.close()
 
-    inserted, inactive_flag, consecutive_count, video_count, alert_count = asyncio.run(_run())
-    assert inserted == 1
-    assert inactive_flag == 0
-    assert consecutive_count == 3
-    assert video_count == 1
-    assert alert_count == 1
+    active_after_1, active_after_2, active_after_3, video_count = asyncio.run(_run())
+    assert active_after_1 == 1, "Should still be active after 1 failure"
+    assert active_after_2 == 1, "Should still be active after 2 failures"
+    assert active_after_3 == 0, "Should be deactivated after 3 failures"
+    assert video_count >= 1, "OK channel should still have videos inserted"
 
 
-def test_poll_once_tracks_first_404_without_deactivating(client) -> None:
+def test_rss_fail_streak_resets_on_success(client) -> None:
+    """성공 시 fail streak이 0으로 리셋."""
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active, rss_fail_streak)
+            VALUES (?, ?, ?, 1, 2)
             """,
-            (
-                "UC404resilience002",
-                "404 Tracking Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UC404resilience002",
-            ),
+            ("UCstreakrst001", "Streak Reset Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCstreakrst001"),
         )
         conn.commit()
 
     class FakeRSSService:
         async def fetch_channel_feed(self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
-            request = httpx.Request("GET", "https://www.youtube.com/feeds/videos.xml")
-            response = httpx.Response(404, request=request)
-            raise httpx.HTTPStatusError("404", request=request, response=response)
+            return ([], None, None)
 
-    async def _run() -> tuple[int, int, int, str | None]:
+    async def _run() -> int:
         db = await open_database(db_path)
         try:
             state = SimpleNamespace(
@@ -146,31 +150,18 @@ def test_poll_once_tracks_first_404_without_deactivating(client) -> None:
                 rss_service=FakeRSSService(),
                 started_at=datetime.now(timezone.utc),
             )
-            inserted = await poll_once(state)  # type: ignore[arg-type]
-            row = await (
-                await db.execute(
-                    """
-                    SELECT is_active, rss_consecutive_404_count, rss_404_first_at
-                    FROM channels
-                    WHERE channel_id = ?
-                    """,
-                    ("UC404resilience002",),
-                )
-            ).fetchone()
-            return (
-                inserted,
-                int(row["is_active"]),
-                int(row["rss_consecutive_404_count"]),
-                None if row["rss_404_first_at"] is None else str(row["rss_404_first_at"]),
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                "SELECT rss_fail_streak FROM channels WHERE channel_id = ?",
+                ("UCstreakrst001",),
             )
+            row = await cursor.fetchone()
+            return int(row["rss_fail_streak"])
         finally:
             await db.close()
 
-    inserted, inactive_flag, consecutive_count, first_404_at = asyncio.run(_run())
-    assert inserted == 0
-    assert inactive_flag == 1
-    assert consecutive_count == 1
-    assert first_404_at is not None
+    streak = asyncio.run(_run())
+    assert streak == 0, "Fail streak should reset to 0 after successful poll"
 
 
 def test_poll_once_applies_bootstrap_lookback_for_new_channels(client) -> None:

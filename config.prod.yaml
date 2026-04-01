@@ -22,3 +22,5 @@ log_file_backup_count: 10
 log_noise_window_seconds: 60
 log_noise_suppress_threshold: 1
 log_dependency_level: "WARNING"
+rss_channel_deactivate_after_fails: 3
+rss_consecutive_error_abort_threshold: 5

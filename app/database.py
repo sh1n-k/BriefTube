@@ -530,6 +530,10 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE channels ADD COLUMN metadata_next_fetch_at TEXT")
     if not await _column_exists(db, "channels", "metadata_last_http_status"):
         await db.execute("ALTER TABLE channels ADD COLUMN metadata_last_http_status INTEGER")
+    if not await _column_exists(db, "channels", "rss_fail_streak"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_fail_streak INTEGER NOT NULL DEFAULT 0")
+    if not await _column_exists(db, "channels", "rss_last_polled_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_last_polled_at TEXT")
 
     await db.execute(
         """

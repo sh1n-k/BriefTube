@@ -40,3 +40,9 @@ clear_channel_rss_404_state = legacy.clear_channel_rss_404_state
 update_channel_watermark = legacy.update_channel_watermark
 
 delete_channels_with_related_data = legacy.delete_channels_with_related_data
+
+pick_next_rss_channel = legacy.pick_next_rss_channel
+mark_rss_poll_success = legacy.mark_rss_poll_success
+increment_rss_fail_streak = legacy.increment_rss_fail_streak
+touch_rss_last_polled_at = legacy.touch_rss_last_polled_at
+count_active_channels = legacy.count_active_channels

@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS channels (
     metadata_retry_count    INTEGER NOT NULL DEFAULT 0,
     metadata_next_fetch_at  TEXT,
     metadata_last_http_status INTEGER,
+    rss_fail_streak         INTEGER NOT NULL DEFAULT 0,
+    rss_last_polled_at      TEXT,
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
