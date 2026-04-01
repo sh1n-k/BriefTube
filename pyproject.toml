@@ -28,6 +28,9 @@ factory = false
 host = "0.0.0.0"
 port = 8000
 
+[project.scripts]
+brieftube = "app.cli:main"
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
