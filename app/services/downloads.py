@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+import subprocess
 import shutil
 import sys
 import tempfile
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -133,6 +138,54 @@ def _resolve_error_code(stderr_text: str, *, timed_out: bool = False) -> str:
     return "process_failed"
 
 
+async def _run_download_command(
+    cmd: list[str],
+    *,
+    timeout_seconds: int,
+) -> tuple[int, bytes, bytes]:
+    safe_timeout = max(10, int(timeout_seconds))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except NotImplementedError:
+        logger.warning(
+            "event=downloads.subprocess_asyncio_unavailable fallback=threaded_subprocess",
+            extra={"event": "downloads.subprocess_asyncio_unavailable"},
+        )
+        try:
+            completed = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=safe_timeout,
+            )
+        except FileNotFoundError:
+            raise
+        except subprocess.TimeoutExpired as exc:
+            stdout = bytes(exc.stdout or b"")
+            stderr = bytes(exc.stderr or b"")
+            return (-9, stdout, stderr)
+        return (int(completed.returncode), completed.stdout or b"", completed.stderr or b"")
+    except FileNotFoundError:
+        raise
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=safe_timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        return (-9, b"", b"")
+    return (int(proc.returncode or 0), stdout_bytes, stderr_bytes)
+
+
 async def download_video(
     *,
     video_id: str,
@@ -188,10 +241,9 @@ async def download_video(
     cmd.append(youtube_url)
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        returncode, stdout_bytes, stderr_bytes = await _run_download_command(
+            cmd,
+            timeout_seconds=timeout_seconds,
         )
     except FileNotFoundError:
         return DownloadRunResult(
@@ -200,26 +252,19 @@ async def download_video(
             error_message="yt-dlp module is not installed",
         )
 
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(),
-            timeout=max(10, int(timeout_seconds)),
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
+    stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+    stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+
+    if returncode == -9:
         return DownloadRunResult(
             ok=False,
             error_code="timeout",
             error_message="download process timed out",
         )
 
-    stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
-    stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
-
-    if proc.returncode != 0:
+    if returncode != 0:
         error_code = _resolve_error_code(stderr_text)
-        message = stderr_text or f"yt-dlp failed with code {proc.returncode}"
+        message = stderr_text or f"yt-dlp failed with code {returncode}"
         return DownloadRunResult(
             ok=False,
             error_code=error_code,

@@ -4,6 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 
 from fastapi.testclient import TestClient
 import pytest
@@ -268,6 +269,41 @@ def test_download_video_returns_specific_output_path_error_code(tmp_path: Path) 
 
     assert result.ok is False
     assert result.error_code == "download_path_not_found"
+
+
+def test_download_video_falls_back_when_asyncio_subprocess_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_file = tmp_path / "sample [vid-download-001].mp4"
+    output_file.write_bytes(b"ok")
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        raise NotImplementedError
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=str(output_file).encode("utf-8"),
+            stderr=b"",
+        )
+
+    monkeypatch.setattr("app.services.downloads.asyncio.create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr("app.services.downloads.subprocess.run", fake_run)
+
+    result = asyncio.run(
+        download_video(
+            video_id="vid-download-001",
+            quality="1080",
+            overwrite=False,
+            output_dir=str(tmp_path),
+            timeout_seconds=10,
+        )
+    )
+
+    assert result.ok is True
+    assert result.output_path == output_file.name
 
 
 def test_recover_stuck_download_jobs_marks_running_failed_and_logs_event(tmp_path: Path) -> None:
