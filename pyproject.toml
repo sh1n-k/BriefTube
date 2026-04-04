@@ -17,11 +17,14 @@ dependencies = [
   "python-multipart>=0.0.9",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest>=8.0.0",
   "pytest-playwright>=0.6.0",
 ]
+
+[tool.uv]
+default-groups = ["dev"]
 
 [tool.uvicorn]
 factory = false

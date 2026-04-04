@@ -47,6 +47,7 @@ dist/
 
 # Local worktrees / screenshots
 .worktrees/
+.tmp-*/
 screenshot-*.png
 image.png
 channels_page.png

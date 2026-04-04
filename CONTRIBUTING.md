@@ -36,11 +36,11 @@ git worktree add -b feature/<topic> .worktrees/feature-<topic>
 자주 쓰는 명령:
 
 ```bash
-python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
-python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_detail.py
-python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
-python -m pytest -q -m e2e tests/e2e
-python -m pytest -q
+uv run pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py
+uv run pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_detail.py
+uv run pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py
+uv run pytest -q -m e2e tests/e2e
+uv run pytest -q
 ```
 
 ## 리팩터링 PR 규칙
