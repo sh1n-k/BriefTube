@@ -5,14 +5,14 @@ YouTube 자막 → LLM 기사화 로컬 웹 앱. FastAPI + SQLite + HTMX, 단일
 ## Quick Reference
 
 ```bash
-./scripts/run-dev.sh                    # macOS/Linux, uvicorn --reload, config.dev.yaml
-pwsh ./scripts/run-dev.ps1              # Windows PowerShell, uvicorn --reload
-./scripts/run-prod.sh                   # macOS/Linux, config.prod.yaml
-pwsh ./scripts/run-prod.ps1             # Windows PowerShell, config.prod.yaml
-python -m pip install -e '.[dev]'
-python -m pytest -q                     # 테스트 (E2E 제외)
-python -m pytest -q -m e2e tests/e2e   # Playwright E2E
-python scripts/init_db.py              # DB 초기화 (최초 1회)
+uv sync
+./run-dev.sh                             # macOS/Linux, uvicorn --reload, config.dev.yaml
+pwsh ./run-dev.ps1                       # Windows PowerShell, uvicorn --reload
+./run-prod.sh                            # macOS/Linux, config.prod.yaml
+pwsh ./run-prod.ps1                      # Windows PowerShell, config.prod.yaml
+uv run pytest -q                        # 테스트 (E2E 제외)
+uv run pytest -q -m e2e tests/e2e      # Playwright E2E
+uv run python scripts/init_db.py        # DB 초기화 (최초 1회)
 ```
 
 ## Source Layout (`app/`)
@@ -153,7 +153,7 @@ python scripts/init_db.py              # DB 초기화 (최초 1회)
 ## Testing
 
 ```bash
-pytest -q
+uv run pytest -q
 ```
 
 - pytest + `FastAPI.TestClient` (동기 래퍼)

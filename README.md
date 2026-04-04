@@ -12,21 +12,17 @@ YouTube 채널의 신규 영상을 자동 수집하고, 자막을 LLM으로 기�
 macOS / Linux:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-python scripts/init_db.py
-./scripts/run-dev.sh
+uv sync
+uv run python scripts/init_db.py
+./run-dev.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-python .\scripts\init_db.py
-.\scripts\run-dev.ps1
+uv sync
+uv run python .\scripts\init_db.py
+.\run-dev.ps1
 ```
 
 - 앱: `http://127.0.0.1:8000`
@@ -48,25 +44,22 @@ python .\scripts\init_db.py
 ## 요구사항
 
 - Python 3.11+
+- `uv` 0.7+
 
 ## 시작하기
 
 macOS / Linux:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-python scripts/init_db.py
+uv sync --no-dev
+uv run python scripts/init_db.py
 ```
 
 Windows PowerShell:
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
-python .\scripts\init_db.py
+uv sync --no-dev
+uv run python .\scripts\init_db.py
 ```
 
 `config.dev.yaml`을 복사해 필요한 값을 채운 뒤 실행:
@@ -74,13 +67,13 @@ python .\scripts\init_db.py
 macOS / Linux:
 
 ```bash
-./scripts/run-dev.sh          # http://127.0.0.1:8000
+./run-dev.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-.\scripts\run-dev.ps1         # http://127.0.0.1:8000
+.\run-dev.ps1
 ```
 
 운영 모드:
@@ -88,19 +81,21 @@ Windows PowerShell:
 macOS / Linux:
 
 ```bash
-./scripts/run-prod.sh         # config.prod.yaml 사용
+./run-prod.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-.\scripts\run-prod.ps1        # config.prod.yaml 사용
+.\run-prod.ps1
 ```
+
+- 기본값을 바꾸고 싶으면 실행 전에 `APP_CONFIG_FILE`, `HOST`, `PORT` 환경변수를 지정하면 됩니다.
 
 추가 의존성:
 
 - 다운로드 기능은 `ffmpeg`가 `PATH`에 있어야 동작합니다.
-- Playwright E2E를 돌리려면 최초 1회 `python -m playwright install`이 필요할 수 있습니다.
+- Playwright E2E를 돌리려면 최초 1회 `uv run python -m playwright install`이 필요할 수 있습니다.
 
 ## 설정
 
@@ -139,24 +134,24 @@ Telegram 봇 토큰과 채팅 ID는 설정 페이지에서도 SQLite에 저장�
 기본:
 
 ```bash
-python -m pip install -e '.[dev]'
-python -m pytest -q
+uv sync
+uv run pytest -q
 ```
 
 Playwright E2E (명시 실행):
 
 ```bash
-python -m pytest -q -m e2e tests/e2e
+uv run pytest -q -m e2e tests/e2e
 ```
 
 변경 범위별 권장:
 
 | 변경 범위 | 권장 명령 |
 |---|---|
-| 템플릿/프런트 공통 | `python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py` |
-| 다운로드 도메인 | `python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py` |
-| 채널/카테고리/메타데이터 | `python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py` |
-| 수동 기사화/LLM 런타임 | `python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py` |
+| 템플릿/프런트 공통 | `uv run pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py` |
+| 다운로드 도메인 | `uv run pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py` |
+| 채널/카테고리/메타데이터 | `uv run pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py` |
+| 수동 기사화/LLM 런타임 | `uv run pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py` |
 
 ## 참고 문서
 
