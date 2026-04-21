@@ -52,6 +52,17 @@ def _is_channel_metadata_worker_enabled() -> bool:
     return True
 
 
+def _is_transcript_worker_enabled() -> bool:
+    disabled = str(os.getenv("BRIEFTUBE_DISABLE_TRANSCRIPT_WORKER", "")).strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        return False
+    in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
+    allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
+    if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
+        return False
+    return True
+
+
 def _build_templates() -> Jinja2Templates:
     template_dir = Path(__file__).resolve().parent / "templates"
     return Jinja2Templates(directory=str(template_dir))
@@ -184,17 +195,19 @@ async def lifespan(app: FastAPI):
     app.state.templates = _build_templates()
     if metadata_worker_enabled and scheduled_metadata_targets > 0:
         runtime.channel_metadata_wake_event.set()
+    transcript_worker_enabled = _is_transcript_worker_enabled()
 
     tasks = [
         asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
         asyncio.create_task(run_download_worker(runtime), name="download_worker"),
         asyncio.create_task(run_manual_article_worker(runtime), name="manual_article_worker"),
-        asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"),
         asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"),
         asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),
     ]
     if metadata_worker_enabled:
         tasks.insert(1, asyncio.create_task(run_channel_metadata_worker(runtime), name="channel_metadata_worker"))
+    if transcript_worker_enabled:
+        tasks.insert(3, asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"))
 
     try:
         yield

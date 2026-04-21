@@ -8,6 +8,22 @@ PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
 HOST_VALUE="${HOST:-127.0.0.1}"
 PORT_VALUE="${PORT:-8000}"
 SERVICE_TARGET="gui/$(id -u)/${LABEL}"
+DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
+
+if [[ "${DRY_RUN}" == "1" ]]; then
+  cat <<EOF
+LaunchAgent dry run:
+  action: restart
+  label: ${LABEL}
+  plist: ${PLIST_PATH}
+  service_target: ${SERVICE_TARGET}
+  host: ${HOST_VALUE}
+  port: ${PORT_VALUE}
+  would_enable: launchctl enable "${SERVICE_TARGET}"
+  would_kickstart: launchctl kickstart -k "${SERVICE_TARGET}"
+EOF
+  exit 0
+fi
 
 if [[ ! -f "${PLIST_PATH}" ]]; then
   cat <<EOF

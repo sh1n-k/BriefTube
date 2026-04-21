@@ -5,13 +5,13 @@ YouTube 자막 → LLM 기사화 로컬 웹 앱. FastAPI + SQLite + HTMX, 단일
 ## Quick Reference
 
 ```bash
-uv sync
-./run-dev.sh                             # macOS/Linux, uvicorn --reload, config.dev.yaml
-pwsh ./run-dev.ps1                       # Windows PowerShell, uvicorn --reload
-./run-prod.sh                            # macOS/Linux, config.prod.yaml
-pwsh ./run-prod.ps1                      # Windows PowerShell, config.prod.yaml
-uv run pytest -q                        # 테스트 (E2E 제외)
-uv run pytest -q -m e2e tests/e2e      # Playwright E2E
+uv sync --extra dev
+./run-dev.sh                            # macOS/Linux, uvicorn --reload, config.dev.yaml
+pwsh ./run-dev.ps1                      # Windows PowerShell, uvicorn --reload
+./run-prod.sh                           # macOS/Linux, config.prod.yaml
+pwsh ./run-prod.ps1                     # Windows PowerShell, config.prod.yaml
+uv run python -m pytest -q              # 테스트 (E2E 제외)
+uv run python -m pytest -q -m e2e tests/e2e   # Playwright E2E
 uv run python scripts/init_db.py        # DB 초기화 (최초 1회)
 ```
 
@@ -153,9 +153,11 @@ uv run python scripts/init_db.py        # DB 초기화 (최초 1회)
 ## Testing
 
 ```bash
-uv run pytest -q
+uv run python -m pytest -q
 ```
 
+- 기본 단위 테스트 fixture(`tests/conftest.py`)는 `TRANSCRIPT_WORKER_LEASE_ENABLED=0`을 설정한다. `TestClient` 환경에서 transcript worker lease의 별도 쓰기 잠금이 API/category/settings 쓰기와 충돌할 수 있기 때문이다.
+- pytest 환경에서는 transcript background worker를 기본으로 띄우지 않는다. worker가 필요한 테스트만 `BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS=1`로 명시적으로 다시 켠다.
 - pytest + `FastAPI.TestClient` (동기 래퍼)
 - `conftest.py`: `tmp_path` 임시 DB/썸네일, 환경변수 monkeypatch
 - E2E: Playwright (`tests/e2e/`, `-m e2e`로 명시 실행)

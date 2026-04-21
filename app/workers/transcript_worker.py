@@ -347,9 +347,14 @@ async def run_transcript_fetcher(state: AppState) -> None:
     lease_lost_event = asyncio.Event()
     lease_heartbeat_task: asyncio.Task[None] | None = None
 
-    worker_db = await open_database(state.config.db_path)
+    worker_db = None
+    worker_db_task: asyncio.Task | None = asyncio.create_task(
+        open_database(state.config.db_path),
+        name="transcript_worker_db_open",
+    )
 
     try:
+        worker_db = await asyncio.shield(worker_db_task)
         persisted = await transcripts_repo.get_transcript_guard_state(worker_db)
         guard = TranscriptGuardState.from_repository(persisted)
         guard.half_open_probe_remaining = max(1, guard.half_open_probe_remaining)
@@ -831,13 +836,27 @@ async def run_transcript_fetcher(state: AppState) -> None:
             lease_stop_event.set()
             lease_heartbeat_task.cancel()
             await asyncio.gather(lease_heartbeat_task, return_exceptions=True)
-        if lease_enabled and lease_held:
+        if worker_db is None and worker_db_task is not None:
+            if not worker_db_task.done():
+                try:
+                    worker_db = await asyncio.shield(worker_db_task)
+                except Exception:
+                    worker_db = None
+            elif not worker_db_task.cancelled():
+                try:
+                    worker_db = worker_db_task.result()
+                except Exception:
+                    worker_db = None
+        if lease_enabled and lease_held and worker_db is not None:
             try:
-                await transcripts_repo.release_transcript_worker_lease(worker_db, lease_owner_id)
+                await asyncio.shield(
+                    transcripts_repo.release_transcript_worker_lease(worker_db, lease_owner_id)
+                )
             except Exception:
                 logger.exception(
                     "event=transcript.lease_release_failed worker=transcript owner=%s",
                     lease_owner_id,
                     extra={"event": "transcript.lease_release_failed", "worker": "transcript"},
                 )
-        await worker_db.close()
+        if worker_db is not None:
+            await asyncio.shield(worker_db.close())

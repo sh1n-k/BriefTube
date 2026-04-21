@@ -12,7 +12,7 @@ YouTube 채널의 신규 영상을 자동 수집하고, 자막을 LLM으로 기�
 macOS / Linux:
 
 ```bash
-uv sync
+uv sync --extra dev
 uv run python scripts/init_db.py
 ./run-dev.sh
 ```
@@ -20,7 +20,7 @@ uv run python scripts/init_db.py
 Windows PowerShell:
 
 ```powershell
-uv sync
+uv sync --extra dev
 uv run python .\scripts\init_db.py
 .\run-dev.ps1
 ```
@@ -51,14 +51,14 @@ uv run python .\scripts\init_db.py
 macOS / Linux:
 
 ```bash
-uv sync --no-dev
+uv sync
 uv run python scripts/init_db.py
 ```
 
 Windows PowerShell:
 
 ```powershell
-uv sync --no-dev
+uv sync
 uv run python .\scripts\init_db.py
 ```
 
@@ -76,6 +76,8 @@ Windows PowerShell:
 .\run-dev.ps1
 ```
 
+- PowerShell 실행 스크립트는 `uv`를 우선 사용하고, 없으면 `.venv\Scripts\python.exe` → `python` → `py` 순으로 fallback 합니다.
+
 운영 모드:
 
 macOS / Linux:
@@ -91,6 +93,25 @@ Windows PowerShell:
 ```
 
 - 기본값을 바꾸고 싶으면 실행 전에 `APP_CONFIG_FILE`, `HOST`, `PORT` 환경변수를 지정하면 됩니다.
+
+macOS에서 `dev` 설정으로 로컬 상주 실행:
+
+```bash
+./scripts/install-launchd-dev.sh
+```
+
+- `config.dev.yaml`을 사용해 `launchd` 사용자 서비스로 등록합니다.
+- 기본 서비스 라벨은 `BriefTube.dev`입니다.
+- 장기 실행 안정성을 위해 `--reload` 없이 실행합니다. 코드 자동 재시작이 필요하면 기존 `./run-dev.sh`를 사용하세요.
+- 실제 시스템 변경 없이 검토만 하려면 `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-dev.sh` 를 사용합니다.
+- 제거는 아래 스크립트를 사용합니다.
+
+```bash
+./scripts/uninstall-launchd-dev.sh
+```
+
+- 재시작 흐름 검토: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/restart-launchd-dev.sh`
+- 제거 흐름 검토: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/uninstall-launchd-dev.sh`
 
 추가 의존성:
 
@@ -134,24 +155,28 @@ Telegram 봇 토큰과 채팅 ID는 설정 페이지에서도 SQLite에 저장�
 기본:
 
 ```bash
-uv sync
-uv run pytest -q
+uv sync --extra dev
+uv run python -m pytest -q
 ```
+
+- 기본 단위 테스트는 `tests/conftest.py`에서 `TRANSCRIPT_WORKER_LEASE_ENABLED=0`으로 실행합니다. `TestClient` 단일 프로세스 환경에서 transcript lease 전용 DB 연결이 별도 쓰기 잠금을 잡아 `database is locked`를 만들 수 있기 때문입니다.
+- 기본 단위 테스트는 pytest 환경에서 transcript background worker도 띄우지 않습니다. 필요하면 `BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS=1`로 명시적으로 다시 켤 수 있습니다.
+- lease 영향 비교가 필요하면 `TRANSCRIPT_WORKER_LEASE_ENABLED=0 uv run python -m pytest -q ...` 또는 `TRANSCRIPT_WORKER_LEASE_ENABLED=1 uv run python -m pytest -q ...`처럼 명시해 실행합니다.
 
 Playwright E2E (명시 실행):
 
 ```bash
-uv run pytest -q -m e2e tests/e2e
+uv run python -m pytest -q -m e2e tests/e2e
 ```
 
 변경 범위별 권장:
 
 | 변경 범위 | 권장 명령 |
 |---|---|
-| 템플릿/프런트 공통 | `uv run pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py` |
-| 다운로드 도메인 | `uv run pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py` |
-| 채널/카테고리/메타데이터 | `uv run pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py` |
-| 수동 기사화/LLM 런타임 | `uv run pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py` |
+| 템플릿/프런트 공통 | `uv run python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py` |
+| 다운로드 도메인 | `uv run python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py` |
+| 채널/카테고리/메타데이터 | `uv run python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py` |
+| 수동 기사화/LLM 런타임 | `uv run python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py` |
 
 ## 참고 문서
 
