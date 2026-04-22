@@ -55,4 +55,6 @@ channels_page.png
 # Local tool outputs
 .playwright-cli/
 downloads/
-output/llm_raw/
+output/
+playwright-report/
+test-results/
