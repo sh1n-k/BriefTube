@@ -71,7 +71,7 @@ dependencies = [
     { name = "yt-dlp" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "pytest" },
     { name = "pytest-playwright" },
@@ -85,14 +85,17 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "markdown-it-py", specifier = ">=3.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-playwright", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "uvicorn", specifier = ">=0.35.0" },
     { name = "youtube-transcript-api", specifier = ">=1.2.0" },
     { name = "yt-dlp", specifier = ">=2026.2.21" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "pytest-playwright", specifier = ">=0.6.0" },
+]
 
 [[package]]
 name = "certifi"
