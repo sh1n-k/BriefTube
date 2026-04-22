@@ -2,13 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.dev}"
-LEGACY_LABELS=("local.brieftube.dev")
+LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.prod}"
+LEGACY_LABELS=("com.brieftube.server" "local.brieftube.prod")
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
 LOG_DIR="${ROOT_DIR}/logs/launchd"
-STDOUT_PATH="${LOG_DIR}/brieftube-dev.stdout.log"
-STDERR_PATH="${LOG_DIR}/brieftube-dev.stderr.log"
+STDOUT_PATH="${LOG_DIR}/brieftube-prod.stdout.log"
+STDERR_PATH="${LOG_DIR}/brieftube-prod.stderr.log"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then

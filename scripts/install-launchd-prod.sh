@@ -2,18 +2,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.dev}"
-LEGACY_LABELS=("local.brieftube.dev")
+LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.prod}"
+LEGACY_LABELS=("com.brieftube.server" "local.brieftube.prod")
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
 LOG_DIR="${ROOT_DIR}/logs/launchd"
-STDOUT_PATH="${LOG_DIR}/brieftube-dev.stdout.log"
-STDERR_PATH="${LOG_DIR}/brieftube-dev.stderr.log"
-APP_CONFIG_FILE_PATH="${APP_CONFIG_FILE:-${ROOT_DIR}/config.dev.yaml}"
-HOST_VALUE="${HOST:-127.0.0.1}"
-PORT_VALUE="${PORT:-8000}"
+STDOUT_PATH="${LOG_DIR}/brieftube-prod.stdout.log"
+STDERR_PATH="${LOG_DIR}/brieftube-prod.stderr.log"
+APP_CONFIG_FILE_PATH="${APP_CONFIG_FILE:-${ROOT_DIR}/config.prod.yaml}"
+HOST_VALUE="${HOST:-0.0.0.0}"
+PORT_VALUE="${PORT:-48000}"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
-LAUNCHER_PATH="${ROOT_DIR}/scripts/brieftube-dev-daemon.sh"
+LAUNCHER_PATH="${ROOT_DIR}/scripts/brieftube-prod-daemon.sh"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -107,7 +107,6 @@ Installed LaunchAgent:
 Status:
   launchctl print gui/$(id -u)/${LABEL}
 Logs:
-  tail -f ${ROOT_DIR}/logs/dev/brieftube-dev.log
   tail -f ${STDOUT_PATH}
   tail -f ${STDERR_PATH}
 EOF

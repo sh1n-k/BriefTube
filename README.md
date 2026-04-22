@@ -94,24 +94,26 @@ Windows PowerShell:
 
 - 기본값을 바꾸고 싶으면 실행 전에 `APP_CONFIG_FILE`, `HOST`, `PORT` 환경변수를 지정하면 됩니다.
 
-macOS에서 `dev` 설정으로 로컬 상주 실행:
+macOS에서 `prod` 설정으로 로컬 상주 실행:
 
 ```bash
-./scripts/install-launchd-dev.sh
+./scripts/install-launchd-prod.sh
 ```
 
-- `config.dev.yaml`을 사용해 `launchd` 사용자 서비스로 등록합니다.
-- 기본 서비스 라벨은 `BriefTube.dev`입니다.
-- 장기 실행 안정성을 위해 `--reload` 없이 실행합니다. 코드 자동 재시작이 필요하면 기존 `./run-dev.sh`를 사용하세요.
-- 실제 시스템 변경 없이 검토만 하려면 `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-dev.sh` 를 사용합니다.
+- `config.prod.yaml`을 사용해 `launchd` 사용자 서비스로 등록합니다.
+- 기본 서비스 라벨은 `BriefTube.prod`, 기본 포트는 `48000`입니다.
+- 장기 실행 안정성을 위해 `--reload` 없이 실행합니다. 개발 중 코드 자동 재시작이 필요하면 `./run-dev.sh`를 그대로 사용하세요 (launchd 미등록).
+- 구(舊) 라벨 `com.brieftube.server`가 설치돼 있으면 install/uninstall 실행 시 자동으로 정리됩니다.
+- 실제 시스템 변경 없이 검토만 하려면 `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-prod.sh` 를 사용합니다.
 - 제거는 아래 스크립트를 사용합니다.
 
 ```bash
-./scripts/uninstall-launchd-dev.sh
+./scripts/uninstall-launchd-prod.sh
 ```
 
-- 재시작 흐름 검토: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/restart-launchd-dev.sh`
-- 제거 흐름 검토: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/uninstall-launchd-dev.sh`
+- 재시작: `./scripts/restart-launchd-prod.sh`
+- 재시작 흐름 검토: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/restart-launchd-prod.sh`
+- 제거 흐름 검토: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/uninstall-launchd-prod.sh`
 
 추가 의존성:
 

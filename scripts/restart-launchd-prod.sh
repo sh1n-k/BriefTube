@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.dev}"
+LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.prod}"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
-HOST_VALUE="${HOST:-127.0.0.1}"
-PORT_VALUE="${PORT:-8000}"
+HOST_VALUE="${HOST:-0.0.0.0}"
+PORT_VALUE="${PORT:-48000}"
 SERVICE_TARGET="gui/$(id -u)/${LABEL}"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
 
@@ -31,7 +31,7 @@ LaunchAgent plist not found:
   ${PLIST_PATH}
 
 Install it first:
-  ${ROOT_DIR}/scripts/install-launchd-dev.sh
+  ${ROOT_DIR}/scripts/install-launchd-prod.sh
 EOF
   exit 1
 fi
