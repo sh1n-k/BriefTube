@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 from starlette.datastructures import UploadFile
@@ -15,6 +16,7 @@ from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import llm as llm_repo
 from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
@@ -52,6 +54,11 @@ router = APIRouter(prefix="/api", tags=["api"])
 router.include_router(api_downloads.router)
 logger = logging.getLogger(__name__)
 ARTICLE_REQUEST_BULK_LIMIT = 10
+
+
+def _manual_transcript_requests_disabled() -> bool:
+    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_REQUESTS", "")).strip().lower()
+    return disabled in {"1", "true", "yes", "on"}
 
 
 def _parse_bool_input(value: object, default: bool) -> bool:
@@ -652,6 +659,34 @@ async def retry_video(video_id: str, request: Request):
     if affected == 0:
         raise HTTPException(status_code=404, detail="Retry target not found")
     return {"ok": True, "video_id": video_id}
+
+
+@router.post("/videos/{video_id}/transcript-request")
+async def request_video_transcript(video_id: str, request: Request):
+    if _manual_transcript_requests_disabled():
+        raise HTTPException(status_code=403, detail="manual transcript requests are disabled")
+
+    result = await manual_transcripts_repo.enqueue_manual_transcript_job(
+        request.app.state.runtime.db,
+        video_id=video_id,
+    )
+    status = str(result.get("status") or "").strip().lower()
+    reason = str(result.get("reason") or "").strip()
+    if reason == "not_found":
+        raise HTTPException(status_code=404, detail="Video not found")
+    if status == "failed":
+        raise HTTPException(status_code=409, detail=reason or "manual transcript request rejected")
+
+    if status == "queued":
+        request.app.state.runtime.manual_transcript_wake_event.set()
+
+    return {
+        "ok": status in {"queued", "skipped"},
+        "video_id": video_id,
+        "status": status,
+        "job_id": result.get("job_id"),
+        "reason": reason,
+    }
 
 
 @router.post("/videos/article-request")

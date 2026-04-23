@@ -54,6 +54,10 @@ def _build_video_detail_dynamic_refresh_key(detail: dict[str, object] | None) ->
         "llm_model": str(detail.get("llm_model") or ""),
         "llm_reasoning_effort": str(detail.get("llm_reasoning_effort") or ""),
         "llm_generated_at": str(detail.get("llm_generated_at") or ""),
+        "manual_transcript_job_id": str(detail.get("manual_transcript_job_id") or ""),
+        "manual_transcript_status": str(detail.get("manual_transcript_status") or ""),
+        "manual_transcript_error": str(detail.get("manual_transcript_error") or ""),
+        "manual_transcript_retry_count": int(detail.get("manual_transcript_retry_count") or 0),
     }
     return hashlib.sha1(
         json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
@@ -64,7 +68,8 @@ def _should_auto_refresh_video_detail(detail: dict[str, object] | None) -> bool:
     if not detail:
         return False
     pipeline_status = str(detail.get("pipeline_status") or "").strip()
-    return pipeline_status in {
+    manual_transcript_status = str(detail.get("manual_transcript_status") or "").strip()
+    return manual_transcript_status in {"pending", "running"} or pipeline_status in {
         "transcript_pending",
         "transcript_processing",
         "llm_pending",

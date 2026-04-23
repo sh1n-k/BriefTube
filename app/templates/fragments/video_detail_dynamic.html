@@ -10,11 +10,24 @@
   {% endif %}
 >
   {% if video %}
+  {% set manual_transcript_status = (video.manual_transcript_status or '')|lower %}
+  {% set manual_transcript_active = manual_transcript_status in ['pending', 'running'] %}
+  {% set manual_transcript_failed = manual_transcript_status == 'failed' %}
+  {% set can_request_manual_transcript = (not video.raw_text) and (video.pipeline_status in ['auto_paused', 'transcript_failed', 'no_subtitle']) and (not manual_transcript_active) %}
   <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-detail-status-card>
     <div class="flex flex-wrap items-center gap-3">
       <span class="text-xs text-slate-500">{{ txt.detail_label_status }}</span>
       {% set status = video.pipeline_status %}
       {% include "fragments/status_badge.html" %}
+      {% if manual_transcript_active %}
+      <span class="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-700" data-manual-transcript-status="{{ manual_transcript_status }}">
+        {{ txt.detail_manual_transcript_running if manual_transcript_status == 'running' else txt.detail_manual_transcript_pending }}
+      </span>
+      {% elif manual_transcript_failed %}
+      <span class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-700" data-manual-transcript-status="failed">
+        {{ txt.detail_manual_transcript_failed }}
+      </span>
+      {% endif %}
       {% if video.pipeline_status in ['transcript_failed', 'no_subtitle'] %}
       <form method="post" action="/videos/{{ video.video_id }}/transcript/retry" class="ml-2">
         <button
@@ -25,7 +38,23 @@
         </button>
       </form>
       {% endif %}
+      {% if can_request_manual_transcript %}
+      <button
+        type="button"
+        data-video-transcript-request-button
+        data-busy-label="{{ txt.detail_manual_transcript_button_busy }}"
+        data-skip-save-toast="1"
+        hx-post="/views/videos/{{ video.video_id }}/transcript-request"
+        hx-swap="none"
+        class="rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100"
+      >
+        {{ txt.detail_manual_transcript_button }}
+      </button>
+      {% endif %}
     </div>
+    {% if manual_transcript_failed and video.manual_transcript_error %}
+    <p class="mt-2 text-xs text-rose-600" data-manual-transcript-error>{{ video.manual_transcript_error }}</p>
+    {% endif %}
   </section>
 
   <section class="rounded-lg border border-slate-200 bg-white shadow-sm" data-collapsible data-detail-article-card>
@@ -179,6 +208,18 @@
         {% endif %}
       </h2>
       <div class="flex items-center gap-2">
+        {% if can_request_manual_transcript %}
+        <button type="button"
+                data-video-transcript-request-button
+                data-busy-label="{{ txt.detail_manual_transcript_button_busy }}"
+                data-skip-save-toast="1"
+                hx-post="/views/videos/{{ video.video_id }}/transcript-request"
+                hx-swap="none"
+                class="rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                onclick="event.stopPropagation()">
+          {{ txt.detail_manual_transcript_button }}
+        </button>
+        {% endif %}
         {% if video.raw_text %}
         <button type="button"
                 data-copy-target="transcript-copy-source"
@@ -198,8 +239,15 @@
     <div class="p-5" data-collapsible-body>
       {% if video.raw_text %}
       <pre id="transcript-copy-source" class="max-h-96 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700">{{ video.raw_text }}</pre>
+      {% elif manual_transcript_active %}
+      <p class="text-sm text-violet-600" data-manual-transcript-message>
+        {{ txt.detail_manual_transcript_running if manual_transcript_status == 'running' else txt.detail_manual_transcript_pending }}
+      </p>
       {% else %}
       <p class="text-sm text-slate-400 italic">{{ txt.detail_transcript_not_available }}</p>
+      {% if manual_transcript_failed and video.manual_transcript_error %}
+      <p class="mt-2 text-xs text-rose-600" data-manual-transcript-error>{{ video.manual_transcript_error }}</p>
+      {% endif %}
       {% endif %}
     </div>
   </section>

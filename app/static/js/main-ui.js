@@ -868,6 +868,22 @@
         });
       }
 
+      function bindVideoTranscriptRequestToasts() {
+        const root = document.body;
+        if (!root || root.dataset.videoTranscriptRequestToastBound === "1") return;
+        root.dataset.videoTranscriptRequestToastBound = "1";
+        root.addEventListener("video-transcript-request-toast", (event) => {
+          const detail = event.detail;
+          const message = typeof detail === "string" ? detail : detail?.message;
+          const tone = detail && typeof detail === "object" && detail.tone === "error"
+            ? "error"
+            : detail && typeof detail === "object" && detail.tone === "info"
+              ? "info"
+              : "success";
+          showUiToast(message, tone);
+        });
+      }
+
       function bindLlmRuntimeToasts() {
         const root = document.body;
         if (!root || root.dataset.llmRuntimeToastBound === "1") return;
@@ -1944,6 +1960,7 @@
         bindYouTubeEmbeds(scope);
         bindVideoDownloadButtons(scope);
         bindVideoArticleRequestButtons(scope);
+        bindVideoTranscriptRequestButtons(scope);
         bindArticlePreviewModals(scope);
         bindDownloadDetailButtons(scope);
         bindDownloadRetryButtons(scope);
@@ -2054,6 +2071,24 @@
               if (!(currentFragment instanceof HTMLElement) || !(nextFragment instanceof HTMLElement)) return true;
               return currentFragment.dataset.videoDetailRefreshKey !== nextFragment.dataset.videoDetailRefreshKey;
             },
+          });
+        } finally {
+          videoDetailRefreshInFlight = false;
+        }
+      }
+
+      async function refreshVideoDetailFragmentNow() {
+        if (videoDetailRefreshInFlight || !isDocumentVisible()) return;
+        const fragment = document.querySelector("[data-video-detail-dynamic-fragment]");
+        if (!(fragment instanceof HTMLElement)) return;
+        const refreshUrl = fragment.dataset.videoDetailRefreshUrl || "";
+        if (!refreshUrl) return;
+        videoDetailRefreshInFlight = true;
+        try {
+          await fetchAndSwapFragment({
+            url: refreshUrl,
+            targetSelector: "#video-detail-dynamic-wrap",
+            swap: "outerHTML",
           });
         } finally {
           videoDetailRefreshInFlight = false;
@@ -2428,6 +2463,9 @@
           const source = event.detail?.requestConfig?.elt;
           if (source !== button) return;
           setBusy(false);
+          if (event.type === "htmx:afterRequest") {
+            void refreshVideoDetailFragmentNow();
+          }
         };
         owner.addEventListener("htmx:afterRequest", settle);
         owner.addEventListener("htmx:responseError", settle);
@@ -2438,6 +2476,51 @@
       function bindVideoArticleRequestButtons(scope) {
         const root = scope instanceof Element ? scope : document;
         root.querySelectorAll("[data-video-article-request-button]").forEach(initVideoArticleRequestButton);
+      }
+
+      function initVideoTranscriptRequestButton(button) {
+        if (button.dataset.videoTranscriptRequestBound === "1") return;
+        button.dataset.videoTranscriptRequestBound = "1";
+
+        const defaultLabel = button.textContent || "";
+        const busyLabel = button.dataset.busyLabel || defaultLabel;
+        const owner = button.closest("#video-detail-fragment") || document.body;
+
+        function setBusy(isBusy) {
+          if (isBusy) {
+            button.dataset.videoTranscriptRequestInFlight = "1";
+          } else {
+            delete button.dataset.videoTranscriptRequestInFlight;
+          }
+          button.disabled = isBusy;
+          button.textContent = isBusy ? busyLabel : defaultLabel;
+        }
+
+        button.addEventListener("click", (event) => {
+          if (button.dataset.videoTranscriptRequestInFlight === "1") {
+            event.preventDefault();
+            return;
+          }
+          setBusy(true);
+        });
+
+        const settle = (event) => {
+          const source = event.detail?.requestConfig?.elt;
+          if (source !== button) return;
+          setBusy(false);
+          if (event.type === "htmx:afterRequest") {
+            void refreshVideoDetailFragmentNow();
+          }
+        };
+        owner.addEventListener("htmx:afterRequest", settle);
+        owner.addEventListener("htmx:responseError", settle);
+        owner.addEventListener("htmx:sendError", settle);
+        owner.addEventListener("htmx:timeout", settle);
+      }
+
+      function bindVideoTranscriptRequestButtons(scope) {
+        const root = scope instanceof Element ? scope : document;
+        root.querySelectorAll("[data-video-transcript-request-button]").forEach(initVideoTranscriptRequestButton);
       }
 
       function closeArticlePreviewModal(modal) {
@@ -3082,6 +3165,7 @@
         bindChannelMetadataToasts();
         bindVideoDownloadBulkToasts();
         bindVideoArticleRequestToasts();
+        bindVideoTranscriptRequestToasts();
         bindLlmRuntimeToasts();
         startDownloadProgressPolling();
         bindQueueRetryButtons(document);

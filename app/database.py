@@ -40,6 +40,7 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await _ensure_article_columns(db)
     await _ensure_video_indexes(db)
     await _ensure_download_columns(db)
+    await _ensure_manual_transcript_jobs_table(db)
     await _ensure_category_tables(db)
     await _ensure_channel_metadata_columns(db)
     await db.commit()
@@ -474,6 +475,46 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
 async def _ensure_download_columns(db: aiosqlite.Connection) -> None:
     if not await _column_exists(db, "download_jobs", "target_dir"):
         await db.execute("ALTER TABLE download_jobs ADD COLUMN target_dir TEXT")
+
+
+async def _ensure_manual_transcript_jobs_table(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS manual_transcript_jobs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id        TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            retry_count     INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT,
+            error_message   TEXT,
+            language        TEXT,
+            source_type     TEXT,
+            requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at      TEXT,
+            finished_at     TEXT,
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    await db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_manual_transcript_jobs_status_requested
+        ON manual_transcript_jobs(status, next_attempt_at, requested_at ASC, id ASC)
+        """
+    )
+    await db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_manual_transcript_jobs_video_requested
+        ON manual_transcript_jobs(video_id, requested_at DESC, id DESC)
+        """
+    )
+    await db.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_transcript_jobs_active_video
+        ON manual_transcript_jobs(video_id)
+        WHERE status IN ('pending', 'running')
+        """
+    )
 
 
 async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:

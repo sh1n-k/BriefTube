@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 import logging
+import os
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
@@ -16,6 +17,7 @@ from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers import views_downloads
@@ -181,6 +183,37 @@ def _video_article_request_toast_header(message: str, tone: str) -> dict[str, st
         }
     }
     return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+
+
+def _video_transcript_request_toast_header(message: str, tone: str) -> dict[str, str]:
+    payload = {
+        "video-transcript-request-toast": {
+            "message": message,
+            "tone": tone,
+        }
+    }
+    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+
+
+def _manual_transcript_requests_disabled() -> bool:
+    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_REQUESTS", "")).strip().lower()
+    return disabled in {"1", "true", "yes", "on"}
+
+
+def _manual_transcript_toast_from_result(txt: dict[str, str], result: dict[str, object]) -> tuple[str, str]:
+    status = str(result.get("status") or "").strip().lower()
+    reason = str(result.get("reason") or "").strip().lower()
+    if status == "queued":
+        return txt["video_transcript_request_queued"], "success"
+    if reason == "active_job_exists":
+        return txt["video_transcript_request_duplicate"], "info"
+    if reason == "has_transcript":
+        return txt["video_transcript_request_has_transcript"], "info"
+    if reason == "not_found":
+        return txt["video_transcript_request_not_found"], "error"
+    if reason.startswith("pipeline_status:"):
+        return txt["video_transcript_request_invalid_status"], "error"
+    return txt["video_transcript_request_failed"], "error"
 
 
 def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
@@ -1221,6 +1254,33 @@ async def article_request_selected_videos(request: Request):
         limit=limit_val,
     )
     response.headers.update(_video_article_request_toast_header(toast_message, toast_tone))
+    return response
+
+
+@router.post("/videos/{video_id}/transcript-request")
+async def transcript_request_single_video(video_id: str, request: Request):
+    txt = await _texts(request)
+    if _manual_transcript_requests_disabled():
+        response = await video_detail(video_id=video_id, request=request)
+        response.status_code = 403
+        response.headers.update(
+            _video_transcript_request_toast_header(
+                txt["video_transcript_request_forbidden"],
+                "error",
+            )
+        )
+        return response
+
+    result = await manual_transcripts_repo.enqueue_manual_transcript_job(
+        request.app.state.runtime.db,
+        video_id=video_id,
+    )
+    if str(result.get("status") or "") == "queued":
+        request.app.state.runtime.manual_transcript_wake_event.set()
+
+    toast_message, toast_tone = _manual_transcript_toast_from_result(txt, result)
+    response = await video_detail(video_id=video_id, request=request)
+    response.headers.update(_video_transcript_request_toast_header(toast_message, toast_tone))
     return response
 
 

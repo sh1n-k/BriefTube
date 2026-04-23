@@ -20,6 +20,7 @@ from app.logging_setup import configure_logging
 from app.repositories import channels as channels_repo
 from app.repositories import llm as llm_repo
 from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers import api, pages, views
@@ -36,6 +37,7 @@ from app.workers.poller import run_rss_poller
 from app.workers.channel_metadata_worker import run_channel_metadata_worker
 from app.workers.download_worker import run_download_worker
 from app.workers.manual_article_worker import run_manual_article_worker
+from app.workers.manual_transcript_worker import run_manual_transcript_worker
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,17 @@ def _is_transcript_worker_enabled() -> bool:
         return False
     in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
     allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
+    if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
+        return False
+    return True
+
+
+def _is_manual_transcript_worker_enabled() -> bool:
+    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_WORKER", "")).strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        return False
+    in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
+    allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_MANUAL_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
     if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
         return False
     return True
@@ -118,6 +131,7 @@ async def lifespan(app: FastAPI):
     orphan_repaired = await llm_repo.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
     recovered_manual_article_jobs = await manual_articles_repo.recover_stuck_manual_article_jobs(db)
+    recovered_manual_transcript_jobs = await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
     metadata_worker_enabled = _is_channel_metadata_worker_enabled()
     recovered_metadata_running = 0
     scheduled_metadata_targets = 0
@@ -125,11 +139,12 @@ async def lifespan(app: FastAPI):
         recovered_metadata_running = await channels_repo.recover_stuck_channel_metadata_running(db)
         scheduled_metadata_targets = await channels_repo.schedule_channel_metadata_backfill(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
+        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s recovered_manual_transcript_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
         recovered,
         orphan_repaired,
         recovered_download_jobs,
         recovered_manual_article_jobs,
+        recovered_manual_transcript_jobs,
         recovered_metadata_running,
         scheduled_metadata_targets,
         metadata_worker_enabled,
@@ -196,6 +211,7 @@ async def lifespan(app: FastAPI):
     if metadata_worker_enabled and scheduled_metadata_targets > 0:
         runtime.channel_metadata_wake_event.set()
     transcript_worker_enabled = _is_transcript_worker_enabled()
+    manual_transcript_worker_enabled = _is_manual_transcript_worker_enabled()
 
     tasks = [
         asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
@@ -208,6 +224,8 @@ async def lifespan(app: FastAPI):
         tasks.insert(1, asyncio.create_task(run_channel_metadata_worker(runtime), name="channel_metadata_worker"))
     if transcript_worker_enabled:
         tasks.insert(3, asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"))
+    if manual_transcript_worker_enabled:
+        tasks.insert(3, asyncio.create_task(run_manual_transcript_worker(runtime), name="manual_transcript_worker"))
 
     try:
         yield

@@ -197,3 +197,26 @@ CREATE INDEX IF NOT EXISTS idx_manual_article_jobs_video_requested
 CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_article_jobs_active_video
     ON manual_article_jobs(video_id)
     WHERE status IN ('pending', 'running');
+
+CREATE TABLE IF NOT EXISTS manual_transcript_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id        TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    retry_count     INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
+    error_message   TEXT,
+    language        TEXT,
+    source_type     TEXT,
+    requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at      TEXT,
+    finished_at     TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_manual_transcript_jobs_status_requested
+    ON manual_transcript_jobs(status, next_attempt_at, requested_at ASC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_manual_transcript_jobs_video_requested
+    ON manual_transcript_jobs(video_id, requested_at DESC, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_transcript_jobs_active_video
+    ON manual_transcript_jobs(video_id)
+    WHERE status IN ('pending', 'running');

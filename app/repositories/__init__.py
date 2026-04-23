@@ -11,6 +11,7 @@ __all__ = [
     "downloads",
     "llm",
     "manual_articles",
+    "manual_transcripts",
     "settings",
     "transcripts",
     "videos",
