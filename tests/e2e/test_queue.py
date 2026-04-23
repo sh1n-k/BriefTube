@@ -265,7 +265,12 @@ def test_queue_polling(queue_page: Page):
                 responses.append({})
 
     queue_page.on("response", on_response)
-    queue_page.wait_for_timeout(4_500)
+    for _ in range(2):
+        with queue_page.expect_response(
+            lambda resp: "/api/queue/poll" in resp.url and resp.status == 200,
+            timeout=5_000,
+        ):
+            pass
     queue_page.remove_listener("response", on_response)
     assert len(responses) >= 2
     payload = responses[-1]

@@ -20,6 +20,7 @@ from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
+from app.routers.helpers import htmx_trigger_header, parse_bool_input
 from app.routers.template_context import build_template_context
 from app.routers import api_downloads
 from app.services.downloads import is_ffmpeg_available
@@ -61,19 +62,6 @@ def _manual_transcript_requests_disabled() -> bool:
     return disabled in {"1", "true", "yes", "on"}
 
 
-def _parse_bool_input(value: object, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    normalized = str(value).strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
 def _build_transcript_header_payload(overrides: dict[str, str]) -> dict[str, object]:
     compact = compact_header_overrides(overrides, strict=False)
     values = merge_with_default_headers(compact)
@@ -89,13 +77,7 @@ def _build_transcript_header_payload(overrides: dict[str, str]) -> dict[str, obj
 
 
 def _build_llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "llm-runtime-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
 async def _build_telegram_settings_payload_for_request(request: Request) -> dict[str, object]:
@@ -1014,17 +996,17 @@ async def set_telegram_settings(request: Request):
         if "chat_id" in payload:
             chat_id = str(payload.get("chat_id", ""))
         if "clear_bot_token" in payload:
-            clear_bot_token = _parse_bool_input(payload.get("clear_bot_token"), default=False)
+            clear_bot_token = parse_bool_input(payload.get("clear_bot_token"), default=False)
         if "clear_chat_id" in payload:
-            clear_chat_id = _parse_bool_input(payload.get("clear_chat_id"), default=False)
+            clear_chat_id = parse_bool_input(payload.get("clear_chat_id"), default=False)
     else:
         form = await request.form()
         if "telegram_bot_token" in form:
             bot_token = str(form.get("telegram_bot_token", ""))
         if "telegram_chat_id" in form:
             chat_id = str(form.get("telegram_chat_id", ""))
-        clear_bot_token = _parse_bool_input(form.get("telegram_clear_bot_token"), default=False)
-        clear_chat_id = _parse_bool_input(form.get("telegram_clear_chat_id"), default=False)
+        clear_bot_token = parse_bool_input(form.get("telegram_clear_bot_token"), default=False)
+        clear_chat_id = parse_bool_input(form.get("telegram_clear_chat_id"), default=False)
 
     if (
         bot_token is None
@@ -1205,7 +1187,7 @@ async def set_workers(request: Request):
         for worker in defaults:
             if worker not in workers_payload:
                 continue
-            values[worker] = _parse_bool_input(
+            values[worker] = parse_bool_input(
                 workers_payload.get(worker),
                 default=values.get(worker, defaults[worker]),
             )
@@ -1213,7 +1195,7 @@ async def set_workers(request: Request):
         form = await request.form()
         for worker in defaults:
             # HTML checkbox: checked => "on", unchecked => missing.
-            values[worker] = _parse_bool_input(
+            values[worker] = parse_bool_input(
                 form.get(worker),
                 default=False,
             )

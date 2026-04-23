@@ -5,27 +5,14 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.download_error_registry import build_download_error_payload
 from app.domains.downloads import enqueue_video_download, retry_download_job as retry_download_job_request
 from app.repositories import downloads as downloads_repo
 from app.repositories import videos as videos_repo
-from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
+from app.routers.helpers import parse_bool_input
+from app.services.downloads import validate_download_output_dir
 
 router = APIRouter(tags=["api"])
 logger = logging.getLogger("app.routers.api")
-
-
-def _parse_bool_input(value: object, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    normalized = str(value).strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return default
 
 
 @router.post("/videos/{video_id}/downloads")
@@ -46,13 +33,13 @@ async def request_video_download(video_id: str, request: Request):
         if "quality" in payload:
             quality = downloads_repo.normalize_download_quality(str(payload.get("quality")))
         if "overwrite" in payload:
-            overwrite = _parse_bool_input(payload.get("overwrite"), default=overwrite)
+            overwrite = parse_bool_input(payload.get("overwrite"), default=overwrite)
     else:
         form = await request.form()
         if "quality" in form:
             quality = downloads_repo.normalize_download_quality(str(form.get("quality")))
         if "overwrite" in form:
-            overwrite = _parse_bool_input(form.get("overwrite"), default=overwrite)
+            overwrite = parse_bool_input(form.get("overwrite"), default=overwrite)
 
     logger.info(
         "event=downloads.enqueue_requested video_id=%s quality=%s overwrite=%s",
@@ -61,24 +48,12 @@ async def request_video_download(video_id: str, request: Request):
         overwrite,
         extra={"event": "downloads.enqueue_requested"},
     )
-    if not is_ffmpeg_available():
-        return JSONResponse(
-            status_code=409,
-            content=build_download_error_payload(
-                code="ffmpeg_missing",
-                message="ffmpeg is not installed",
-                queued=False,
-                retried=False,
-            ),
-        )
-
     operation = await enqueue_video_download(
         request.app.state.runtime.db,
         video=video,
         quality=quality,
         overwrite=overwrite,
         default_output_dir=str(defaults.get("output_dir") or request.app.state.runtime.config.download_dir),
-        skip_environment_check=True,
     )
 
     if operation.payload.get("queued") is True:
@@ -182,16 +157,6 @@ async def retry_download(job_id: int, request: Request):
         job_id,
         extra={"event": "downloads.retry_requested"},
     )
-    if not is_ffmpeg_available():
-        return JSONResponse(
-            status_code=409,
-            content=build_download_error_payload(
-                code="ffmpeg_missing",
-                message="ffmpeg is not installed",
-                queued=False,
-                retried=False,
-            ),
-        )
     operation = await retry_download_job_request(request.app.state.runtime.db, job_id=job_id)
     if operation.ok:
         request.app.state.runtime.download_wake_event.set()
@@ -228,7 +193,7 @@ async def set_download_defaults(request: Request):
                 raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
             quality = parsed_quality
         if "overwrite" in payload:
-            overwrite = _parse_bool_input(payload.get("overwrite"), default=False)
+            overwrite = parse_bool_input(payload.get("overwrite"), default=False)
         if "output_dir" in payload or "download_output_dir" in payload:
             output_dir = str(payload.get("output_dir", payload.get("download_output_dir", ""))).strip()
     else:
@@ -238,7 +203,7 @@ async def set_download_defaults(request: Request):
             if parsed_quality not in downloads_repo.DOWNLOAD_QUALITY_OPTIONS:
                 raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
             quality = parsed_quality
-        overwrite = _parse_bool_input(form.get("download_overwrite"), default=False)
+        overwrite = parse_bool_input(form.get("download_overwrite"), default=False)
         if "download_output_dir" in form:
             output_dir = str(form.get("download_output_dir", "")).strip()
 

@@ -8,7 +8,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 from app.database import init_database, open_database
-from app import repository
+from app.repositories import channels as repository
 
 
 class _NoopWakeEvent:

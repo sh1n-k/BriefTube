@@ -9,7 +9,7 @@ import pytest
 from app.database import init_database, open_database
 from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.workers import manual_transcript_worker
-from app.workers.transcript_worker import TranscriptErrorCategory
+from app.services.transcript_guard import TranscriptErrorCategory
 
 
 class _FakeTranscriptService:

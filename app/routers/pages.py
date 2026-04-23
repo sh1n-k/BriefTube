@@ -16,6 +16,7 @@ from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
 from app.routers import pages_downloads
+from app.routers.helpers import parse_optional_int
 from app.routers.template_context import build_template_context
 from app.services.article_render import render_fact_box_to_safe_html
 from app.services.downloads import is_ffmpeg_available
@@ -94,17 +95,6 @@ def _build_video_detail_dynamic_context_values(detail: dict[str, object] | None)
     }
 
 
-def _parse_optional_int(value: str | None) -> int | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if text.isdigit():
-        return int(text)
-    return None
-
-
 @router.get("/")
 async def home(
     request: Request,
@@ -117,7 +107,7 @@ async def home(
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
-    normalized_category_id = _parse_optional_int(category_id)
+    normalized_category_id = parse_optional_int(category_id)
     normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
 
     if limit is None:

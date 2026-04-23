@@ -1,7 +1,7 @@
 """Domain repository boundary modules.
 
-This package provides domain-oriented access layers while keeping
-`app.repository` compatibility intact during incremental refactoring.
+Application code should import the specific repository domain it needs, for
+example `app.repositories.videos` or `app.repositories.channels`.
 """
 
 __all__ = [

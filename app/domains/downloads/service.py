@@ -23,17 +23,7 @@ async def recover_stuck_running_jobs(db: aiosqlite.Connection) -> int:
 
 def _download_environment_error(*, output_dir: str) -> DownloadActionResult | None:
     if not is_ffmpeg_available():
-        spec = get_download_error_spec("ffmpeg_missing")
-        return DownloadActionResult(
-            ok=False,
-            status_code=spec.status_code,
-            payload=build_download_error_payload(
-                code=spec.code,
-                message="ffmpeg is not installed",
-                queued=False,
-                retried=False,
-            ),
-        )
+        return _ffmpeg_environment_error()
 
     validation = validate_download_output_dir(
         output_dir,
@@ -51,6 +41,22 @@ def _download_environment_error(*, output_dir: str) -> DownloadActionResult | No
         payload=build_download_error_payload(
             code=code,
             message=validation.error_message or "download output directory is unavailable",
+            queued=False,
+            retried=False,
+        ),
+    )
+
+
+def _ffmpeg_environment_error() -> DownloadActionResult | None:
+    if is_ffmpeg_available():
+        return None
+    spec = get_download_error_spec("ffmpeg_missing")
+    return DownloadActionResult(
+        ok=False,
+        status_code=spec.status_code,
+        payload=build_download_error_payload(
+            code=spec.code,
+            message="ffmpeg is not installed",
             queued=False,
             retried=False,
         ),
@@ -125,6 +131,10 @@ async def enqueue_video_download(
 
 
 async def retry_download_job(db: aiosqlite.Connection, *, job_id: int) -> DownloadActionResult:
+    env_error = _ffmpeg_environment_error()
+    if env_error is not None:
+        return env_error
+
     result = await downloads_repo.retry_download_job(db, job_id)
     if int(result.get("updated", 0)) <= 0:
         reason = str(result.get("reason", "unknown"))

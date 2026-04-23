@@ -25,8 +25,7 @@ uv run python scripts/init_db.py        # DB 초기화 (최초 1회)
 | `state.py` | `AppState` dataclass — db, http_client, 서비스 5개, asyncio.Event 5개, notification_queue |
 | `config.py` | `AppConfig` dataclass + `load_config()` (yaml → env → clamp) |
 | `database.py` | SQLite 초기화(WAL), `_ensure_*_columns()` 점진적 마이그레이션 |
-| `repository.py` | 모든 SQL 집중 (~4000줄, 130+ 함수). KV: `get_setting()`/`set_setting()` |
-| `repositories/` | 도메인별 re-export 레이어 (증분 리팩터링 중, `repository.py` 위임) |
+| `repositories/` | 도메인별 repository API. 앱 코드는 `app.repositories.<domain>`을 직접 import |
 | `schemas.py` | Pydantic/dataclass 스키마 |
 | `i18n.py` | ko/en 번역 dict. 키 네이밍: `섹션_요소_설명` |
 | `download_error_registry.py` | 에러 코드 → i18n 키 매핑 |
@@ -161,10 +160,9 @@ uv run python -m pytest -q
 - pytest + `FastAPI.TestClient` (동기 래퍼)
 - `conftest.py`: `tmp_path` 임시 DB/썸네일, 환경변수 monkeypatch
 - E2E: Playwright (`tests/e2e/`, `-m e2e`로 명시 실행)
-- 테스트 프로파일 상세: `AGENTS.md` 참조
+- 테스트 프로파일 상세와 canonical 명령: `CONTRIBUTING.md` 참조
 
 ## Known Constraints
 
-- `repository.py`의 `list_videos`에서 f-string SQL (sort column) — 화이트리스트 검증됨, "수정" 불필요
+- `repositories.videos.list_videos`의 sort column SQL은 화이트리스트 검증을 거친다.
 - SQLite 단일 파일 → 동시 쓰기 제한 (WAL 모드로 완화)
-- `repositories/` 리팩터링 진행 중 — 현재 `repository.py` 위임 구조, 직접 SQL 이동은 미완

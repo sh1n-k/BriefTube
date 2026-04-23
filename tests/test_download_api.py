@@ -9,7 +9,7 @@ import subprocess
 from fastapi.testclient import TestClient
 import pytest
 
-from app import repository
+from app.repositories import downloads as repository
 from app.database import init_database, open_database
 from app.services.downloads import download_video
 
@@ -110,7 +110,7 @@ def test_request_video_download_rejects_when_ffmpeg_missing(
 ) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_video(db_path)
-    monkeypatch.setattr("app.routers.api_downloads.is_ffmpeg_available", lambda: False)
+    monkeypatch.setattr("app.domains.downloads.service.is_ffmpeg_available", lambda: False)
 
     response = client.post(
         "/api/videos/vid-download-001/downloads",
@@ -129,7 +129,7 @@ def test_request_video_download_enqueue_sets_wake_event(
     db_path = os.environ["DB_PATH"]
     _seed_video(db_path)
 
-    monkeypatch.setattr("app.routers.api_downloads.is_ffmpeg_available", lambda: True)
+    monkeypatch.setattr("app.domains.downloads.service.is_ffmpeg_available", lambda: True)
 
     expected_target_dir = str(client.app.state.runtime.config.download_dir)
 

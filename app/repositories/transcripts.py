@@ -1,6 +1,6 @@
 """Transcript pipeline repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 TRANSCRIPT_QUEUE_STATUSES = legacy.TRANSCRIPT_QUEUE_STATUSES
 

@@ -3,36 +3,29 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from app import repository
+from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import videos as videos_repo
 from app.config import AppConfig
 from app.database import init_database, open_database
+from tests.helpers.db_seed import seed_channel, seed_video
 from app.workers.manual_article_worker import run_manual_article_worker
 
+CHANNEL_ID = "UCmanual001"
+repository = SimpleNamespace(
+    enqueue_manual_article_jobs=manual_articles_repo.enqueue_manual_article_jobs,
+    claim_next_manual_article_job=manual_articles_repo.claim_next_manual_article_job,
+    mark_manual_article_job_succeeded=manual_articles_repo.mark_manual_article_job_succeeded,
+    recover_stuck_manual_article_jobs=manual_articles_repo.recover_stuck_manual_article_jobs,
+    get_manual_article_job=manual_articles_repo.get_manual_article_job,
+    get_video=videos_repo.get_video,
+)
 
 async def _seed_channel(db) -> None:
-    await db.execute(
-        """
-        INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-        VALUES (?, ?, ?, 1)
-        """,
-        (
-            "UCmanual001",
-            "Manual Channel",
-            "https://www.youtube.com/feeds/videos.xml?channel_id=UCmanual001",
-        ),
-    )
-    await db.commit()
+    await seed_channel(db, channel_id=CHANNEL_ID, channel_name="Manual Channel")
 
 
 async def _insert_video(db, *, video_id: str, pipeline_status: str) -> None:
-    await db.execute(
-        """
-        INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (video_id, "UCmanual001", video_id, "2026-02-26T00:00:00+00:00", pipeline_status),
-    )
-    await db.commit()
+    await seed_video(db, video_id=video_id, channel_id=CHANNEL_ID, pipeline_status=pipeline_status)
 
 
 def test_enqueue_manual_article_jobs_summary(tmp_path) -> None:

@@ -1,6 +1,6 @@
 """Channel-related repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 CHANNEL_MANAGEMENT_STATUS_ACTIVE = legacy.CHANNEL_MANAGEMENT_STATUS_ACTIVE
 CHANNEL_MANAGEMENT_STATUS_INACTIVE = legacy.CHANNEL_MANAGEMENT_STATUS_INACTIVE
@@ -46,3 +46,4 @@ mark_rss_poll_success = legacy.mark_rss_poll_success
 increment_rss_fail_streak = legacy.increment_rss_fail_streak
 touch_rss_last_polled_at = legacy.touch_rss_last_polled_at
 count_active_channels = legacy.count_active_channels
+is_newer_published = legacy.is_newer_published

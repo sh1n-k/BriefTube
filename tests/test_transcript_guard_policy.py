@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.workers.transcript_worker import (
+from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptGuardState,
     _adaptive_decay_rate,

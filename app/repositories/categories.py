@@ -1,6 +1,6 @@
 """Category-related repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 CATEGORY_PROCESSING_STAGE_OFF = legacy.CATEGORY_PROCESSING_STAGE_OFF
 CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY = legacy.CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY

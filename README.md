@@ -154,7 +154,7 @@ Telegram 봇 토큰과 채팅 ID는 설정 페이지에서도 SQLite에 저장�
 
 ## 테스트
 
-기본:
+검증 명령의 canonical source는 `CONTRIBUTING.md`입니다. 기본 실행은 다음과 같습니다.
 
 ```bash
 uv sync --extra dev
@@ -171,14 +171,7 @@ Playwright E2E (명시 실행):
 uv run python -m pytest -q -m e2e tests/e2e
 ```
 
-변경 범위별 권장:
-
-| 변경 범위 | 권장 명령 |
-|---|---|
-| 템플릿/프런트 공통 | `uv run python -m pytest -q tests/test_health.py tests/test_settings_views.py tests/test_video_list.py` |
-| 다운로드 도메인 | `uv run python -m pytest -q tests/test_download_api.py tests/test_downloads_page.py tests/test_video_list.py tests/test_video_detail.py` |
-| 채널/카테고리/메타데이터 | `uv run python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py` |
-| 수동 기사화/LLM 런타임 | `uv run python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py` |
+변경 범위별 권장 명령은 `CONTRIBUTING.md`의 테스트/검증 기준을 우선합니다.
 
 ## 참고 문서
 

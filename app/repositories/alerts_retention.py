@@ -1,6 +1,6 @@
 """Alerts and retention repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = legacy.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND
 

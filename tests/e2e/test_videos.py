@@ -415,7 +415,11 @@ def test_video_detail_auto_refresh_preserves_player_card(e2e_page: Page, seeded_
     expect(player_card).to_be_visible()
     player_card.evaluate("(node) => node.setAttribute('data-player-stability-marker', 'kept')")
 
-    page.wait_for_timeout(3500)
+    with page.expect_response(
+        lambda resp: f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200,
+        timeout=5_000,
+    ):
+        pass
 
     expect(page.locator("[data-detail-player-card]")).to_have_attribute(
         "data-player-stability-marker",
@@ -438,7 +442,11 @@ def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(e2e_page: Page,
     expect(article_card).to_be_visible()
     article_card.evaluate("(node) => node.setAttribute('data-refresh-stability-marker', 'kept')")
 
-    page.wait_for_timeout(3500)
+    with page.expect_response(
+        lambda resp: f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200,
+        timeout=5_000,
+    ):
+        pass
 
     expect(page.locator("[data-detail-article-card]")).to_have_attribute(
         "data-refresh-stability-marker",

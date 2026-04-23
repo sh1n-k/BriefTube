@@ -319,8 +319,16 @@ def test_downloads_progress_polling(e2e_page: Page, downloads_seeded: dict) -> N
             progress_requests.append(req.url)
 
     e2e_page.on("request", on_request)
-    e2e_page.goto(f"{base}/downloads")
-    e2e_page.wait_for_timeout(6_500)
+    with e2e_page.expect_response(
+        lambda resp: "/api/downloads/progress" in resp.url and resp.status == 200,
+        timeout=7_000,
+    ):
+        e2e_page.goto(f"{base}/downloads")
+    with e2e_page.expect_response(
+        lambda resp: "/api/downloads/progress" in resp.url and resp.status == 200,
+        timeout=7_000,
+    ):
+        pass
     e2e_page.remove_listener("request", on_request)
     assert len(progress_requests) >= 2
 

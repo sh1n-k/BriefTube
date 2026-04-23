@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 import logging
 import os
 from urllib.parse import urlencode
@@ -11,7 +9,6 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
 import httpx
 from starlette.datastructures import UploadFile
 
-from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.repositories import alerts_retention as alerts_repo
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
@@ -21,6 +18,13 @@ from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers import views_downloads
+from app.routers.helpers import (
+    cleanup_thumbnail_files,
+    htmx_trigger_header,
+    parse_optional_int,
+    request_texts,
+    safe_int,
+)
 from app.routers.pages import build_video_detail_context, build_video_detail_dynamic_context
 from app.routers.template_context import build_template_context
 from app.services.article_render import render_fact_box_to_safe_html
@@ -41,42 +45,6 @@ REACTIVATE_BATCH_LIMIT = 50
 ARTICLE_REQUEST_BULK_LIMIT = 10
 
 
-def _safe_int(value: str | None, default: int) -> int:
-    if value is None:
-        return default
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
-
-
-def _parse_optional_int(value: str | None) -> int | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if text.isdigit():
-        return int(text)
-    return None
-
-
-def _cleanup_thumbnail_files(thumbnail_paths: list[str], thumbnail_dir: str) -> None:
-    base_dir = Path(thumbnail_dir).resolve()
-    for raw_path in thumbnail_paths:
-        filename = Path(raw_path).name
-        if not filename:
-            continue
-        target = (base_dir / filename).resolve()
-        if target.parent != base_dir:
-            continue
-        try:
-            if target.exists() and target.is_file():
-                target.unlink()
-        except OSError:
-            continue
-
-
 def _unpack_candidate(value: str) -> tuple[str, str] | None:
     packed = value.strip()
     if "|||" not in packed:
@@ -87,17 +55,6 @@ def _unpack_candidate(value: str) -> tuple[str, str] | None:
     if not normalized_id or not normalized_name:
         return None
     return normalized_id, normalized_name
-
-
-async def _texts(request: Request) -> dict[str, str]:
-    language = normalize_language(
-        await settings_repo.get_setting(
-            request.app.state.runtime.db,
-            key="language",
-            default=DEFAULT_LANGUAGE,
-        )
-    )
-    return get_texts(language)
 
 
 async def _resolve_channel_management_state(
@@ -131,13 +88,7 @@ def _channel_management_ui_context(request: Request) -> dict[str, int | float]:
 
 
 def _reactivate_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "channel-reactivate-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("channel-reactivate-toast", {"message": message, "tone": tone})
 
 
 def _video_list_push_url(
@@ -166,33 +117,15 @@ def _video_list_push_url(
 
 
 def _channel_metadata_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "channel-metadata-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("channel-metadata-toast", {"message": message, "tone": tone})
 
 
 def _video_article_request_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "video-article-request-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("video-article-request-toast", {"message": message, "tone": tone})
 
 
 def _video_transcript_request_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "video-transcript-request-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("video-transcript-request-toast", {"message": message, "tone": tone})
 
 
 def _manual_transcript_requests_disabled() -> bool:
@@ -217,13 +150,7 @@ def _manual_transcript_toast_from_result(txt: dict[str, str], result: dict[str, 
 
 
 def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "llm-runtime-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
 def _resolve_article_request_toast_tone(
@@ -406,7 +333,7 @@ async def category_sidebar(
 async def create_category_fragment(request: Request):
     form = await request.form()
     name = str(form.get("name", "")).strip()
-    txt = await _texts(request)
+    txt = await request_texts(request)
     if not name:
         raise HTTPException(status_code=400, detail=txt.get("category_add_empty_error", "Name required"))
     try:
@@ -490,12 +417,12 @@ async def add_channel(request: Request):
     requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
-    requested_category_id = _parse_optional_int(
+    requested_category_id = parse_optional_int(
         str(form.get("category_id") or request.query_params.get("category_id", ""))
     )
     selected_candidate = str(form.get("selected_candidate", "")).strip()
     source = str(form.get("source", "")).strip()
-    txt = await _texts(request)
+    txt = await request_texts(request)
 
     if selected_candidate:
         unpacked = _unpack_candidate(selected_candidate)
@@ -685,7 +612,7 @@ async def delete_selected_channels(request: Request):
         request.app.state.runtime.db,
         channel_ids,
     )
-    _cleanup_thumbnail_files(
+    cleanup_thumbnail_files(
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
     )
@@ -732,7 +659,7 @@ async def retry_failed_channel_metadata(request: Request):
         queued,
         extra={"event": "channels.metadata.retry_queued"},
     )
-    txt = await _texts(request)
+    txt = await request_texts(request)
     toast_tone = "success" if queued > 0 else "info"
     toast_message = (
         txt["channel_metadata_retry_queued"].format(count=queued)
@@ -774,7 +701,7 @@ async def delete_single_channel(
         request.app.state.runtime.db,
         [normalized],
     )
-    _cleanup_thumbnail_files(
+    cleanup_thumbnail_files(
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
     )
@@ -820,7 +747,7 @@ async def reactivate_selected_channels(request: Request):
             request.app.state.runtime.db,
             channel_ids,
         )
-        _cleanup_thumbnail_files(
+        cleanup_thumbnail_files(
             result["thumbnail_paths"],
             request.app.state.runtime.config.thumbnail_dir,
         )
@@ -833,7 +760,7 @@ async def reactivate_selected_channels(request: Request):
             extra={"event": "channels.reactivate_bulk_delete_done"},
         )
     else:
-        txt = await _texts(request)
+        txt = await request_texts(request)
         if not channel_ids:
             toast_message = txt["channel_reactivate_bulk_none_selected"]
             toast_tone = "error"
@@ -947,7 +874,7 @@ async def reactivate_single_channel(
         requested_status,
         extra={"event": "channels.reactivate_single_requested"},
     )
-    txt = await _texts(request)
+    txt = await request_texts(request)
     channel_name_map = await channels_repo.get_channel_name_map(
         request.app.state.runtime.db,
         [normalized],
@@ -1011,7 +938,7 @@ async def video_list(
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
-    normalized_category_id = _parse_optional_int(category_id)
+    normalized_category_id = parse_optional_int(category_id)
     normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
 
     if limit is None:
@@ -1115,13 +1042,13 @@ async def delete_selected_videos(request: Request):
         result = await videos_repo.delete_videos_by_ids(
             request.app.state.runtime.db, video_ids,
         )
-        _cleanup_thumbnail_files(
+        cleanup_thumbnail_files(
             result["thumbnail_paths"],
             request.app.state.runtime.config.thumbnail_dir,
         )
 
-    page = _safe_int(form.get("_page"), 1)
-    limit_val = _safe_int(form.get("_limit"), 0)
+    page = safe_int(form.get("_page"), 1)
+    limit_val = safe_int(form.get("_limit"), 0)
     if limit_val <= 0:
         limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
     sort = str(form.get("_sort") or "upload_time")
@@ -1182,7 +1109,7 @@ async def article_request_selected_videos(request: Request):
     form = await request.form()
     selected_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
     video_ids = list(dict.fromkeys(selected_ids))
-    txt = await _texts(request)
+    txt = await request_texts(request)
 
     llm_worker_waiting = False
     new_count = 0
@@ -1232,8 +1159,8 @@ async def article_request_selected_videos(request: Request):
             failed_count=failed_count,
         )
 
-    page = max(1, _safe_int(form.get("_page"), 1))
-    limit_val = _safe_int(form.get("_limit"), 0)
+    page = max(1, safe_int(form.get("_page"), 1))
+    limit_val = safe_int(form.get("_limit"), 0)
     if limit_val <= 0:
         limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
     sort = str(form.get("_sort") or "upload_time")
@@ -1259,7 +1186,7 @@ async def article_request_selected_videos(request: Request):
 
 @router.post("/videos/{video_id}/transcript-request")
 async def transcript_request_single_video(video_id: str, request: Request):
-    txt = await _texts(request)
+    txt = await request_texts(request)
     if _manual_transcript_requests_disabled():
         response = await video_detail(video_id=video_id, request=request)
         response.status_code = 403
@@ -1286,7 +1213,7 @@ async def transcript_request_single_video(video_id: str, request: Request):
 
 @router.post("/videos/{video_id}/article-request")
 async def article_request_single_video(video_id: str, request: Request):
-    txt = await _texts(request)
+    txt = await request_texts(request)
     new_count = 0
     retry_count = 0
     skip_count = 0
@@ -1423,7 +1350,7 @@ async def bulk_commit(request: Request):
     requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
-    requested_category_id = _parse_optional_int(
+    requested_category_id = parse_optional_int(
         str(form.get("category_id") or request.query_params.get("category_id", ""))
     )
     items: list[dict[str, str]] = []

@@ -1,6 +1,6 @@
 """Settings and worker-policy repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 WORKER_SETTING_DEFAULTS = legacy.WORKER_SETTING_DEFAULTS
 RSS_FEED_MODE_DEFAULT = legacy.RSS_FEED_MODE_DEFAULT

@@ -3,10 +3,31 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
+from types import SimpleNamespace
 
-from app import repository
 from app.database import init_database, open_database, recover_stuck_jobs
-from app.workers.transcript_worker import _compute_retry_delay_seconds
+from app.repositories import llm as llm_repo
+from app.repositories import settings as settings_repo
+from app.repositories import transcripts as transcripts_repo
+from app.services.transcript_guard import _compute_retry_delay_seconds
+
+repository = SimpleNamespace(
+    ALERT_TYPE_LLM_CONFIG_MISSING=llm_repo.ALERT_TYPE_LLM_CONFIG_MISSING,
+    LLM_CONFIG_MISSING_ALERT_SENT_KEY=llm_repo.LLM_CONFIG_MISSING_ALERT_SENT_KEY,
+    pop_pending_transcript_videos=transcripts_repo.pop_pending_transcript_videos,
+    schedule_transcript_retry=transcripts_repo.schedule_transcript_retry,
+    recover_stuck_transcript_jobs=transcripts_repo.recover_stuck_transcript_jobs,
+    save_transcript=transcripts_repo.save_transcript,
+    defer_channel_transcript_retries=transcripts_repo.defer_channel_transcript_retries,
+    mark_restructure_failed=llm_repo.mark_restructure_failed,
+    requeue_llm_pending_without_retry=llm_repo.requeue_llm_pending_without_retry,
+    repair_orphan_llm_candidates=llm_repo.repair_orphan_llm_candidates,
+    ensure_llm_config_missing_alert=llm_repo.ensure_llm_config_missing_alert,
+    get_setting=settings_repo.get_setting,
+    acquire_transcript_worker_lease=transcripts_repo.acquire_transcript_worker_lease,
+    renew_transcript_worker_lease=transcripts_repo.renew_transcript_worker_lease,
+    release_transcript_worker_lease=transcripts_repo.release_transcript_worker_lease,
+)
 
 
 def test_compute_retry_delay_seconds_uses_exponential_backoff_with_cap() -> None:

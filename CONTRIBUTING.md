@@ -28,6 +28,8 @@ git worktree add -b feature/<topic> .worktrees/feature-<topic>
 
 ## 테스트/검증 기준
 
+이 문서가 검증 명령의 canonical source입니다. `README.md`, `AGENTS.md`, `CLAUDE.md`에는 핵심 원칙만 두고, 변경 범위별 최신 명령은 이 섹션을 우선합니다.
+
 - 변경 범위와 맞는 최소 프로파일을 실행
 - 부분 실행 시, 미실행 항목과 이유를 PR 설명에 기록
 - 가능하면 마지막에 전체 테스트 실행
@@ -48,7 +50,8 @@ uv run pytest -q
 - 동작 불변을 기본 원칙으로 유지
 - 기능 추가와 구조 변경을 같은 PR에 섞지 않음
 - 대형 파일 분리는 단계적으로 진행
-- 내부 모듈 경계 변경 시 기존 import 경로 호환성 보존
+- 내부 모듈 경계 변경 시 호출부를 새 경계로 함께 갱신하고, 호환 shim을 둘 경우 제거 기준을 PR에 기록
+- 저장소 호출은 `app.repositories.<domain>` 모듈을 사용하고, 최상위 `app.repository` 경로를 새로 만들지 않음
 
 ## 보안/운영 주의
 

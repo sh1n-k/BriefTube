@@ -1,6 +1,6 @@
 """Download domain repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 DOWNLOAD_QUALITY_OPTIONS = legacy.DOWNLOAD_QUALITY_OPTIONS
 DOWNLOAD_QUALITY_DEFAULT = legacy.DOWNLOAD_QUALITY_DEFAULT

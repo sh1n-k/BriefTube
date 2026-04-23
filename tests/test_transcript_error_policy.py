@@ -7,7 +7,7 @@ from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImp
     VideoUnavailable,
 )
 
-from app.workers.transcript_worker import TranscriptErrorCategory, _classify_transcript_error
+from app.services.transcript_guard import TranscriptErrorCategory, _classify_transcript_error
 
 
 def test_classify_transcript_error_uses_exception_type_not_message() -> None:

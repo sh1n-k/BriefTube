@@ -5,7 +5,7 @@ import os
 
 from fastapi.testclient import TestClient
 
-from app import repository
+from app.repositories import transcripts as repository
 from app.database import open_database
 
 

@@ -2,11 +2,27 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from app.database import init_database, open_database
-from app import repository
+from app.repositories import categories as categories_repo
+from app.repositories import channels as channels_repo
+from app.repositories import llm as llm_repo
+from app.repositories import transcripts as transcripts_repo
+from app.repositories import videos as videos_repo
+
+repository = SimpleNamespace(
+    add_channel=channels_repo.add_channel,
+    insert_video_if_absent=videos_repo.insert_video_if_absent,
+    save_transcript=transcripts_repo.save_transcript,
+    create_category=categories_repo.create_category,
+    move_channels_to_category=categories_repo.move_channels_to_category,
+    update_category_processing_stage=categories_repo.update_category_processing_stage,
+    pop_llm_candidate=llm_repo.pop_llm_candidate,
+    count_llm_pending_videos=llm_repo.count_llm_pending_videos,
+)
 
 
 @pytest.fixture()

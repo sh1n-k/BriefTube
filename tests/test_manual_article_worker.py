@@ -3,37 +3,27 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from app import repository
+from app.repositories import manual_articles as manual_articles_repo
 from app.config import AppConfig
 from app.database import init_database, open_database
 from app.repositories import transcripts as transcripts_repo
+from app.repositories import videos as videos_repo
+from tests.helpers.db_seed import seed_channel, seed_video
 from app.workers.manual_article_worker import run_manual_article_worker
 
+CHANNEL_ID = "UCmanualworker002"
+repository = SimpleNamespace(
+    get_manual_article_job=manual_articles_repo.get_manual_article_job,
+    recover_stuck_manual_article_jobs=manual_articles_repo.recover_stuck_manual_article_jobs,
+    get_video=videos_repo.get_video,
+)
 
 async def _seed_channel(db) -> None:
-    await db.execute(
-        """
-        INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-        VALUES (?, ?, ?, 1)
-        """,
-        (
-            "UCmanualworker002",
-            "Manual Worker Channel",
-            "https://www.youtube.com/feeds/videos.xml?channel_id=UCmanualworker002",
-        ),
-    )
-    await db.commit()
+    await seed_channel(db, channel_id=CHANNEL_ID, channel_name="Manual Worker Channel")
 
 
 async def _insert_video(db, *, video_id: str, pipeline_status: str) -> None:
-    await db.execute(
-        """
-        INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (video_id, "UCmanualworker002", video_id, "2026-02-26T00:00:00+00:00", pipeline_status),
-    )
-    await db.commit()
+    await seed_video(db, video_id=video_id, channel_id=CHANNEL_ID, pipeline_status=pipeline_status)
 
 
 async def _insert_pending_job(db, *, video_id: str) -> int:
@@ -251,7 +241,7 @@ def test_manual_article_worker_persists_guard_state_after_fetch(tmp_path) -> Non
             await db.close()
 
     last_channel_id, last_channel_attempt_at = asyncio.run(_run())
-    assert last_channel_id == "UCmanualworker002"
+    assert last_channel_id == CHANNEL_ID
     assert last_channel_attempt_at
 
 

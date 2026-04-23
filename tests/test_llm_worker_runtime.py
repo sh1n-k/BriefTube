@@ -3,11 +3,24 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from app import repository
 from app.config import AppConfig
 from app.database import init_database, open_database
+from app.repositories import llm as llm_repo
+from app.repositories import settings as settings_repo
+from app.repositories import videos as videos_repo
 from app.services.llm import LlmClientError, LlmRuntimePlan
 from app.workers.llm_worker import run_llm_queue_worker
+
+repository = SimpleNamespace(
+    get_video=videos_repo.get_video,
+    ALERT_TYPE_LLM_CONFIG_MISSING=llm_repo.ALERT_TYPE_LLM_CONFIG_MISSING,
+    LLM_CONFIG_MISSING_ALERT_SENT_KEY=llm_repo.LLM_CONFIG_MISSING_ALERT_SENT_KEY,
+    ALERT_TYPE_LLM_SCHEMA_INVALID=llm_repo.ALERT_TYPE_LLM_SCHEMA_INVALID,
+    LLM_SCHEMA_INVALID_ALERT_SENT_KEY=llm_repo.LLM_SCHEMA_INVALID_ALERT_SENT_KEY,
+    get_setting=settings_repo.get_setting,
+    get_llm_runtime_issue=llm_repo.get_llm_runtime_issue,
+    set_llm_runtime_issue=llm_repo.set_llm_runtime_issue,
+)
 
 
 class AuthRequiredClient:

@@ -9,7 +9,7 @@ from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.state import AppState
-from app.workers.transcript_worker import (
+from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
     TranscriptGuardState,

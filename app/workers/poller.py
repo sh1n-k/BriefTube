@@ -13,7 +13,7 @@ from app.repositories import alerts_retention as alerts_repo
 from app.repositories import channels as channels_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
-from app.repository import is_newer_published
+from app.repositories.channels import is_newer_published
 from app.services.rss import RSSParseError
 from app.state import AppState
 

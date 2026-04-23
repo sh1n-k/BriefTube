@@ -1,6 +1,6 @@
 # AGENTS.md
 
-이 문서는 BriefTube에서 작업 시작 전에 꼭 알아야 하는 레포 전용 규칙만 남긴다. 일반 개발 절차와 상세 테스트 매트릭스는 `README.md`, `CONTRIBUTING.md`를 따른다.
+이 문서는 BriefTube에서 작업 시작 전에 꼭 알아야 하는 레포 전용 규칙만 남긴다. 일반 개발 절차와 상세 테스트 매트릭스는 `CONTRIBUTING.md`를 따른다.
 
 ## 작업 방식
 - 문서/설정처럼 로직 변경이 없으면 `main`에서 직접 작업 가능.
@@ -21,7 +21,7 @@
 ## 트리거별 확인 포인트
 - 채널 관리/재활성화 변경: `app/routers/views.py`, `app/templates/fragments/channel_list.html`, `app/templates/base.html`, `app/i18n.py`와 재활성화 토스트/fragment 계약을 함께 확인.
 - 설정/저장 UX 변경: `app/templates/settings.html`, `app/routers/template_context.py`, `tests/test_settings_views.py`를 같이 본다.
-- RSS 비활성화 정책 변경: `app/workers/poller.py`, `app/services/rss.py`, `app/repository.py`를 함께 점검한다.
+- RSS 비활성화 정책 변경: `app/workers/poller.py`, `app/services/rss.py`, `app/repositories/channels.py`를 함께 점검한다.
 - LLM 워커 변경: 자유 텍스트 파싱 금지, 스키마 검증 JSON만 저장, prompt injection/policy refusal은 1회만 재시도 후 `llm_provider_refused`로 종료한다.
 
 ## LLM CLI 안전정책
@@ -31,13 +31,9 @@
 - 원문 전문과 모델 원응답 전문은 로그에 남기지 않고, `provider`, `exit_code`, `schema_valid`, `retry_count`, `refusal_detected`, `latency_ms` 같은 메타만 남긴다.
 
 ## 검증
-- 문서만 바꿨다면: `uv run python -m pytest -q tests/test_health.py`
 - 기본 단위 테스트 fixture(`tests/conftest.py`)는 `TRANSCRIPT_WORKER_LEASE_ENABLED=0`으로 실행한다. `TestClient` 환경에서 transcript lease 전용 DB 연결이 쓰기 잠금을 선점해 `database is locked`를 만들 수 있기 때문이다.
 - pytest 환경에서는 transcript background worker를 기본으로 띄우지 않는다. worker가 필요한 테스트만 `BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS=1`로 다시 켠다.
-- 채널/재활성화 변경: `uv run python -m pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py tests/test_channel_delete.py tests/test_api_channels.py tests/test_channel_metadata.py tests/test_categories.py`
-- 설정/공통 토스트 변경: `uv run python -m pytest -q tests/test_health.py tests/test_settings_api.py tests/test_settings_views.py`
-- 수동 기사화/LLM 런타임 변경: `uv run python -m pytest -q tests/test_manual_article_api.py tests/test_manual_article_queue.py tests/test_manual_article_worker.py tests/test_llm_worker_runtime.py tests/test_llm_client.py`
-- 전체 또는 E2E가 필요하면 `README.md` / `CONTRIBUTING.md`의 최신 프로파일을 따른다.
+- 변경 범위별 최신 명령은 `CONTRIBUTING.md`의 테스트/검증 기준을 canonical source로 따른다.
 - 검증을 일부만 했거나 못 했으면 이유와 재현 가능한 command를 남긴다.
 
 ## 운영 체크

@@ -1,43 +1,22 @@
 from __future__ import annotations
 
-import json
 import logging
 
 from fastapi import APIRouter, Request
 
 from app.domains.downloads import enqueue_bulk_downloads
-from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
+from app.routers.helpers import htmx_trigger_header, request_texts, safe_int
 from app.routers.pages_downloads import build_download_history_context
 from app.routers.template_context import build_template_context
 
 router = APIRouter(tags=["views"])
 logger = logging.getLogger("app.routers.views")
 DOWNLOAD_BULK_LIMIT = 100
-
-
-def _safe_int(value: str | None, default: int) -> int:
-    if value is None:
-        return default
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
-
-
-async def _texts(request: Request) -> dict[str, str]:
-    language = normalize_language(
-        await settings_repo.get_setting(
-            request.app.state.runtime.db,
-            key="language",
-            default=DEFAULT_LANGUAGE,
-        )
-    )
-    return get_texts(language)
 
 
 @router.get("/downloads/table")
@@ -59,13 +38,7 @@ async def download_history_fragment(
 
 
 def _download_bulk_toast_header(message: str, tone: str) -> dict[str, str]:
-    payload = {
-        "video-download-bulk-toast": {
-            "message": message,
-            "tone": tone,
-        }
-    }
-    return {"HX-Trigger": json.dumps(payload, ensure_ascii=True)}
+    return htmx_trigger_header("video-download-bulk-toast", {"message": message, "tone": tone})
 
 
 def _resolve_download_bulk_toast_tone(
@@ -91,7 +64,7 @@ async def download_selected_videos(request: Request):
     form = await request.form()
     selected_ids = [str(v).strip() for v in form.getlist("video_id") if str(v).strip()]
     video_ids = list(dict.fromkeys(selected_ids))
-    txt = await _texts(request)
+    txt = await request_texts(request)
 
     toast_message = ""
     toast_tone = "success"
@@ -136,8 +109,8 @@ async def download_selected_videos(request: Request):
             else:
                 toast_message = txt["download_bulk_output_dir_invalid"]
             toast_tone = "error"
-            page = _safe_int(form.get("_page"), 1)
-            limit_val = _safe_int(form.get("_limit"), 0)
+            page = safe_int(form.get("_page"), 1)
+            limit_val = safe_int(form.get("_limit"), 0)
             if limit_val <= 0:
                 limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
             sort = str(form.get("_sort") or "upload_time")
@@ -232,8 +205,8 @@ async def download_selected_videos(request: Request):
             failed_count=failed_count,
         )
 
-    page = _safe_int(form.get("_page"), 1)
-    limit_val = _safe_int(form.get("_limit"), 0)
+    page = safe_int(form.get("_page"), 1)
+    limit_val = safe_int(form.get("_limit"), 0)
     if limit_val <= 0:
         limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
     sort = str(form.get("_sort") or "upload_time")

@@ -1,6 +1,6 @@
 """Video-related repository accessors."""
 
-from app import repository as legacy
+from app.repositories import _impl as legacy
 
 insert_video_if_absent = legacy.insert_video_if_absent
 list_videos = legacy.list_videos
