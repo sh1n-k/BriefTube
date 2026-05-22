@@ -55,7 +55,7 @@ channels_page.png
 
 # Local tool outputs
 .playwright-cli/
-downloads/
+/downloads/
 output/
 playwright-report/
 test-results/

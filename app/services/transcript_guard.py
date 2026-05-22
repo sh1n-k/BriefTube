@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+# The library exposes these typed exception classes from a private module.
 from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImports]
     AgeRestricted,
     CouldNotRetrieveTranscript,

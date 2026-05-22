@@ -12,7 +12,7 @@ YouTube 채널의 신규 영상을 자동 수집하고, 자막을 LLM으로 기�
 macOS / Linux:
 
 ```bash
-uv sync --extra dev
+uv sync
 uv run python scripts/init_db.py
 ./run-dev.sh
 ```
@@ -20,7 +20,7 @@ uv run python scripts/init_db.py
 Windows PowerShell:
 
 ```powershell
-uv sync --extra dev
+uv sync
 uv run python .\scripts\init_db.py
 .\run-dev.ps1
 ```
@@ -157,7 +157,7 @@ Telegram 봇 토큰과 채팅 ID는 설정 페이지에서도 SQLite에 저장�
 검증 명령의 canonical source는 `CONTRIBUTING.md`입니다. 기본 실행은 다음과 같습니다.
 
 ```bash
-uv sync --extra dev
+uv sync
 uv run python -m pytest -q
 ```
 

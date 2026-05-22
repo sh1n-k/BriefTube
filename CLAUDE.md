@@ -5,7 +5,7 @@ YouTube 자막 → LLM 기사화 로컬 웹 앱. FastAPI + SQLite + HTMX, 단일
 ## Quick Reference
 
 ```bash
-uv sync --extra dev
+uv sync
 ./run-dev.sh                            # macOS/Linux, uvicorn --reload, config.dev.yaml
 pwsh ./run-dev.ps1                      # Windows PowerShell, uvicorn --reload
 ./run-prod.sh                           # macOS/Linux, config.prod.yaml
