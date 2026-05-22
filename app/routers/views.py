@@ -266,7 +266,6 @@ async def _probe_channel_reactivation(
         "last_modified": new_last_modified or "",
         "feed_mode": feed_mode,
     }
-    await channels_repo.clear_channel_rss_404_state(request.app.state.runtime.db, channel_id)
     logger.debug(
         "event=channels.reactivate_probe_ok channel_id=%s feed_mode=%s new_etag=%s new_last_modified=%s",
         channel_id,

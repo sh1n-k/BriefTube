@@ -15,8 +15,6 @@ CREATE TABLE IF NOT EXISTS channels (
     rss_url                 TEXT NOT NULL,
     is_active               INTEGER NOT NULL DEFAULT 1,
     last_seen_published_at  TEXT,
-    rss_consecutive_404_count INTEGER NOT NULL DEFAULT 0,
-    rss_404_first_at        TEXT,
     category_id             INTEGER REFERENCES categories(id),
     channel_handle          TEXT,
     channel_url_canonical   TEXT,

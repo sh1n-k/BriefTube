@@ -20,22 +20,13 @@ def test_poll_once_deactivates_404_channel_after_streak(client) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO channels(
-                channel_id,
-                channel_name,
-                rss_url,
-                is_active,
-                rss_consecutive_404_count,
-                rss_404_first_at
-            )
-            VALUES (?, ?, ?, 1, ?, ?)
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
             """,
             (
                 "UC404resilience001",
                 "404 Channel",
                 "https://www.youtube.com/feeds/videos.xml?channel_id=UC404resilience001",
-                2,
-                "2026-02-24T00:00:00+00:00",
             ),
         )
         conn.execute(
@@ -95,7 +86,7 @@ def test_poll_once_deactivates_404_channel_after_streak(client) -> None:
             inserted = await poll_once(state)  # type: ignore[arg-type]
             cursor = await db.execute(
                 """
-                SELECT is_active, rss_consecutive_404_count
+                SELECT is_active, rss_fail_streak
                 FROM channels
                 WHERE channel_id = ?
                 """,

@@ -109,8 +109,6 @@ def test_init_database_adds_channel_metadata_columns_for_legacy_table(tmp_path: 
 
     columns, indexes = asyncio.run(_run())
     assert "last_seen_published_at" in columns
-    assert "rss_consecutive_404_count" in columns
-    assert "rss_404_first_at" in columns
     assert "created_at" in columns
     assert "metadata_fetched_at" in columns
     assert "metadata_fetch_status" in columns

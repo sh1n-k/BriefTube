@@ -35,8 +35,6 @@ deactivate_channel = legacy.deactivate_channel
 reactivate_channel = legacy.reactivate_channel
 reactivate_channels = legacy.reactivate_channels
 list_active_channels = legacy.list_active_channels
-record_channel_rss_404 = legacy.record_channel_rss_404
-clear_channel_rss_404_state = legacy.clear_channel_rss_404_state
 update_channel_watermark = legacy.update_channel_watermark
 
 delete_channels_with_related_data = legacy.delete_channels_with_related_data

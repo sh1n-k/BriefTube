@@ -18,8 +18,6 @@ from app.services.rss import RSSParseError
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
-RSS_404_DEACTIVATE_THRESHOLD = 3
-RSS_404_DEACTIVATE_MIN_AGE = timedelta(hours=6)
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:
@@ -79,6 +77,11 @@ async def run_rss_poller(state: AppState) -> None:
             extra={"event": "rss.cycle_started", "worker": "rss"},
         )
 
+        policy = await settings_repo.get_policy_settings(state.db)
+        feed_mode = str(policy.get("rss_feed_mode", "long_form_only"))
+        lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
+        lower_bound = state.started_at - timedelta(days=lookback_days)
+
         consecutive_errors = 0
         polled = 0
         inserted_total = 0
@@ -102,6 +105,8 @@ async def run_rss_poller(state: AppState) -> None:
                     state,
                     channel=channel,
                     deactivate_threshold=deactivate_threshold,
+                    feed_mode=feed_mode,
+                    lower_bound=lower_bound,
                 )
             except Exception:
                 logger.exception(
@@ -171,16 +176,16 @@ async def _poll_single_channel(
     *,
     channel: dict[str, Any],
     deactivate_threshold: int,
+    feed_mode: str,
+    lower_bound: datetime,
 ) -> tuple[bool, int]:
-    """단일 채널 RSS 폴링. (성공여부, 삽입건수) 반환."""
+    """단일 채널 RSS 폴링. (성공여부, 삽입건수) 반환.
+
+    feed_mode/lower_bound는 호출자(사이클 단위)에서 한 번만 조회/계산해
+    여기로 넘긴다. 채널마다 DB를 다시 읽지 않는다.
+    """
     channel_id = channel["channel_id"]
     channel_name = channel.get("channel_name") or channel_id
-
-    policy = await settings_repo.get_policy_settings(state.db)
-    feed_mode = str(policy.get("rss_feed_mode", "long_form_only"))
-    lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
-    started_at = getattr(state, "started_at", datetime.now(timezone.utc))
-    lower_bound = started_at - timedelta(days=lookback_days)
 
     cache = state.rss_cache.get(channel_id, {})
     if cache.get("feed_mode", "") != feed_mode:
@@ -306,6 +311,12 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
     deactivate_threshold = getattr(config, "rss_channel_deactivate_after_fails", 3) if config else 3
     total_inserted = 0
 
+    policy = await settings_repo.get_policy_settings(state.db)
+    feed_mode = str(policy.get("rss_feed_mode", "long_form_only"))
+    lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
+    started_at = getattr(state, "started_at", datetime.now(timezone.utc))
+    lower_bound = started_at - timedelta(days=lookback_days)
+
     if inter_channel_delay > 0:
         estimated_total = inter_channel_delay * max(0, len(channels) - 1)
         logger.info(
@@ -326,6 +337,8 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
             state,
             channel=channel,
             deactivate_threshold=deactivate_threshold,
+            feed_mode=feed_mode,
+            lower_bound=lower_bound,
         )
         total_inserted += count
 

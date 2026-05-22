@@ -14,8 +14,6 @@ def _seed_channel(
     channel_name: str,
     *,
     is_active: int,
-    rss_consecutive_404_count: int = 0,
-    rss_404_first_at: str | None = None,
 ) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -24,19 +22,15 @@ def _seed_channel(
                 channel_id,
                 channel_name,
                 rss_url,
-                is_active,
-                rss_consecutive_404_count,
-                rss_404_first_at
+                is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 channel_id,
                 channel_name,
                 f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
                 is_active,
-                rss_consecutive_404_count,
-                rss_404_first_at,
             ),
         )
         conn.commit()
@@ -116,8 +110,6 @@ def test_reactivate_single_channel_success_after_rss_probe(
         "UCinactive101",
         "Inactive 101",
         is_active=0,
-        rss_consecutive_404_count=2,
-        rss_404_first_at="2026-02-27T00:00:00+00:00",
     )
 
     async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
@@ -140,15 +132,13 @@ def test_reactivate_single_channel_success_after_rss_probe(
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT is_active, rss_consecutive_404_count, rss_404_first_at
+            SELECT is_active
             FROM channels
             WHERE channel_id='UCinactive101'
             """
         ).fetchone()
     assert row is not None
     assert int(row[0]) == 1
-    assert int(row[1]) == 0
-    assert row[2] is None
 
 
 def test_reactivate_single_channel_keeps_inactive_on_rss_failure(
@@ -284,6 +274,61 @@ def test_reactivate_selected_channels_enforces_batch_limit(
             """
         ).fetchone()[0]
     assert int(active_count) == 0
+
+
+def test_reactivate_resets_rss_fail_streak(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    """재활성화는 폴러가 사용하는 rss_fail_streak도 0으로 되돌려야 한다.
+
+    그렇지 않으면 streak가 deactivate 임계치(기본 3) 이상으로 남아 있어
+    재활성화 직후 단 1회의 404로 즉시 다시 비활성화된다.
+    """
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(
+                channel_id,
+                channel_name,
+                rss_url,
+                is_active,
+                rss_fail_streak
+            )
+            VALUES (?, ?, ?, 0, 3)
+            """,
+            (
+                "UCstreakreset001",
+                "Streak Reset Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCstreakreset001",
+            ),
+        )
+        conn.commit()
+
+    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+        return [], "etag", "mod"
+
+    monkeypatch.setattr(
+        client.app.state.runtime.rss_service,
+        "fetch_channel_feed",
+        fake_fetch_channel_feed,
+    )
+
+    response = client.post("/views/channels/UCstreakreset001/reactivate?status=inactive")
+    assert response.status_code == 200
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT is_active, rss_fail_streak
+            FROM channels
+            WHERE channel_id='UCstreakreset001'
+            """
+        ).fetchone()
+    assert row is not None
+    assert int(row[0]) == 1
+    assert int(row[1]) == 0, "rss_fail_streak must reset on reactivation"
 
 
 def test_reactivate_selected_delete_action_removes_channels(client: TestClient) -> None:
