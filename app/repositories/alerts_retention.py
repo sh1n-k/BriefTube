@@ -3,6 +3,7 @@
 from app.repositories import _impl as legacy
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = legacy.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND
+ALERT_TYPE_TELEGRAM_SEND_FAILED = legacy.ALERT_TYPE_TELEGRAM_SEND_FAILED
 
 create_system_alert = legacy.create_system_alert
 list_unacknowledged_alerts = legacy.list_unacknowledged_alerts

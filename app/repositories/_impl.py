@@ -49,6 +49,7 @@ CHANNEL_MANAGEMENT_STATUS_OPTIONS = {
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
 ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
 ALERT_TYPE_LLM_SCHEMA_INVALID = "llm_schema_invalid"
+ALERT_TYPE_TELEGRAM_SEND_FAILED = "telegram_send_failed"
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
 LLM_SCHEMA_INVALID_ALERT_SENT_KEY = "llm_schema_invalid_alert_sent"
 LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"

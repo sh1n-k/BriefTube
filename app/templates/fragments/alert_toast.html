@@ -8,6 +8,8 @@
       {% set alert_text_key = 'alert_incident_llm_config_missing' %}
     {% elif group.alert_type == 'llm_schema_invalid' %}
       {% set alert_text_key = 'alert_incident_llm_schema_invalid' %}
+    {% elif group.alert_type == 'telegram_send_failed' %}
+      {% set alert_text_key = 'alert_incident_telegram_send_failed' %}
     {% endif %}
     <form
       data-alert-toast
