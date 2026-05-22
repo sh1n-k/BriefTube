@@ -112,6 +112,29 @@ class DelayedRetryableFailureClient:
         )
 
 
+class DelayedNonRetryableFailureClient:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.proceed = asyncio.Event()
+
+    def resolve_runtime_plan(self, settings):
+        return LlmRuntimePlan(
+            providers_to_try=["codex"],
+            blocking_reason=None,
+            warnings=[],
+        )
+
+    async def restructure(self, source_title: str, transcript_text: str, settings):
+        self.started.set()
+        await asyncio.wait_for(self.proceed.wait(), timeout=2)
+        raise LlmClientError(
+            "llm_provider_refused",
+            "Prompt injection refusal",
+            provider="codex",
+            retryable=False,
+        )
+
+
 async def _wait_for_video_status(
     db,
     *,
@@ -401,6 +424,233 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
     assert llm_model == "gpt-5.3-codex"
     assert llm_effort == "medium"
     assert llm_generated_at == "2026-03-02T10:00:00+00:00"
+
+
+def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:
+    db_path = tmp_path / "worker-runtime-retryable-failed.db"
+
+    async def _run() -> tuple[str, int, int]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await db.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCworker005", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker005"),
+        )
+        await db.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+            VALUES (?, ?, ?, ?, 'llm_failed', 1)
+            """,
+            ("vid-worker-005", "UCworker005", "worker-video-5", "2026-02-24T00:00:00+00:00"),
+        )
+        await db.execute(
+            """
+            INSERT INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("vid-worker-005", "hello transcript", "ko", "manual"),
+        )
+        await db.commit()
+
+        client = DelayedSuccessClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            await asyncio.wait_for(client.started.wait(), timeout=2)
+            await _wait_for_video_status(
+                db,
+                video_id="vid-worker-005",
+                expected="llm_processing",
+                timeout_seconds=2,
+            )
+            client.proceed.set()
+            done_row = await _wait_for_video_status(
+                db,
+                video_id="vid-worker-005",
+                expected="done",
+                timeout_seconds=2,
+            )
+            cursor = await db.execute(
+                "SELECT COUNT(1) AS cnt FROM articles WHERE video_id = ?",
+                ("vid-worker-005",),
+            )
+            article_row = await cursor.fetchone()
+            return (
+                str(done_row["pipeline_status"]),
+                int(done_row["retry_count"]),
+                int(article_row["cnt"] or 0),
+            )
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    status, retry_count, article_count = asyncio.run(_run())
+    assert status == "done"
+    assert retry_count == 1
+    assert article_count == 1
+
+
+def test_llm_worker_stale_success_does_not_overwrite_changed_status(tmp_path) -> None:
+    db_path = tmp_path / "worker-runtime-stale-success.db"
+
+    async def _run() -> tuple[str, int, int, bool]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await db.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCworker006", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker006"),
+        )
+        await db.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            """,
+            ("vid-worker-006", "UCworker006", "worker-video-6", "2026-02-24T00:00:00+00:00"),
+        )
+        await db.execute(
+            """
+            INSERT INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("vid-worker-006", "hello transcript", "ko", "manual"),
+        )
+        await db.commit()
+
+        client = DelayedSuccessClient()
+        queue = asyncio.Queue()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=queue,
+            llm_wake_event=asyncio.Event(),
+        )
+
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            await asyncio.wait_for(client.started.wait(), timeout=2)
+            await _wait_for_video_status(
+                db,
+                video_id="vid-worker-006",
+                expected="llm_processing",
+                timeout_seconds=2,
+            )
+            await db.execute(
+                "UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id = ?",
+                ("vid-worker-006",),
+            )
+            await db.commit()
+
+            client.proceed.set()
+            await asyncio.sleep(0.2)
+            cursor = await db.execute(
+                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+                ("vid-worker-006",),
+            )
+            video = await cursor.fetchone()
+            cursor = await db.execute(
+                "SELECT COUNT(1) AS cnt FROM articles WHERE video_id = ?",
+                ("vid-worker-006",),
+            )
+            article_row = await cursor.fetchone()
+            return (
+                str(video["pipeline_status"]),
+                int(video["retry_count"]),
+                int(article_row["cnt"] or 0),
+                queue.empty(),
+            )
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    status, retry_count, article_count, queue_empty = asyncio.run(_run())
+    assert status == "manual_review"
+    assert retry_count == 0
+    assert article_count == 0
+    assert queue_empty is True
+
+
+def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> None:
+    db_path = tmp_path / "worker-runtime-non-retryable.db"
+
+    async def _run() -> tuple[str, int]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await db.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCworker007", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker007"),
+        )
+        await db.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            """,
+            ("vid-worker-007", "UCworker007", "worker-video-7", "2026-02-24T00:00:00+00:00"),
+        )
+        await db.execute(
+            """
+            INSERT INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("vid-worker-007", "hello transcript", "ko", "manual"),
+        )
+        await db.commit()
+
+        client = DelayedNonRetryableFailureClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            await asyncio.wait_for(client.started.wait(), timeout=2)
+            await _wait_for_video_status(
+                db,
+                video_id="vid-worker-007",
+                expected="llm_processing",
+                timeout_seconds=2,
+            )
+            client.proceed.set()
+            manual_review_row = await _wait_for_video_status(
+                db,
+                video_id="vid-worker-007",
+                expected="manual_review",
+                timeout_seconds=2,
+            )
+            return (
+                str(manual_review_row["pipeline_status"]),
+                int(manual_review_row["retry_count"]),
+            )
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    status, retry_count = asyncio.run(_run())
+    assert status == "manual_review"
+    assert retry_count == 3
 
 
 def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhausted(tmp_path) -> None:

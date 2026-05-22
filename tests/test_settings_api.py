@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
@@ -797,3 +799,77 @@ def test_settings_llm_resume_allows_retry_when_auth_issue_exists(
     assert resume_response.json()["ok"] is True
     assert resume_response.json()["resumed_count"] == 2
     assert client.app.state.runtime.llm_wake_event.is_set() is True
+
+
+def test_settings_llm_resume_clears_auth_issue_for_worker_retry(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "codex",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+        },
+    )
+    assert response.status_code == 200
+
+    monkeypatch.setattr(
+        client.app.state.runtime.llm_client,
+        "resolve_runtime_plan",
+        lambda _settings: LlmRuntimePlan(
+            providers_to_try=["codex"],
+            blocking_reason=None,
+            warnings=[],
+        ),
+    )
+
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCresume001", "Resume Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCresume001"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'llm_pending')
+            """,
+            ("vid-resume-001", "UCresume001", "resume video", "2026-02-24T00:00:00+00:00"),
+        )
+        conn.execute(
+            """
+            INSERT INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("vid-resume-001", "hello transcript", "ko", "manual"),
+        )
+        conn.executemany(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (
+                ("llm_runtime_last_code", "llm_provider_auth_required"),
+                ("llm_runtime_last_message", "Not logged in"),
+                ("llm_runtime_last_seen_at", "2026-03-01T00:00:00+00:00"),
+            ),
+        )
+        conn.commit()
+
+    client.app.state.runtime.llm_wake_event.clear()
+    resume_response = client.post("/api/settings/llm/resume")
+    assert resume_response.status_code == 200
+    assert resume_response.json()["ok"] is True
+    assert client.app.state.runtime.llm_wake_event.is_set() is True
+
+    with sqlite3.connect(db_path) as conn:
+        code = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'llm_runtime_last_code'"
+        ).fetchone()[0]
+    assert code == ""

@@ -10,6 +10,7 @@ from app.services.llm_runtime import resolve_llm_runtime_status
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
+LLM_RETRYABLE_FAILURE_DELAY_SECONDS = 5.0
 
 
 def _is_schema_invalid_issue(code: str) -> bool:
@@ -117,7 +118,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     transcript_text=candidate["raw_text"],
                     settings=llm_settings,
                 )
-                await llm_repo.save_article(
+                saved = await llm_repo.save_article(
                     state.db,
                     video_id=video_id,
                     title=article["title"],
@@ -130,6 +131,13 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     llm_reasoning_effort=article.get("_llm_reasoning_effort"),
                     llm_generated_at=article.get("_llm_generated_at"),
                 )
+                if saved == 0:
+                    logger.warning(
+                        "event=llm.restructure_succeeded_stale_skip worker=llm video_id=%s",
+                        video_id,
+                        extra={"event": "llm.restructure_succeeded_stale_skip", "worker": "llm"},
+                    )
+                    continue
                 await state.notification_queue.put(
                     {
                         "video_id": video_id,
@@ -176,6 +184,25 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     await _sleep_with_wake(state, 5)
                     continue
 
+                if getattr(exc, "retryable", True) is False:
+                    next_status, affected = await llm_repo.mark_restructure_failed(
+                        state.db,
+                        video_id=video_id,
+                        retry_count=max(0, int(state.config.max_retry_count) - 1),
+                        max_retry_count=state.config.max_retry_count,
+                    )
+                    logger.warning(
+                        "event=llm.restructure_non_retryable worker=llm video_id=%s next_status=%s affected=%s error_type=%s error_code=%s provider=%s",
+                        video_id,
+                        next_status,
+                        affected,
+                        exc.__class__.__name__,
+                        error_code,
+                        getattr(exc, "provider", None),
+                        extra={"event": "llm.restructure_non_retryable", "worker": "llm", "code": error_code},
+                    )
+                    continue
+
                 next_status, affected = await llm_repo.mark_restructure_failed(
                     state.db,
                     video_id=video_id,
@@ -200,6 +227,8 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         provider,
                         extra={"event": "llm.restructure_failed", "worker": "llm", "code": error_code},
                     )
+                    if next_status == "llm_failed":
+                        await _sleep_with_wake(state, LLM_RETRYABLE_FAILURE_DELAY_SECONDS)
         except Exception:
             logger.exception(
                 "event=llm.worker_loop_failed worker=llm",

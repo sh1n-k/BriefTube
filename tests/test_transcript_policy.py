@@ -24,6 +24,8 @@ repository = SimpleNamespace(
     recover_stuck_transcript_jobs=transcripts_repo.recover_stuck_transcript_jobs,
     save_transcript=transcripts_repo.save_transcript,
     defer_channel_transcript_retries=transcripts_repo.defer_channel_transcript_retries,
+    pop_llm_candidate=llm_repo.pop_llm_candidate,
+    mark_restructure_processing=llm_repo.mark_restructure_processing,
     mark_restructure_failed=llm_repo.mark_restructure_failed,
     requeue_llm_pending_without_retry=llm_repo.requeue_llm_pending_without_retry,
     repair_orphan_llm_candidates=llm_repo.repair_orphan_llm_candidates,
@@ -645,6 +647,71 @@ def test_mark_restructure_failed_skips_when_video_is_not_llm_processing(client) 
     assert affected == 0
     assert pipeline_status == "done"
     assert retry_count == 0
+
+
+def test_llm_retry_count_floor_allows_at_least_one_attempt(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            ("UCllmfloor001", "LLM Floor Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCllmfloor001"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            """,
+            ("vid-llm-floor-001", "UCllmfloor001", "floor-video", "2026-02-21T00:00:00+00:00"),
+        )
+        conn.execute(
+            """
+            INSERT INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("vid-llm-floor-001", "hello", "ko", "manual"),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[str | None, int, str, int, str, int]:
+        db = await open_database(db_path)
+        try:
+            candidate = await repository.pop_llm_candidate(db, max_retry_count=0)
+            processing_affected = await repository.mark_restructure_processing(
+                db,
+                candidate["video_id"] if candidate else "",
+            )
+            next_status, failed_affected = await repository.mark_restructure_failed(
+                db,
+                video_id="vid-llm-floor-001",
+                retry_count=0,
+                max_retry_count=0,
+            )
+            cursor = await db.execute(
+                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+                ("vid-llm-floor-001",),
+            )
+            row = await cursor.fetchone()
+            return (
+                str(candidate["video_id"]) if candidate else None,
+                processing_affected,
+                next_status,
+                failed_affected,
+                str(row["pipeline_status"]),
+                int(row["retry_count"]),
+            )
+        finally:
+            await db.close()
+
+    candidate_id, processing_affected, next_status, affected, pipeline_status, retry_count = asyncio.run(_run())
+    assert candidate_id == "vid-llm-floor-001"
+    assert processing_affected == 1
+    assert next_status == "manual_review"
+    assert affected == 1
+    assert pipeline_status == "manual_review"
+    assert retry_count == 1
 
 
 def test_requeue_llm_pending_without_retry_keeps_retry_count(client) -> None:
