@@ -14,4 +14,3 @@ def format_channel_handle_display(raw_handle: str | None) -> str:
         return f"@{decoded}" if decoded else value
     decoded = unquote(value)
     return decoded if decoded else value
-

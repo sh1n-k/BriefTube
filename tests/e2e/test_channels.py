@@ -6,11 +6,11 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.e2e.seed_helpers import (
+    disable_all_workers,
     get_db_connection,
     seed_categories,
     seed_channel,
     seed_video,
-    disable_all_workers,
 )
 
 # ---------------------------------------------------------------------------
@@ -264,9 +264,7 @@ def test_channel_delete_single(page: Page) -> None:
     assert rows_before >= 1
 
     # Click delete button for the first channel
-    first_delete = page.locator(
-        "button[hx-post*='/delete']"
-    ).first
+    first_delete = page.locator("button[hx-post*='/delete']").first
     first_delete.click()
 
     expected_rows = rows_before - 1
@@ -367,7 +365,9 @@ def test_channel_bulk_resolve_form(page: Page) -> None:
     # Fill bulk text area with dummy content
     textarea = page.locator("textarea[name='bulk_text']")
     expect(textarea).to_be_visible()
-    textarea.fill("https://www.youtube.com/@testchannel123\nhttps://www.youtube.com/@anotherchannel")
+    textarea.fill(
+        "https://www.youtube.com/@testchannel123\nhttps://www.youtube.com/@anotherchannel"
+    )
 
     # Click resolve button
     resolve_btn = page.locator(
@@ -394,7 +394,9 @@ def test_channel_category_sidebar_filter(page: Page) -> None:
 
     # Click '투자' category from the sidebar (real user flow)
     invest_id = page._e2e_server["categories"]["투자"]
-    invest_link = sidebar.locator(f"a[href='/channels?status=active&category_id={invest_id}']").first
+    invest_link = sidebar.locator(
+        f"a[href='/channels?status=active&category_id={invest_id}']"
+    ).first
     expect(invest_link).to_be_visible()
     with page.expect_response(
         lambda res: (
@@ -418,7 +420,9 @@ def test_channel_category_all_restores(page: Page) -> None:
 
     sidebar = page.locator("#category-sidebar")
     invest_id = page._e2e_server["categories"]["투자"]
-    invest_link = sidebar.locator(f"a[href='/channels?status=active&category_id={invest_id}']").first
+    invest_link = sidebar.locator(
+        f"a[href='/channels?status=active&category_id={invest_id}']"
+    ).first
     with page.expect_response(
         lambda res: (
             "/views/channel-list" in res.url
@@ -520,7 +524,7 @@ def test_channel_category_sidebar_delete(page: Page) -> None:
     page.once("dialog", lambda dialog: dialog.accept())
 
     with page.expect_response(
-        lambda res: ("/views/categories/" in res.url and res.request.method == "DELETE" and res.ok)
+        lambda res: "/views/categories/" in res.url and res.request.method == "DELETE" and res.ok
     ):
         delete_btn.click(force=True)
     expect(page.locator(target_selector)).to_have_count(0)

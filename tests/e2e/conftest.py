@@ -40,8 +40,8 @@ def _find_free_port() -> int:
 
 
 def _wait_for_server(port: int, timeout: float = 15.0) -> None:
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     url = f"http://127.0.0.1:{port}/healthz"
     deadline = time.monotonic() + timeout

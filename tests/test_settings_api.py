@@ -4,8 +4,8 @@ import json
 import os
 import sqlite3
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.services.llm import LlmRuntimePlan
 from app.services.transcript_headers import (
@@ -60,10 +60,20 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
         "chat_id_source": "none",
     }
     assert initial.json()["videos_per_page"] == 8
-    assert initial.json()["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
-    assert initial.json()["transcript_request_headers"]["keys"] == list(TRANSCRIPT_REQUEST_HEADER_KEYS)
-    assert initial.json()["transcript_request_headers"]["field_names"] == TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS
-    assert initial.json()["transcript_request_headers"]["defaults"] == default_transcript_request_headers()
+    assert (
+        initial.json()["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
+    )
+    assert initial.json()["transcript_request_headers"]["keys"] == list(
+        TRANSCRIPT_REQUEST_HEADER_KEYS
+    )
+    assert (
+        initial.json()["transcript_request_headers"]["field_names"]
+        == TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS
+    )
+    assert (
+        initial.json()["transcript_request_headers"]["defaults"]
+        == default_transcript_request_headers()
+    )
     assert (
         initial.json()["transcript_request_headers"]["values"]["Accept-Language"]
         == default_transcript_request_headers()["Accept-Language"]
@@ -329,7 +339,9 @@ def test_settings_transcript_request_headers_rejects_unknown_key(client: TestCli
     assert response.status_code == 400
 
 
-def test_settings_transcript_request_headers_rejects_partial_field_payload(client: TestClient) -> None:
+def test_settings_transcript_request_headers_rejects_partial_field_payload(
+    client: TestClient,
+) -> None:
     response = client.put(
         "/api/settings/transcript-request-headers",
         json={
@@ -383,7 +395,10 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["llm_settings"]["provider_primary"] == "claude"
     assert response.json()["llm_settings"]["provider_fallback"] == "none"
-    assert response.json()["llm_settings"]["prompt_template"] == "Title={source_title}\\nBody={transcript_text}"
+    assert (
+        response.json()["llm_settings"]["prompt_template"]
+        == "Title={source_title}\\nBody={transcript_text}"
+    )
     assert response.json()["llm_settings"]["llm_model"] == {
         "codex": "gpt-5.4",
         "claude": "sonnet",
@@ -488,7 +503,9 @@ def test_settings_llm_rejects_invalid_reasoning_effort_value(client: TestClient)
     assert response.json()["detail"] == "reasoning_effort must be one of: high, low, medium"
 
 
-def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(client: TestClient) -> None:
+def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(
+    client: TestClient,
+) -> None:
     first = client.put(
         "/api/settings/llm",
         json={
@@ -543,6 +560,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
         "claude": "high",
         "gemini": "low",
     }
+
 
 def test_settings_llm_update_blocks_when_schema_preflight_fails(
     client: TestClient,
@@ -832,7 +850,11 @@ def test_settings_llm_resume_clears_auth_issue_for_worker_retry(
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCresume001", "Resume Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCresume001"),
+            (
+                "UCresume001",
+                "Resume Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCresume001",
+            ),
         )
         conn.execute(
             """

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -168,9 +168,15 @@ def test_add_channel_sets_created_at_on_legacy_db(tmp_path: Path) -> None:
 def test_retry_failed_channel_metadata_endpoint_queues_failed_rows(client: TestClient) -> None:
     client.app.state.runtime.channel_metadata_wake_event = _NoopWakeEvent()
     db_path = client.app.state.runtime.config.db_path
-    _insert_channel(db_path, "UCmdfailed001", "Failed One", metadata_status="failed", metadata_error="e1")
-    _insert_channel(db_path, "UCmdrate001", "Rate One", metadata_status="rate_limited", metadata_error="e2")
-    _insert_channel(db_path, "UCmdok001", "Success One", metadata_status="success", metadata_error=None)
+    _insert_channel(
+        db_path, "UCmdfailed001", "Failed One", metadata_status="failed", metadata_error="e1"
+    )
+    _insert_channel(
+        db_path, "UCmdrate001", "Rate One", metadata_status="rate_limited", metadata_error="e2"
+    )
+    _insert_channel(
+        db_path, "UCmdok001", "Success One", metadata_status="success", metadata_error=None
+    )
 
     response = client.post("/views/channels/metadata/retry-failed?status=active")
     assert response.status_code == 200
@@ -194,7 +200,9 @@ def test_retry_failed_channel_metadata_endpoint_queues_failed_rows(client: TestC
     ]
 
 
-def test_retry_failed_channel_metadata_respects_status_and_category_filters(client: TestClient) -> None:
+def test_retry_failed_channel_metadata_respects_status_and_category_filters(
+    client: TestClient,
+) -> None:
     client.app.state.runtime.channel_metadata_wake_event = _NoopWakeEvent()
     db_path = client.app.state.runtime.config.db_path
     with sqlite3.connect(db_path) as conn:
@@ -204,7 +212,9 @@ def test_retry_failed_channel_metadata_respects_status_and_category_filters(clie
             VALUES ('Retry-Filter', 50, 1, 'full', 0)
             """
         )
-        category_id = int(conn.execute("SELECT id FROM categories WHERE name='Retry-Filter'").fetchone()[0])
+        category_id = int(
+            conn.execute("SELECT id FROM categories WHERE name='Retry-Filter'").fetchone()[0]
+        )
         conn.commit()
 
     _insert_channel(
@@ -260,10 +270,14 @@ def test_retry_failed_channel_metadata_respects_status_and_category_filters(clie
     ]
 
 
-def test_retry_failed_channel_metadata_endpoint_returns_info_when_no_target(client: TestClient) -> None:
+def test_retry_failed_channel_metadata_endpoint_returns_info_when_no_target(
+    client: TestClient,
+) -> None:
     client.app.state.runtime.channel_metadata_wake_event = _NoopWakeEvent()
     db_path = client.app.state.runtime.config.db_path
-    _insert_channel(db_path, "UCmdok002", "Success Two", metadata_status="success", metadata_error=None)
+    _insert_channel(
+        db_path, "UCmdok002", "Success Two", metadata_status="success", metadata_error=None
+    )
 
     response = client.post("/views/channels/metadata/retry-failed?status=active")
     assert response.status_code == 200

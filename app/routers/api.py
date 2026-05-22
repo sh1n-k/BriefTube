@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import parse_qs
-from starlette.datastructures import UploadFile
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.datastructures import UploadFile
 
 from app.i18n import SUPPORTED_LANGUAGES, get_texts, normalize_language
 from app.repositories import categories as categories_repo
@@ -20,9 +21,14 @@ from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
+from app.routers import api_downloads
 from app.routers.helpers import htmx_trigger_header, parse_bool_input
 from app.routers.template_context import build_template_context
-from app.routers import api_downloads
+from app.services.bulk_channels import (
+    collect_inputs_from_sources,
+    parse_takeout_entries,
+    resolve_bulk_inputs,
+)
 from app.services.downloads import is_ffmpeg_available
 from app.services.llm_runtime import (
     LlmRuntimeStatus,
@@ -32,12 +38,6 @@ from app.services.llm_runtime import (
     runtime_reason_text_key,
 )
 from app.services.telegram import build_telegram_settings_payload, configure_telegram_notifier
-from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
-from app.services.bulk_channels import (
-    collect_inputs_from_sources,
-    parse_takeout_entries,
-    resolve_bulk_inputs,
-)
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
     TRANSCRIPT_REQUEST_HEADER_KEYS,
@@ -50,6 +50,7 @@ from app.services.transcript_headers import (
     parse_headers_multiline,
     validate_complete_header_fields,
 )
+from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
 
 router = APIRouter(prefix="/api", tags=["api"])
 router.include_router(api_downloads.router)
@@ -97,7 +98,7 @@ async def _build_telegram_settings_fragment_context(request: Request) -> dict[st
     )
 
 
-async def _resolve_llm_runtime_status(request: Request) -> dict[str, object]:
+async def _resolve_llm_runtime_status(request: Request) -> dict[str, Any]:
     llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
     runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
     pending_count = await llm_repo.count_llm_pending_videos(request.app.state.runtime.db)
@@ -139,7 +140,7 @@ async def create_category(request: Request):
     try:
         category = await categories_repo.create_category(request.app.state.runtime.db, name=name)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return category
 
 
@@ -172,9 +173,11 @@ async def update_category(category_id: int, request: Request):
             name = str(payload.get("name", "")).strip()
         if "processing_stage" in payload:
             try:
-                processing_stage = categories_repo.parse_category_processing_stage(payload.get("processing_stage"))
+                processing_stage = categories_repo.parse_category_processing_stage(
+                    payload.get("processing_stage")
+                )
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
         body = (await request.body()).decode("utf-8")
         parsed = parse_qs(body)
@@ -182,14 +185,18 @@ async def update_category(category_id: int, request: Request):
             name = str(parsed["name"][0]).strip()
         if "processing_stage" in parsed:
             try:
-                processing_stage = categories_repo.parse_category_processing_stage(parsed["processing_stage"][0])
+                processing_stage = categories_repo.parse_category_processing_stage(
+                    parsed["processing_stage"][0]
+                )
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     result: dict[str, object] = {"ok": True}
     try:
         if name is not None:
-            rows = await categories_repo.rename_category(request.app.state.runtime.db, category_id, name)
+            rows = await categories_repo.rename_category(
+                request.app.state.runtime.db, category_id, name
+            )
             if rows == 0:
                 raise HTTPException(status_code=404, detail="category not found")
             result["renamed"] = True
@@ -203,7 +210,7 @@ async def update_category(category_id: int, request: Request):
                 raise HTTPException(status_code=404, detail="category not found")
             result["processing_stage"] = processing_stage
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
 
 
@@ -212,7 +219,7 @@ async def delete_category(category_id: int, request: Request):
     try:
         result = await categories_repo.delete_category(request.app.state.runtime.db, category_id)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, **result}
 
 
@@ -231,10 +238,12 @@ async def move_channels_to_category(category_id: int, request: Request):
         raise HTTPException(status_code=400, detail="channel_ids is required")
     try:
         moved = await categories_repo.move_channels_to_category(
-            request.app.state.runtime.db, channel_ids, category_id,
+            request.app.state.runtime.db,
+            channel_ids,
+            category_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "moved": moved}
 
 
@@ -268,10 +277,16 @@ async def create_channel(request: Request):
         channel_id = str((parsed.get("channel_id") or [""])[0]).strip()
         channel_name = str((parsed.get("channel_name") or [""])[0]).strip()
         channel_handle = str((parsed.get("channel_handle") or [""])[0]).strip() or None
-        channel_url_canonical = str((parsed.get("channel_url_canonical") or [""])[0]).strip() or None
-        channel_thumbnail_url = str((parsed.get("channel_thumbnail_url") or [""])[0]).strip() or None
+        channel_url_canonical = (
+            str((parsed.get("channel_url_canonical") or [""])[0]).strip() or None
+        )
+        channel_thumbnail_url = (
+            str((parsed.get("channel_thumbnail_url") or [""])[0]).strip() or None
+        )
         channel_description = str((parsed.get("channel_description") or [""])[0]).strip() or None
-        channel_language_hint = str((parsed.get("channel_language_hint") or [""])[0]).strip() or None
+        channel_language_hint = (
+            str((parsed.get("channel_language_hint") or [""])[0]).strip() or None
+        )
 
     if not channel_id or not channel_name:
         raise HTTPException(status_code=400, detail="channel_id and channel_name are required")
@@ -307,9 +322,13 @@ async def resolve_bulk_channels(request: Request):
     if "application/json" in content_type:
         payload = await request.json()
         bulk_text = str(payload.get("bulk_text", ""))
-        raw_entries = [str(item).strip() for item in payload.get("takeout_entries", []) if str(item).strip()]
+        raw_entries = [
+            str(item).strip() for item in payload.get("takeout_entries", []) if str(item).strip()
+        ]
         if raw_entries:
-            takeout_data = parse_takeout_entries("takeout.txt", "\n".join(raw_entries).encode("utf-8"))
+            takeout_data = parse_takeout_entries(
+                "takeout.txt", "\n".join(raw_entries).encode("utf-8")
+            )
         else:
             takeout_data = parse_takeout_entries("takeout.txt", b"")
     else:
@@ -369,7 +388,7 @@ async def commit_bulk_channels(request: Request):
         form = await request.form()
         resolved_ids = list(form.getlist("resolved_channel_id"))
         resolved_names = list(form.getlist("resolved_channel_name"))
-        for channel_id, channel_name in zip(resolved_ids, resolved_names):
+        for channel_id, channel_name in zip(resolved_ids, resolved_names, strict=False):
             items.append({"channel_id": channel_id, "channel_name": channel_name})
 
         for key in form.keys():
@@ -427,7 +446,7 @@ async def export_channels(
 ):
     db = request.app.state.runtime.db
     channels = await channels_repo.list_channels_for_management(db, status, category_id)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     export_data = {
         "version": 1,
         "exported_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -463,8 +482,8 @@ async def import_channels(request: Request):
     try:
         raw = await upload.read()
         data = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise HTTPException(status_code=400, detail="invalid json file")
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid json file") from exc
 
     if not isinstance(data, dict) or data.get("version") != 1:
         raise HTTPException(status_code=400, detail="unsupported export version")
@@ -599,10 +618,12 @@ async def trigger_poll(request: Request):
 async def queue_poll(request: Request):
     db = request.app.state.runtime.db
     transcript_items = await transcripts_repo.list_queue_items(
-        db, transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
+        db,
+        transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
     )
     llm_items = await transcripts_repo.list_queue_items(
-        db, llm_repo.LLM_QUEUE_STATUSES,
+        db,
+        llm_repo.LLM_QUEUE_STATUSES,
     )
     counts = await transcripts_repo.queue_status(db)
     workers = await settings_repo.get_worker_settings(db)
@@ -701,9 +722,13 @@ async def request_videos_article(request: Request):
         video_ids=video_ids,
     )
     new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-    retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    retry_count = (
+        int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    )
     skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-    failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    failed_count = (
+        int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+    )
 
     if (new_count + retry_count) > 0:
         request.app.state.runtime.manual_article_wake_event.set()
@@ -728,7 +753,9 @@ async def request_videos_article(request: Request):
 
 @router.post("/videos/{video_id}/transcript/retry")
 async def retry_transcript(video_id: str, request: Request):
-    affected = await transcripts_repo.reset_transcript_for_retry(request.app.state.runtime.db, video_id)
+    affected = await transcripts_repo.reset_transcript_for_retry(
+        request.app.state.runtime.db, video_id
+    )
     if affected == 0:
         raise HTTPException(status_code=404, detail="Transcript retry target not found")
     return {"ok": True, "video_id": video_id}
@@ -744,16 +771,20 @@ async def get_settings(request: Request):
     workers = await settings_repo.get_worker_settings(request.app.state.runtime.db)
     policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
     videos_per_page = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
-    transcript_guard = await transcripts_repo.get_transcript_guard_state(request.app.state.runtime.db)
+    transcript_guard = await transcripts_repo.get_transcript_guard_state(
+        request.app.state.runtime.db
+    )
     timezone_value = await settings_repo.get_setting(
         request.app.state.runtime.db,
         key="timezone",
         default="Asia/Seoul",
     )
-    transcript_request_header_overrides = await transcripts_repo.get_transcript_request_header_overrides(
-        request.app.state.runtime.db
+    transcript_request_header_overrides = (
+        await transcripts_repo.get_transcript_request_header_overrides(request.app.state.runtime.db)
     )
-    transcript_request_headers = _build_transcript_header_payload(transcript_request_header_overrides)
+    transcript_request_headers = _build_transcript_header_payload(
+        transcript_request_header_overrides
+    )
     download_defaults = await downloads_repo.get_download_default_settings(
         request.app.state.runtime.db,
         default_output_dir=request.app.state.runtime.config.download_dir,
@@ -824,7 +855,7 @@ async def set_transcript_request_headers(request: Request):
 
         overrides = compact_header_overrides(parsed, strict=True)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     saved_overrides = await transcripts_repo.save_transcript_request_header_overrides(
         request.app.state.runtime.db,
@@ -862,17 +893,13 @@ async def set_llm_settings(request: Request):
             llm_model_payload = payload.get("llm_model")
             if not isinstance(llm_model_payload, dict):
                 raise HTTPException(status_code=400, detail="llm_model must be object")
-            llm_model = {
-                key: str(value or "")
-                for key, value in llm_model_payload.items()
-            }
+            llm_model = {key: str(value or "") for key, value in llm_model_payload.items()}
         if "llm_reasoning_effort" in payload:
             llm_reasoning_effort_payload = payload.get("llm_reasoning_effort")
             if not isinstance(llm_reasoning_effort_payload, dict):
                 raise HTTPException(status_code=400, detail="llm_reasoning_effort must be object")
             llm_reasoning_effort = {
-                key: str(value or "")
-                for key, value in llm_reasoning_effort_payload.items()
+                key: str(value or "") for key, value in llm_reasoning_effort_payload.items()
             }
     else:
         form = await request.form()
@@ -926,7 +953,7 @@ async def set_llm_settings(request: Request):
             persist=False,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     runtime_plan = request.app.state.runtime.llm_client.resolve_runtime_plan(candidate)
     runtime_reason = str(runtime_plan.blocking_reason or "").strip().lower()
@@ -1008,12 +1035,7 @@ async def set_telegram_settings(request: Request):
         clear_bot_token = parse_bool_input(form.get("telegram_clear_bot_token"), default=False)
         clear_chat_id = parse_bool_input(form.get("telegram_clear_chat_id"), default=False)
 
-    if (
-        bot_token is None
-        and chat_id is None
-        and not clear_bot_token
-        and not clear_chat_id
-    ):
+    if bot_token is None and chat_id is None and not clear_bot_token and not clear_chat_id:
         raise HTTPException(status_code=400, detail="empty telegram settings payload")
 
     if not clear_bot_token and bot_token is not None and not str(bot_token).strip():
@@ -1021,12 +1043,7 @@ async def set_telegram_settings(request: Request):
     if not clear_chat_id and chat_id is not None and not str(chat_id).strip():
         chat_id = None
 
-    if (
-        bot_token is None
-        and chat_id is None
-        and not clear_bot_token
-        and not clear_chat_id
-    ):
+    if bot_token is None and chat_id is None and not clear_bot_token and not clear_chat_id:
         raise HTTPException(status_code=400, detail="empty telegram settings payload")
 
     try:
@@ -1038,7 +1055,7 @@ async def set_telegram_settings(request: Request):
             clear_chat_id=clear_chat_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     configure_telegram_notifier(
         request.app.state.runtime.telegram_notifier,
@@ -1169,8 +1186,8 @@ async def set_videos_per_page(request: Request):
 
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="videos_per_page must be integer")
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="videos_per_page must be integer") from exc
 
     saved = await settings_repo.set_videos_per_page_setting(request.app.state.runtime.db, value)
     return {"ok": True, "videos_per_page": saved}
@@ -1232,8 +1249,8 @@ async def set_policy(request: Request):
             feed_mode_raw = str(form.get("rss_feed_mode", "")).strip()
             if feed_mode_raw:
                 feed_mode_value = feed_mode_raw
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="policy values must be integers")
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="policy values must be integers") from exc
 
     saved = await settings_repo.set_policy_settings(
         request.app.state.runtime.db,

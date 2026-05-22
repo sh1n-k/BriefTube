@@ -5,8 +5,8 @@ import os
 
 from fastapi.testclient import TestClient
 
-from app.repositories import transcripts as repository
 from app.database import open_database
+from app.repositories import transcripts as repository
 
 
 def test_get_settings_includes_transcript_guard_defaults(client: TestClient) -> None:

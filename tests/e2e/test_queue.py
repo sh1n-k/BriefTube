@@ -304,9 +304,7 @@ def test_queue_empty_state(empty_queue_page: Page):
     expect(llm_list).to_be_visible()
     llm_empty = llm_list.locator("p")
     expect(llm_empty).to_be_visible()
-    expect(llm_empty).to_have_text(
-        re.compile(r"LLM.*비어 있습니다|LLM queue is empty")
-    )
+    expect(llm_empty).to_have_text(re.compile(r"LLM.*비어 있습니다|LLM queue is empty"))
 
     # Total counts should be 0
     transcript_count = page.locator("[data-queue-transcript-count]")

@@ -100,7 +100,11 @@ async def _send_with_retry(
                     status,
                     attempt,
                     transient,
-                    extra={"event": "notifier.send_http_error", "worker": "notifier", "code": str(status or "-")},
+                    extra={
+                        "event": "notifier.send_http_error",
+                        "worker": "notifier",
+                        "code": str(status or "-"),
+                    },
                 )
                 return False, last_reason
             delay = retry_after if retry_after is not None else _capped_backoff_seconds(attempt)
@@ -110,7 +114,11 @@ async def _send_with_retry(
                 status,
                 attempt,
                 delay,
-                extra={"event": "notifier.send_retry", "worker": "notifier", "code": str(status or "-")},
+                extra={
+                    "event": "notifier.send_retry",
+                    "worker": "notifier",
+                    "code": str(status or "-"),
+                },
             )
             await asyncio.sleep(min(NOTIFIER_BACKOFF_MAX_SECONDS, delay))
             continue
@@ -122,7 +130,11 @@ async def _send_with_retry(
                     batch_size,
                     last_reason,
                     attempt,
-                    extra={"event": "notifier.send_network_error", "worker": "notifier", "code": last_reason},
+                    extra={
+                        "event": "notifier.send_network_error",
+                        "worker": "notifier",
+                        "code": last_reason,
+                    },
                 )
                 return False, last_reason
             delay = _capped_backoff_seconds(attempt)
@@ -142,7 +154,11 @@ async def _send_with_retry(
                 "event=notifier.send_unhandled_error worker=notifier batch_size=%s attempt=%s",
                 batch_size,
                 attempt,
-                extra={"event": "notifier.send_unhandled_error", "worker": "notifier", "code": exc.__class__.__name__},
+                extra={
+                    "event": "notifier.send_unhandled_error",
+                    "worker": "notifier",
+                    "code": exc.__class__.__name__,
+                },
             )
             return False, last_reason
 
@@ -198,7 +214,7 @@ async def run_telegram_notifier(state: AppState) -> None:
         try:
             try:
                 item = await asyncio.wait_for(state.notification_queue.get(), timeout=3)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             batch = [item]
 
@@ -236,7 +252,11 @@ async def run_telegram_notifier(state: AppState) -> None:
                     "event=notifier.batch_dropped worker=notifier batch_size=%s reason=%s",
                     len(batch),
                     reason,
-                    extra={"event": "notifier.batch_dropped", "worker": "notifier", "code": reason or "-"},
+                    extra={
+                        "event": "notifier.batch_dropped",
+                        "worker": "notifier",
+                        "code": reason or "-",
+                    },
                 )
         except Exception:
             logger.exception(

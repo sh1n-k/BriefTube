@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
 import logging
-from pathlib import Path
 import sqlite3
-from typing import Any, Mapping
+from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any, cast
 
 import aiosqlite
+
 from app.services.downloads import validate_download_output_dir
 from app.services.llm import (
     LLM_CODEX_MODEL_DEFAULT,
@@ -20,8 +22,8 @@ from app.services.llm import (
     LLM_PROVIDER_GEMINI,
     LLM_PROVIDER_NONE,
     LLM_PROVIDER_OPTIONS,
-    LLM_REASONING_EFFORT_OPTIONS,
     LLM_REASONING_EFFORT_GEMINI_OPTIONS,
+    LLM_REASONING_EFFORT_OPTIONS,
     normalize_codex_model,
     normalize_llm_provider,
 )
@@ -82,7 +84,7 @@ VIDEOS_PER_PAGE_DEFAULT = 8
 DOWNLOAD_DEFAULT_QUALITY_KEY = "download_default_quality"
 DOWNLOAD_DEFAULT_OVERWRITE_KEY = "download_default_overwrite"
 DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY = "download_output_dir"
-TELEGRAM_BOT_TOKEN_KEY = "telegram_bot_token"
+TELEGRAM_BOT_TOKEN_KEY = "telegram_bot_token"  # noqa: S105 -- settings key name, not a credential
 TELEGRAM_CHAT_ID_KEY = "telegram_chat_id"
 DOWNLOAD_QUALITY_DEFAULT = "1080"
 DOWNLOAD_OUTPUT_DIR_DEFAULT = "./downloads"
@@ -175,7 +177,12 @@ VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES: tuple[str, ...] = (
     "manual_review",
     "done",
 )
-TRANSCRIPT_QUEUE_STATUSES = ("transcript_pending", "transcript_processing", "transcript_failed", "no_subtitle")
+TRANSCRIPT_QUEUE_STATUSES = (
+    "transcript_pending",
+    "transcript_processing",
+    "transcript_failed",
+    "no_subtitle",
+)
 LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_review")
 logger = logging.getLogger(__name__)
 
@@ -214,7 +221,7 @@ def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
     return {k: row[k] for k in row.keys()}
 
 
-def _rows_to_dicts(rows: list[aiosqlite.Row]) -> list[dict[str, Any]]:
+def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
     return [{k: row[k] for k in row.keys()} for row in rows]
 
 
@@ -252,7 +259,9 @@ def _parse_int_setting(value: str | None, default: int, min_value: int, max_valu
     return max(min_value, min(max_value, parsed))
 
 
-def _parse_float_setting(value: str | None, default: float, min_value: float, max_value: float) -> float:
+def _parse_float_setting(
+    value: str | None, default: float, min_value: float, max_value: float
+) -> float:
     try:
         parsed = float(str(value).strip()) if value is not None else default
     except (TypeError, ValueError):
@@ -285,7 +294,9 @@ async def get_settings_map(
     return resolved
 
 
-def normalize_category_processing_stage(value: str | None, *, default: str = CATEGORY_PROCESSING_STAGE_OFF) -> str:
+def normalize_category_processing_stage(
+    value: str | None, *, default: str = CATEGORY_PROCESSING_STAGE_OFF
+) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in CATEGORY_PROCESSING_STAGE_OPTIONS:
         return normalized
@@ -431,8 +442,8 @@ def _parse_datetime_setting(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _normalize_error_message(value: str | None) -> str:
@@ -479,14 +490,16 @@ def _normalize_optional_text(value: object | None, *, max_length: int) -> str | 
 def _normalize_optional_int(value: object | None) -> int | None:
     if value is None or value == "":
         return None
-    try:
+    if isinstance(value, bool):
         return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    if isinstance(value, int | float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _next_metadata_backoff_minutes(
@@ -540,8 +553,8 @@ async def create_category(db: aiosqlite.Connection, name: str) -> dict[str, Any]
             "INSERT INTO categories (name, sort_order, processing_stage) VALUES (?, ?, ?)",
             (name, next_order, CATEGORY_PROCESSING_STAGE_OFF),
         )
-    except (aiosqlite.IntegrityError, sqlite3.IntegrityError):
-        raise ValueError(f"category name already exists: {name}")
+    except (aiosqlite.IntegrityError, sqlite3.IntegrityError) as exc:
+        raise ValueError(f"category name already exists: {name}") from exc
     await db.commit()
     cat_cursor = await db.execute(
         "SELECT id, name, sort_order, processing_stage, is_default, created_at FROM categories WHERE name = ?",
@@ -560,8 +573,8 @@ async def rename_category(db: aiosqlite.Connection, category_id: int, name: str)
             "UPDATE categories SET name = ? WHERE id = ?",
             (name, category_id),
         )
-    except (aiosqlite.IntegrityError, sqlite3.IntegrityError):
-        raise ValueError(f"category name already exists: {name}")
+    except (aiosqlite.IntegrityError, sqlite3.IntegrityError) as exc:
+        raise ValueError(f"category name already exists: {name}") from exc
     await db.commit()
     return int(cursor.rowcount or 0)
 
@@ -587,7 +600,9 @@ async def delete_category(db: aiosqlite.Connection, category_id: int) -> dict[st
     return {"deleted": 1, "channels_moved": channels_moved}
 
 
-async def update_category_processing_stage(db: aiosqlite.Connection, category_id: int, processing_stage: str) -> int:
+async def update_category_processing_stage(
+    db: aiosqlite.Connection, category_id: int, processing_stage: str
+) -> int:
     safe_stage = normalize_category_processing_stage(processing_stage)
     cursor = await db.execute(
         "UPDATE categories SET processing_stage = ? WHERE id = ?",
@@ -1166,9 +1181,7 @@ async def mark_channel_metadata_failed(
     )
     safe_http_status = _normalize_optional_int(http_status)
     status = (
-        CHANNEL_METADATA_STATUS_RATE_LIMITED
-        if is_rate_limited
-        else CHANNEL_METADATA_STATUS_FAILED
+        CHANNEL_METADATA_STATUS_RATE_LIMITED if is_rate_limited else CHANNEL_METADATA_STATUS_FAILED
     )
     cursor = await db.execute(
         """
@@ -1313,7 +1326,9 @@ async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]
     return _rows_to_dicts(rows)
 
 
-async def update_channel_watermark(db: aiosqlite.Connection, channel_id: str, published_at: str) -> None:
+async def update_channel_watermark(
+    db: aiosqlite.Connection, channel_id: str, published_at: str
+) -> None:
     await db.execute(
         "UPDATE channels SET last_seen_published_at = ? WHERE channel_id = ?",
         (published_at, channel_id),
@@ -1683,7 +1698,9 @@ async def get_article(db: aiosqlite.Connection, video_id: str) -> dict[str, Any]
     return _row_to_dict(row)
 
 
-async def search_documents(db: aiosqlite.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
+async def search_documents(
+    db: aiosqlite.Connection, query: str, limit: int = 20
+) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """
         SELECT * FROM (
@@ -1813,7 +1830,9 @@ async def mark_video_retry(db: aiosqlite.Connection, video_id: str) -> int:
     return cursor.rowcount
 
 
-async def requeue_done_video_for_manual_article_retry(db: aiosqlite.Connection, video_id: str) -> int:
+async def requeue_done_video_for_manual_article_retry(
+    db: aiosqlite.Connection, video_id: str
+) -> int:
     cursor = await db.execute(
         """
         UPDATE videos
@@ -2088,7 +2107,9 @@ async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) ->
     return cursor.rowcount
 
 
-async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> dict[str, Any] | None:
+async def pop_llm_candidate(
+    db: aiosqlite.Connection, max_retry_count: int
+) -> dict[str, Any] | None:
     safe_max_retry_count = max(1, int(max_retry_count))
     cursor = await db.execute(
         """
@@ -2386,7 +2407,7 @@ async def set_llm_runtime_issue(
     normalized_message = str(message or "").strip()
     normalized_seen_at = str(seen_at or "").strip()
     if not normalized_seen_at:
-        normalized_seen_at = datetime.now(timezone.utc).isoformat()
+        normalized_seen_at = datetime.now(UTC).isoformat()
     await set_setting(db, key=LLM_RUNTIME_LAST_CODE_KEY, value=normalized_code)
     await set_setting(db, key=LLM_RUNTIME_LAST_MESSAGE_KEY, value=normalized_message)
     await set_setting(db, key=LLM_RUNTIME_LAST_SEEN_AT_KEY, value=normalized_seen_at)
@@ -2434,8 +2455,9 @@ async def get_transcript_request_header_overrides(db: aiosqlite.Connection) -> d
         return {}
     if not isinstance(parsed, dict):
         return {}
+    parsed_dict = cast(dict[Any, Any], parsed)
     overrides: dict[str, str] = {}
-    for key, value in parsed.items():
+    for key, value in parsed_dict.items():
         overrides[str(key).strip()] = str(value).strip()
     return overrides
 
@@ -2465,7 +2487,7 @@ async def acquire_transcript_worker_lease(
     if not safe_owner:
         return False
     ttl = max(5, int(ttl_seconds))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await db.execute("BEGIN IMMEDIATE")
     try:
         owner_cursor = await db.execute(
@@ -2479,7 +2501,9 @@ async def acquire_transcript_worker_lease(
         )
         until_row = await until_cursor.fetchone()
         current_owner = str(owner_row["value"] if owner_row is not None else "").strip()
-        current_until = _parse_datetime_setting(str(until_row["value"] if until_row is not None else ""))
+        current_until = _parse_datetime_setting(
+            str(until_row["value"] if until_row is not None else "")
+        )
 
         if current_owner and current_owner != safe_owner and current_until and current_until > now:
             await db.rollback()
@@ -2533,7 +2557,7 @@ async def renew_transcript_worker_lease(
             await db.rollback()
             return False
         ttl = max(5, int(ttl_seconds))
-        lease_until = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+        lease_until = datetime.now(UTC) + timedelta(seconds=ttl)
         await db.execute(
             """
             INSERT INTO app_settings(key, value)
@@ -2610,14 +2634,24 @@ async def get_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, Any]
         breaker_state = "closed"
     last_channel_attempt = _parse_datetime_setting(str(last_channel_attempt_raw or ""))
     return {
-        "adaptive_factor": _parse_float_setting(adaptive_raw, default=1.0, min_value=1.0, max_value=64.0),
+        "adaptive_factor": _parse_float_setting(
+            adaptive_raw, default=1.0, min_value=1.0, max_value=64.0
+        ),
         "cooldown_until": cooldown_until,
-        "consecutive_hard_errors": _parse_int_setting(hard_raw, default=0, min_value=0, max_value=100000),
-        "consecutive_successes": _parse_int_setting(success_raw, default=0, min_value=0, max_value=100000),
+        "consecutive_hard_errors": _parse_int_setting(
+            hard_raw, default=0, min_value=0, max_value=100000
+        ),
+        "consecutive_successes": _parse_int_setting(
+            success_raw, default=0, min_value=0, max_value=100000
+        ),
         "breaker_state": breaker_state,
-        "half_open_probe_remaining": _parse_int_setting(probe_raw, default=1, min_value=1, max_value=1000),
+        "half_open_probe_remaining": _parse_int_setting(
+            probe_raw, default=1, min_value=1, max_value=1000
+        ),
         "last_channel_id": str(last_channel_raw or "").strip() or None,
-        "last_channel_attempt_at": last_channel_attempt.isoformat() if last_channel_attempt else None,
+        "last_channel_attempt_at": last_channel_attempt.isoformat()
+        if last_channel_attempt
+        else None,
     }
 
 
@@ -2745,8 +2779,8 @@ async def set_policy_settings(
     rss_feed_mode: str | None = None,
 ) -> dict[str, int | str]:
     current = await get_policy_settings(db)
-    lookback_value = current["rss_bootstrap_lookback_days"]
-    retention_value = current["retention_days"]
+    lookback_value = int(current["rss_bootstrap_lookback_days"])
+    retention_value = int(current["retention_days"])
 
     if rss_bootstrap_lookback_days is not None:
         lookback_value = _parse_int_setting(
@@ -2994,11 +3028,7 @@ async def set_llm_settings(
             "gemini": next_model_gemini,
         }
         next_model_payload.update(
-            {
-                key: value
-                for key, value in llm_model.items()
-                if key in {"codex", "claude", "gemini"}
-            }
+            {key: value for key, value in llm_model.items() if key in {"codex", "claude", "gemini"}}
         )
         validated_model = _validate_llm_model_settings(next_model_payload)
         next_model_codex = validated_model["codex"]
@@ -3118,8 +3148,7 @@ async def list_unacknowledged_alert_groups(
           ON t.alert_type = s.alert_type
         WHERE s.acknowledged_at IS NULL
         ORDER BY t.latest_created_at DESC, s.alert_type DESC, s.created_at DESC, s.id DESC
-        """
-        ,
+        """,
         (safe_limit,),
     )
     rows = await cursor.fetchall()
@@ -3130,16 +3159,21 @@ async def list_unacknowledged_alert_groups(
         alert_type = str(alert.get("alert_type") or "").strip() or "unknown"
         group = grouped.get(alert_type)
         if group is None:
+            members: list[dict[str, Any]] = []
             group = {
                 "alert_type": alert_type,
                 "count": 0,
-                "latest_created_at": str(alert.get("latest_created_at") or alert.get("created_at") or ""),
-                "members": [],
+                "latest_created_at": str(
+                    alert.get("latest_created_at") or alert.get("created_at") or ""
+                ),
+                "members": members,
             }
             grouped[alert_type] = group
+        else:
+            members = cast(list[dict[str, Any]], group["members"])
 
-        group["count"] = int(group["count"]) + 1
-        group["members"].append(
+        group["count"] = cast(int, group["count"]) + 1
+        members.append(
             {
                 "id": alert["id"],
                 "channel_id": alert["channel_id"],
@@ -3151,7 +3185,10 @@ async def list_unacknowledged_alert_groups(
 
     groups = list(grouped.values())
     groups.sort(
-        key=lambda item: (str(item.get("latest_created_at") or ""), str(item.get("alert_type") or "")),
+        key=lambda item: (
+            str(item.get("latest_created_at") or ""),
+            str(item.get("alert_type") or ""),
+        ),
         reverse=True,
     )
     return groups[:safe_limit]
@@ -3199,7 +3236,9 @@ async def count_retention_expired_videos(db: aiosqlite.Connection, retention_day
     return int((row["cnt"] if row else 0) or 0)
 
 
-async def list_retention_expired_video_ids(db: aiosqlite.Connection, retention_days: int) -> list[str]:
+async def list_retention_expired_video_ids(
+    db: aiosqlite.Connection, retention_days: int
+) -> list[str]:
     modifier = f"-{max(1, int(retention_days))} days"
     cursor = await db.execute(
         """
@@ -3214,7 +3253,9 @@ async def list_retention_expired_video_ids(db: aiosqlite.Connection, retention_d
     return [str(row["video_id"]) for row in rows]
 
 
-async def list_retention_expired_videos(db: aiosqlite.Connection, retention_days: int) -> list[dict[str, Any]]:
+async def list_retention_expired_videos(
+    db: aiosqlite.Connection, retention_days: int
+) -> list[dict[str, Any]]:
     modifier = f"-{max(1, int(retention_days))} days"
     cursor = await db.execute(
         """
@@ -3444,7 +3485,10 @@ async def enqueue_manual_article_jobs(
         tuple(normalized_ids),
     )
     video_rows = await videos_cursor.fetchall()
-    video_status_map = {str(row["video_id"]): str(row["pipeline_status"] or "").strip().lower() for row in video_rows}
+    video_status_map = {
+        str(row["video_id"]): str(row["pipeline_status"] or "").strip().lower()
+        for row in video_rows
+    }
 
     active_cursor = await db.execute(
         f"""
@@ -3473,7 +3517,9 @@ async def enqueue_manual_article_jobs(
             summary["skip"].append(video_id)
             continue
 
-        category = "retry" if pipeline_status in MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES else "new"
+        category = (
+            "retry" if pipeline_status in MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES else "new"
+        )
         try:
             await db.execute(
                 """
@@ -3646,7 +3692,9 @@ async def recover_stuck_manual_article_jobs(
         where_clauses.append("updated_at <= datetime('now', ?)")
         query_params.extend([threshold, threshold])
         recovery_mode = "runtime"
-        error_message = f"manual article worker stale timeout exceeded ({safe_stale_after_seconds}s)"
+        error_message = (
+            f"manual article worker stale timeout exceeded ({safe_stale_after_seconds}s)"
+        )
 
     normalized_exclude_ids: list[int] = []
     for raw_job_id in exclude_job_ids or []:
@@ -3670,7 +3718,7 @@ async def recover_stuck_manual_article_jobs(
             error_message = ?,
             finished_at = datetime('now'),
             updated_at = datetime('now')
-        WHERE {' AND '.join(where_clauses)}
+        WHERE {" AND ".join(where_clauses)}
         """,
         (error_message, *query_params),
     )
@@ -3687,7 +3735,9 @@ async def recover_stuck_manual_article_jobs(
     return recovered
 
 
-async def ensure_video_llm_pending_for_manual_article(db: aiosqlite.Connection, video_id: str) -> int:
+async def ensure_video_llm_pending_for_manual_article(
+    db: aiosqlite.Connection, video_id: str
+) -> int:
     normalized_video_id = str(video_id).strip()
     if not normalized_video_id:
         return 0
@@ -3845,7 +3895,9 @@ async def enqueue_manual_transcript_job(
             (normalized_video_id,),
         )
     except sqlite3.IntegrityError:
-        active_after_race = await get_active_manual_transcript_job_for_video(db, normalized_video_id)
+        active_after_race = await get_active_manual_transcript_job_for_video(
+            db, normalized_video_id
+        )
         return {
             "status": "skipped",
             "reason": "active_job_exists",
@@ -4018,7 +4070,9 @@ async def recover_stuck_manual_transcript_jobs(
         where_clauses.append("COALESCE(started_at, updated_at, requested_at) <= datetime('now', ?)")
         where_clauses.append("updated_at <= datetime('now', ?)")
         query_params.extend([threshold, threshold])
-        query_params[0] = f"manual transcript worker stale timeout exceeded ({safe_stale_after_seconds}s)"
+        query_params[0] = (
+            f"manual transcript worker stale timeout exceeded ({safe_stale_after_seconds}s)"
+        )
 
     normalized_exclude_ids = sorted(
         {
@@ -4039,7 +4093,7 @@ async def recover_stuck_manual_transcript_jobs(
             error_message = ?,
             finished_at = datetime('now'),
             updated_at = datetime('now')
-        WHERE {' AND '.join(where_clauses)}
+        WHERE {" AND ".join(where_clauses)}
         """,
         tuple(query_params),
     )
@@ -4060,7 +4114,10 @@ async def get_download_default_settings(
     *,
     default_output_dir: str | None = None,
 ) -> dict[str, Any]:
-    default_dir_raw = str(default_output_dir or DOWNLOAD_OUTPUT_DIR_DEFAULT).strip() or DOWNLOAD_OUTPUT_DIR_DEFAULT
+    default_dir_raw = (
+        str(default_output_dir or DOWNLOAD_OUTPUT_DIR_DEFAULT).strip()
+        or DOWNLOAD_OUTPUT_DIR_DEFAULT
+    )
     settings = await get_settings_map(
         db,
         {
@@ -4097,9 +4154,13 @@ async def set_download_default_settings(
         db,
         default_output_dir=default_output_dir,
     )
-    next_quality = _normalize_download_quality(quality) if quality is not None else str(current["quality"])
+    next_quality = (
+        _normalize_download_quality(quality) if quality is not None else str(current["quality"])
+    )
     next_overwrite = bool(overwrite) if overwrite is not None else bool(current["overwrite"])
-    next_output_dir = str(output_dir or "").strip() if output_dir is not None else str(current["output_dir"])
+    next_output_dir = (
+        str(output_dir or "").strip() if output_dir is not None else str(current["output_dir"])
+    )
     validation = validate_download_output_dir(
         next_output_dir,
         require_absolute=True,
@@ -4108,7 +4169,9 @@ async def set_download_default_settings(
     if not validation.ok:
         raise ValueError(validation.error_code or "download_path_invalid")
     await set_setting(db, key=DOWNLOAD_DEFAULT_QUALITY_KEY, value=next_quality)
-    await set_setting(db, key=DOWNLOAD_DEFAULT_OVERWRITE_KEY, value="true" if next_overwrite else "false")
+    await set_setting(
+        db, key=DOWNLOAD_DEFAULT_OVERWRITE_KEY, value="true" if next_overwrite else "false"
+    )
     await set_setting(db, key=DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY, value=validation.normalized_path)
     return await get_download_default_settings(
         db,

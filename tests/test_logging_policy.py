@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import time
+from pathlib import Path
 
 from app.config import AppConfig
 from app.logging_setup import NoiseGateFilter, configure_logging

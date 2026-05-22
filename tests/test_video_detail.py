@@ -34,7 +34,11 @@ def _seed_video(
             INSERT OR IGNORE INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            (channel_id, channel_name, f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"),
+            (
+                channel_id,
+                channel_name,
+                f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+            ),
         )
         conn.execute(
             """
@@ -118,13 +122,13 @@ def test_detail_youtube_embed_contract(client: TestClient) -> None:
     _seed_video()
     response = client.get("/videos/vid-001")
     html = response.text
-    assert 'data-youtube-embed' in html
+    assert "data-youtube-embed" in html
     assert 'data-youtube-video-id="vid-001"' in html
     assert "data-youtube-loading" in html
     assert "data-youtube-player-slot" in html
     assert "data-youtube-fallback-blocked" in html
     assert "data-youtube-fallback-error" in html
-    assert '/static/js/main-ui.js' in html
+    assert "/static/js/main-ui.js" in html
 
 
 def test_detail_empty_fact_box_hidden(client: TestClient) -> None:
@@ -171,7 +175,7 @@ def test_detail_article_card_starts_collapsed_without_open_flag(client: TestClie
     response = client.get("/videos/vid-001")
     html = response.text
     card_idx = html.index("data-detail-article-card")
-    segment = html[card_idx: card_idx + 220]
+    segment = html[card_idx : card_idx + 220]
     assert "data-collapsible-open" not in segment
 
 
@@ -190,17 +194,23 @@ def test_detail_article_modal_contract_and_raw_body_preview(client: TestClient) 
     )
     response = client.get("/videos/vid-001")
     html = response.text
-    assert '<pre class="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">' in html
+    assert (
+        '<pre class="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">'
+        in html
+    )
     assert "# Heading" in html
-    assert 'data-article-preview-open' in html
-    assert 'data-article-preview-modal' in html
-    assert 'data-article-preview-content' in html
+    assert "data-article-preview-open" in html
+    assert "data-article-preview-modal" in html
+    assert "data-article-preview-content" in html
     assert 'class="article-rendered"' in html
     assert "<h1>Heading</h1>" in html
     assert "<strong>markdown</strong>" in html
     assert "<strong>strong</strong>" in html
     assert "<strong>fact</strong>" in html
-    assert "문서 보기 버튼으로 렌더링된 기사를 확인할 수 있습니다." in html or "Use the view button to read the rendered article." in html
+    assert (
+        "문서 보기 버튼으로 렌더링된 기사를 확인할 수 있습니다." in html
+        or "Use the view button to read the rendered article." in html
+    )
 
 
 def test_detail_fact_box_json_renders_as_structured_content(client: TestClient) -> None:
@@ -306,7 +316,9 @@ def test_detail_fragment_enables_auto_refresh_for_incomplete_article(client: Tes
     assert 'data-video-detail-auto-refresh="1"' in html
 
 
-def test_detail_fragment_disables_auto_refresh_for_terminal_failed_status(client: TestClient) -> None:
+def test_detail_fragment_disables_auto_refresh_for_terminal_failed_status(
+    client: TestClient,
+) -> None:
     _seed_video(
         video_id="vid-failed-001",
         pipeline_status="no_subtitle",

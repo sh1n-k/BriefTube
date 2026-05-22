@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
+import contextlib
 from types import SimpleNamespace
 
 import httpx
-import pytest
 
 from app.database import init_database, open_database
 from app.workers import notifier_worker
@@ -53,10 +52,8 @@ async def _drive_worker_once(state, monkeypatch) -> None:
                 break
     finally:
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
 
 def _enqueue_sample(state, count: int = 1) -> None:
@@ -109,7 +106,9 @@ def test_send_with_retry_handles_429_with_retry_after(tmp_path, monkeypatch) -> 
     ok, call_count = asyncio.run(_run())
     assert ok is True
     assert call_count == 2
-    assert any(abs(s - 7.0) < 0.01 for s in sleep_log), f"retry_after not honored, slept={sleep_log}"
+    assert any(abs(s - 7.0) < 0.01 for s in sleep_log), (
+        f"retry_after not honored, slept={sleep_log}"
+    )
 
 
 def test_send_with_retry_retries_5xx_then_gives_up(tmp_path, monkeypatch) -> None:
@@ -139,7 +138,7 @@ def test_send_with_retry_retries_5xx_then_gives_up(tmp_path, monkeypatch) -> Non
 
 
 def test_send_with_retry_does_not_retry_4xx_other_than_429(tmp_path, monkeypatch) -> None:
-    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+    async def _fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
@@ -163,7 +162,7 @@ def test_send_with_retry_does_not_retry_4xx_other_than_429(tmp_path, monkeypatch
 
 
 def test_send_with_retry_retries_network_errors(tmp_path, monkeypatch) -> None:
-    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+    async def _fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
@@ -185,7 +184,7 @@ def test_send_with_retry_retries_network_errors(tmp_path, monkeypatch) -> None:
 def test_worker_records_alert_on_final_failure(tmp_path, monkeypatch) -> None:
     """최종 실패 시 system_alerts에 telegram_send_failed 기록되는지 검증."""
 
-    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+    async def _fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
@@ -220,9 +219,7 @@ def test_worker_records_alert_on_final_failure(tmp_path, monkeypatch) -> None:
                 notification_queue=asyncio.Queue(),
                 db=db,
             )
-            state.notification_queue.put_nowait(
-                {"video_id": "v1", "title": "t1", "lead": "l1"}
-            )
+            state.notification_queue.put_nowait({"video_id": "v1", "title": "t1", "lead": "l1"})
             task = asyncio.create_task(notifier_worker.run_telegram_notifier(state))
             try:
                 for _ in range(200):
@@ -236,10 +233,8 @@ def test_worker_records_alert_on_final_failure(tmp_path, monkeypatch) -> None:
                 return 0
             finally:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
         finally:
             await db.close()
 
@@ -250,7 +245,7 @@ def test_worker_records_alert_on_final_failure(tmp_path, monkeypatch) -> None:
 def test_send_with_retry_terminal_4xx_via_ok_false(tmp_path, monkeypatch) -> None:
     """Telegram이 200 + ok=false 응답하고 retry_after가 없으면 즉시 종료."""
 
-    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+    async def _fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
@@ -272,7 +267,7 @@ def test_send_with_retry_terminal_4xx_via_ok_false(tmp_path, monkeypatch) -> Non
 def test_send_with_retry_absorbs_unhandled_exception(tmp_path, monkeypatch) -> None:
     """httpx 외의 예외(JSON 파싱 실패 등)도 흡수해서 (False, reason) 반환."""
 
-    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+    async def _fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
@@ -292,7 +287,7 @@ def test_send_with_retry_absorbs_unhandled_exception(tmp_path, monkeypatch) -> N
 def test_send_with_retry_rejects_non_dict_response(tmp_path, monkeypatch) -> None:
     """비-dict 응답은 즉시 종료해 AttributeError를 방지."""
 
-    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+    async def _fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)

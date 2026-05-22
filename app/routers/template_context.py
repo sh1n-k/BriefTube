@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 from fastapi import Request
 
@@ -11,7 +12,11 @@ from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.services.channel_handle import format_channel_handle_display
 from app.services.llm import LLM_CODEX_MODEL_OPTIONS
-from app.services.llm_runtime import resolve_llm_runtime_status, runtime_reason_text, runtime_reason_text_key
+from app.services.llm_runtime import (
+    resolve_llm_runtime_status,
+    runtime_reason_text,
+    runtime_reason_text_key,
+)
 from app.time_utils import format_upload_time
 from app.timezone_policy import DEFAULT_TIMEZONE, get_timezone_options, normalize_timezone
 
@@ -60,10 +65,7 @@ async def _build_llm_runtime_context(
         pending_count=pending_count,
     )
     reason_key = runtime_reason_text_key(status.code)
-    warning_texts = [
-        runtime_reason_text(code, txt)
-        for code in status.warnings
-    ]
+    warning_texts = [runtime_reason_text(code, txt) for code in status.warnings]
     return {
         "ready": status.ready,
         "code": status.code,
@@ -79,10 +81,9 @@ async def _build_llm_runtime_context(
 
 async def build_template_context(
     request: Request,
-    *,
-    include_llm_runtime_status: bool = False,
     **extra: object,
 ) -> dict[str, object]:
+    include_llm_runtime_status = bool(extra.pop("include_llm_runtime_status", False))
     language_raw = await settings_repo.get_setting(
         request.app.state.runtime.db,
         key="language",

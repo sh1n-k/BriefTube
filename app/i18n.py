@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 SUPPORTED_LANGUAGES = {"ko", "en"}
 DEFAULT_LANGUAGE = "ko"
 
@@ -27,7 +25,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "index_poll_now_failed": "즉시 폴링 요청에 실패했습니다.",
         "index_search_placeholder": "자막 / 기사 검색...",
         "index_search_label": "자막 또는 기사 검색",
-        "search_results_title": "\"{query}\" 검색 결과",
+        "search_results_title": '"{query}" 검색 결과',
         "search_results_hint": "검색 중에는 아래 기본 영상 목록을 숨깁니다.",
         "search_results_clear": "검색 해제",
         "search_results_empty": "일치하는 결과가 없습니다.",
@@ -553,7 +551,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "index_poll_now_failed": "Failed to request poll now.",
         "index_search_placeholder": "Search transcript / article...",
         "index_search_label": "Search transcript or article",
-        "search_results_title": "Results for \"{query}\"",
+        "search_results_title": 'Results for "{query}"',
         "search_results_hint": "The default video list is hidden while search is active.",
         "search_results_clear": "Clear search",
         "search_results_empty": "No matches found.",

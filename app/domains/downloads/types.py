@@ -9,7 +9,7 @@ from typing import Any
 class DownloadActionResult:
     ok: bool
     status_code: int
-    payload: dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=lambda: {})
 
 
 @dataclass(slots=True)

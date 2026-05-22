@@ -128,7 +128,9 @@ def test_manual_transcript_detail_ui_for_auto_paused_video(client: TestClient) -
     assert "자막 수집" in response.text
 
 
-def test_manual_transcript_detail_ui_shows_active_state_and_auto_refresh(client: TestClient) -> None:
+def test_manual_transcript_detail_ui_shows_active_state_and_auto_refresh(
+    client: TestClient,
+) -> None:
     _seed_video(video_id="vid-manual-tx-ui-002")
     client.post("/api/videos/vid-manual-tx-ui-002/transcript-request")
 

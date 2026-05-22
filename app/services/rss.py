@@ -4,7 +4,6 @@ from xml.etree.ElementTree import ParseError, fromstring
 
 import httpx
 
-
 NAMESPACES = {
     "atom": "http://www.w3.org/2005/Atom",
     "yt": "http://www.youtube.com/xml/schemas/2015",
@@ -48,7 +47,7 @@ class RSSService:
         latest_last_modified = response.headers.get("Last-Modified")
 
         try:
-            root = fromstring(response.text)
+            root = fromstring(response.text)  # noqa: S314 -- YouTube RSS source; follow-up to defusedxml
         except ParseError as exc:
             raise RSSParseError("RSS response XML parse failed") from exc
 

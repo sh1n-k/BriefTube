@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import logging
-from pathlib import Path
-import subprocess
 import shutil
+import subprocess
 import sys
 import tempfile
-
+from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +178,7 @@ async def _run_download_command(
             proc.communicate(),
             timeout=safe_timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.communicate()
         return (-9, b"", b"")
@@ -212,7 +211,8 @@ async def download_video(
         return DownloadRunResult(
             ok=False,
             error_code=target_dir_validation.error_code or "download_path_invalid",
-            error_message=target_dir_validation.error_message or "download output directory is unavailable",
+            error_message=target_dir_validation.error_message
+            or "download output directory is unavailable",
         )
     target_dir = Path(target_dir_validation.normalized_path)
 
@@ -277,7 +277,9 @@ async def download_video(
         output_path = Path(candidates[-1]).resolve()
 
     if output_path is None or not output_path.exists() or not output_path.is_file():
-        matches = sorted(target_dir.glob(f"*{normalized_video_id}*"), key=lambda item: item.stat().st_mtime)
+        matches = sorted(
+            target_dir.glob(f"*{normalized_video_id}*"), key=lambda item: item.stat().st_mtime
+        )
         if matches:
             output_path = matches[-1].resolve()
 

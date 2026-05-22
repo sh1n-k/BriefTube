@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 
-from fastapi.testclient import TestClient
 import pytest
-import re
+from fastapi.testclient import TestClient
 
 
 def test_settings_page_renders(client: TestClient) -> None:
@@ -53,21 +53,23 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "기본 화질 상한" in response.text
     assert "다운로드 저장 경로" in response.text
     assert 'name="download_output_dir"' in response.text
-    assert 'data-download-output-dir-error' in response.text
+    assert "data-download-output-dir-error" in response.text
     assert (
         "change from:select[name='download_quality'], change from:input[name='download_overwrite'], change from:input[name='download_output_dir']"
         in response.text
     )
     assert "input changed delay:800ms from:input[name='download_output_dir']" not in response.text
-    assert 'hx-trigger="change from:select[name=\'language\']"' in response.text
-    assert 'hx-trigger="input changed delay:1s from:input[name=\'videos_per_page\']"' in response.text
+    assert "hx-trigger=\"change from:select[name='language']\"" in response.text
+    assert (
+        "hx-trigger=\"input changed delay:1s from:input[name='videos_per_page']\"" in response.text
+    )
     assert 'data-save-toast="' in response.text
-    assert 'data-digits-only' in response.text
-    assert '/static/js/main-ui.js' in response.text
+    assert "data-digits-only" in response.text
+    assert "/static/js/main-ui.js" in response.text
     assert "window.BRIEFTUBE_UI_BOOTSTRAP" in response.text
-    assert 'data-theme-toggle' in response.text
-    assert 'data-theme-mode-select' in response.text
-    assert 'data-theme-tone-select' in response.text
+    assert "data-theme-toggle" in response.text
+    assert "data-theme-mode-select" in response.text
+    assert "data-theme-tone-select" in response.text
     assert "brieftube.theme.mode" in response.text
     assert "brieftube.theme.tone" in response.text
     assert "뉴트럴 (기본)" in response.text
@@ -94,12 +96,20 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "전체 편집" in response.text
     assert "재구조화 프롬프트 전체 편집" in response.text
     assert 'id="llm-prompt-modal"' in response.text
-    assert 'data-open-llm-prompt-modal' in response.text
-    assert 'data-llm-prompt-editor' in response.text
-    assert response.text.index('data-settings-section="workers"') < response.text.index('data-settings-section="language"')
-    assert response.text.index('data-settings-section="llm"') < response.text.index('data-settings-section="telegram"')
-    assert response.text.index('data-settings-section="telegram"') < response.text.index('data-settings-section="transcript-headers"')
-    assert response.text.index('data-settings-section="transcript-headers"') < response.text.index('data-settings-section="transcript-guard"')
+    assert "data-open-llm-prompt-modal" in response.text
+    assert "data-llm-prompt-editor" in response.text
+    assert response.text.index('data-settings-section="workers"') < response.text.index(
+        'data-settings-section="language"'
+    )
+    assert response.text.index('data-settings-section="llm"') < response.text.index(
+        'data-settings-section="telegram"'
+    )
+    assert response.text.index('data-settings-section="telegram"') < response.text.index(
+        'data-settings-section="transcript-headers"'
+    )
+    assert response.text.index('data-settings-section="transcript-headers"') < response.text.index(
+        'data-settings-section="transcript-guard"'
+    )
     assert len(re.findall(r'type="number"', response.text)) >= 3
 
 

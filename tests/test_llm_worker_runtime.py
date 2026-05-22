@@ -163,7 +163,11 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker001", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker001"),
+            (
+                "UCworker001",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker001",
+            ),
         )
         await db.execute(
             """
@@ -213,7 +217,13 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
                 default=None,
             )
             runtime_issue = await repository.get_llm_runtime_issue(db)
-            return str(video["pipeline_status"]), int(video["retry_count"]), alert_count, sent_key, runtime_issue
+            return (
+                str(video["pipeline_status"]),
+                int(video["retry_count"]),
+                alert_count,
+                sent_key,
+                runtime_issue,
+            )
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -238,7 +248,11 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker002", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker002"),
+            (
+                "UCworker002",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker002",
+            ),
         )
         await db.execute(
             """
@@ -330,7 +344,11 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker003", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker003"),
+            (
+                "UCworker003",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker003",
+            ),
         )
         await db.execute(
             """
@@ -413,9 +431,16 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
             await asyncio.gather(task, return_exceptions=True)
             await db.close()
 
-    status, retry_count, article_count, runtime_issue_code, llm_provider, llm_model, llm_effort, llm_generated_at = asyncio.run(
-        _run()
-    )
+    (
+        status,
+        retry_count,
+        article_count,
+        runtime_issue_code,
+        llm_provider,
+        llm_model,
+        llm_effort,
+        llm_generated_at,
+    ) = asyncio.run(_run())
     assert status == "done"
     assert retry_count == 0
     assert article_count == 1
@@ -437,7 +462,11 @@ def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker005", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker005"),
+            (
+                "UCworker005",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker005",
+            ),
         )
         await db.execute(
             """
@@ -512,7 +541,11 @@ def test_llm_worker_stale_success_does_not_overwrite_changed_status(tmp_path) ->
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker006", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker006"),
+            (
+                "UCworker006",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker006",
+            ),
         )
         await db.execute(
             """
@@ -596,7 +629,11 @@ def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> Non
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker007", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker007"),
+            (
+                "UCworker007",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker007",
+            ),
         )
         await db.execute(
             """
@@ -653,7 +690,9 @@ def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> Non
     assert retry_count == 3
 
 
-def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhausted(tmp_path) -> None:
+def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhausted(
+    tmp_path,
+) -> None:
     db_path = tmp_path / "worker-runtime-transition-fail.db"
 
     async def _run() -> tuple[str, int]:
@@ -664,7 +703,11 @@ def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhaus
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCworker004", "Worker Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker004"),
+            (
+                "UCworker004",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker004",
+            ),
         )
         await db.execute(
             """

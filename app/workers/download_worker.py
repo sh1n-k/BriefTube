@@ -17,11 +17,13 @@ async def _run_single_download_job(
     job: dict[str, object],
 ) -> None:
     started_monotonic = time.monotonic()
-    job_id = int(job["id"])
+    job_id = int(str(job["id"]))
     video_id = str(job.get("video_id") or "").strip()
     quality = str(job.get("quality") or downloads_repo.DOWNLOAD_QUALITY_DEFAULT)
-    overwrite = bool(int(job.get("overwrite") or 0))
-    target_dir = str(job.get("target_dir") or state.config.download_dir).strip() or state.config.download_dir
+    overwrite = bool(int(str(job.get("overwrite") or 0)))
+    target_dir = (
+        str(job.get("target_dir") or state.config.download_dir).strip() or state.config.download_dir
+    )
     timeout_seconds = resolve_worker_timeout_seconds(
         quality=quality,
         base_timeout_seconds=int(state.config.download_timeout_seconds),
@@ -176,7 +178,7 @@ async def run_download_worker(state: AppState) -> None:
                     len(active_tasks),
                     extra={"event": "downloads.worker_wake_triggered"},
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
         except asyncio.CancelledError:
             for task in active_tasks:

@@ -98,6 +98,7 @@ def _seed(e2e_server: dict) -> None:
 
 # ---------- helpers ----------
 
+
 def _go_home(page: Page) -> None:
     page.goto(page._e2e_base_url)
     page.wait_for_load_state("networkidle")
@@ -115,6 +116,7 @@ def _submit_search(page: Page, keyword: str) -> None:
 
 
 # ---------- tests ----------
+
 
 def test_search_returns_results(e2e_page: Page) -> None:
     """Keyword search populates the #search-results HTMX fragment with results."""

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from app.timezone_policy import normalize_timezone
@@ -15,7 +15,7 @@ def format_upload_time(value: str | None, timezone_name: str | None = None) -> s
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
         localized = parsed.astimezone(ZoneInfo(tz_name))
         return localized.strftime("%Y-%m-%d %H:%M")
     except Exception:

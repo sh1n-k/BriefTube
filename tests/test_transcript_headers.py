@@ -21,9 +21,7 @@ def test_default_headers_cover_fixed_keys() -> None:
 
 def test_parse_headers_multiline_supports_fixed_keys() -> None:
     parsed = parse_headers_multiline(
-        "User-Agent: Mozilla/5.0 Test\n"
-        "Accept-Language: ko-KR,ko;q=1.0\n"
-        "DNT:\n"
+        "User-Agent: Mozilla/5.0 Test\nAccept-Language: ko-KR,ko;q=1.0\nDNT:\n"
     )
     assert parsed["User-Agent"] == "Mozilla/5.0 Test"
     assert parsed["Accept-Language"] == "ko-KR,ko;q=1.0"

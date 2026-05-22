@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from app.repositories import manual_articles as manual_articles_repo
-from app.repositories import videos as videos_repo
 from app.config import AppConfig
 from app.database import init_database, open_database
-from tests.helpers.db_seed import seed_channel, seed_video
+from app.repositories import manual_articles as manual_articles_repo
+from app.repositories import videos as videos_repo
 from app.workers.manual_article_worker import run_manual_article_worker
+from tests.helpers.db_seed import seed_channel, seed_video
 
 CHANNEL_ID = "UCmanual001"
 repository = SimpleNamespace(
@@ -19,6 +19,7 @@ repository = SimpleNamespace(
     get_manual_article_job=manual_articles_repo.get_manual_article_job,
     get_video=videos_repo.get_video,
 )
+
 
 async def _seed_channel(db) -> None:
     await seed_channel(db, channel_id=CHANNEL_ID, channel_name="Manual Channel")
@@ -192,7 +193,10 @@ def test_recover_stuck_manual_article_jobs_recovers_only_stale_running(tmp_path)
         )
         rows = await cursor.fetchall()
         await db.close()
-        return recovered, {str(row["video_id"]): (str(row["status"]), str(row["error_message"] or "")) for row in rows}
+        return recovered, {
+            str(row["video_id"]): (str(row["status"]), str(row["error_message"] or ""))
+            for row in rows
+        }
 
     recovered, statuses = asyncio.run(_run())
     assert recovered == 1
@@ -331,7 +335,13 @@ def test_manual_article_worker_requeues_transcript_on_fetch_error(tmp_path) -> N
             retry_count = int(error_row["transcript_retry_count"] or 0)
             error_message = str(error_row["transcript_last_error"] or "")
             next_attempt_at = str(error_row["transcript_next_attempt_at"] or "")
-            return str(video["pipeline_status"]), str(job["status"]), retry_count, next_attempt_at, error_message
+            return (
+                str(video["pipeline_status"]),
+                str(job["status"]),
+                retry_count,
+                next_attempt_at,
+                error_message,
+            )
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)

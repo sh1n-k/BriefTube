@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 import sqlite3
 import subprocess
+from pathlib import Path
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
-from app.repositories import downloads as repository
 from app.database import init_database, open_database
+from app.repositories import downloads as repository
 from app.services.downloads import download_video
 
 
@@ -21,7 +21,11 @@ def _seed_video(db_path: str, *, video_id: str = "vid-download-001") -> None:
             INSERT OR IGNORE INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCdownload001", "Download Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCdownload001"),
+            (
+                "UCdownload001",
+                "Download Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdownload001",
+            ),
         )
         conn.execute(
             """
@@ -158,7 +162,9 @@ def test_request_video_download_enqueue_sets_wake_event(
             },
         }
 
-    monkeypatch.setattr("app.domains.downloads.service.downloads_repo.create_download_job", fake_create_download_job)
+    monkeypatch.setattr(
+        "app.domains.downloads.service.downloads_repo.create_download_job", fake_create_download_job
+    )
 
     response = client.post(
         "/api/videos/vid-download-001/downloads",
@@ -211,7 +217,9 @@ def test_download_progress_returns_counts_and_events(client: TestClient) -> None
     assert payload["events"][0]["event_type"] == "failed"
 
 
-def test_download_file_probe_success_with_job_target_dir(client: TestClient, tmp_path: Path) -> None:
+def test_download_file_probe_success_with_job_target_dir(
+    client: TestClient, tmp_path: Path
+) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_video(db_path)
     custom_dir = tmp_path / "custom-downloads"
@@ -289,7 +297,9 @@ def test_download_video_falls_back_when_asyncio_subprocess_is_unavailable(
             stderr=b"",
         )
 
-    monkeypatch.setattr("app.services.downloads.asyncio.create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(
+        "app.services.downloads.asyncio.create_subprocess_exec", fake_create_subprocess_exec
+    )
     monkeypatch.setattr("app.services.downloads.subprocess.run", fake_run)
 
     result = asyncio.run(

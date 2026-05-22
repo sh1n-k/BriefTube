@@ -46,7 +46,9 @@ class TranscriptService:
         tracks = list(transcript_list)
         if not tracks:
             raise RuntimeError("No transcript tracks found")
-        manual = next((track for track in tracks if not bool(getattr(track, "is_generated", False))), None)
+        manual = next(
+            (track for track in tracks if not bool(getattr(track, "is_generated", False))), None
+        )
         return manual or tracks[0]
 
     def _fetch_default_language_track(self, api: YouTubeTranscriptApi, video_id: str) -> Any:
@@ -71,7 +73,9 @@ class TranscriptService:
             else:
                 transcript_obj = self._fetch_default_language_track(api, video_id)
             raw_data = transcript_obj.to_raw_data()
-            raw_text = "\n".join(segment.get("text", "").strip() for segment in raw_data if segment.get("text"))
+            raw_text = "\n".join(
+                segment.get("text", "").strip() for segment in raw_data if segment.get("text")
+            )
             language = getattr(transcript_obj, "language_code", None)
             is_generated = bool(getattr(transcript_obj, "is_generated", False))
             source_type = "auto" if is_generated else "manual"

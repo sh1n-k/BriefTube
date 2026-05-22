@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import html
 import json
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from app.services.markdown_render import render_markdown_to_safe_html
 
@@ -44,10 +45,7 @@ def _render_fact_box_value(value: Any) -> str:
     if isinstance(value, list):
         if not value:
             return ""
-        items = "".join(
-            f'<li>{_render_fact_box_value(item)}</li>'
-            for item in value
-        )
+        items = "".join(f"<li>{_render_fact_box_value(item)}</li>" for item in value)
         return f'<ul class="fact-box-list">{items}</ul>'
 
     return _render_fact_box_leaf(value)

@@ -42,7 +42,9 @@ def test_runtime_plan_allows_primary_when_fallback_missing() -> None:
 
 
 def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         assert args[0] == "codex"
         assert args[-1] == "-"
         assert args[args.index("-m") + 1] == LLM_CODEX_MODEL_DEFAULT
@@ -53,7 +55,13 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
         output_path = Path(args[args.index("--output-last-message") + 1])
         assert schema_path.exists()
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        assert set(schema["properties"].keys()) == {"title", "lead", "body", "fact_box", "timestamps"}
+        assert set(schema["properties"].keys()) == {
+            "title",
+            "lead",
+            "body",
+            "fact_box",
+            "timestamps",
+        }
         assert set(schema["required"]) == set(schema["properties"].keys())
 
         payload = {
@@ -89,7 +97,9 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
 
 
 def test_restructure_codex_uses_selected_model_from_settings() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         assert args[0] == "codex"
         assert args[args.index("-m") + 1] == "gpt-5.4"
         output_path = Path(args[args.index("--output-last-message") + 1])
@@ -127,7 +137,9 @@ def test_restructure_codex_uses_selected_model_from_settings() -> None:
 def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
     calls: list[str] = []
 
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         calls.append(args[0])
         if args[0] == "codex":
             output_path = Path(args[args.index("--output-last-message") + 1])
@@ -169,7 +181,9 @@ def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
 
 
 def test_restructure_applies_reasoning_effort_for_codex() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         assert args[0] == "codex"
         assert "-c" in args
         assert args[args.index("-c") + 1] == 'model_reasoning_effort="low"'
@@ -205,7 +219,9 @@ def test_restructure_applies_reasoning_effort_for_codex() -> None:
 
 
 def test_restructure_applies_model_and_effort_for_claude() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         assert args[0] == "claude"
         assert args[args.index("--model") + 1] == "sonnet"
         assert args[args.index("--effort") + 1] == "high"
@@ -242,8 +258,12 @@ def test_restructure_applies_model_and_effort_for_claude() -> None:
 
 
 def test_restructure_raises_auth_required_when_provider_not_logged_in() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
-        return CommandExecutionResult(exit_code=1, stdout="", stderr="Not logged in. Please login first.")
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
+        return CommandExecutionResult(
+            exit_code=1, stdout="", stderr="Not logged in. Please login first."
+        )
 
     client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
     try:
@@ -292,7 +312,9 @@ def test_runtime_plan_blocks_when_codex_schema_contract_is_invalid() -> None:
 
 
 def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_error() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         assert args[0] == "codex"
         return CommandExecutionResult(
             exit_code=1,
@@ -320,7 +342,9 @@ def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_erro
 
 
 def test_restructure_rejects_claude_result_string_with_embedded_article_json() -> None:
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         assert args[0] == "claude"
         payload = {
             "type": "result",
@@ -358,7 +382,9 @@ def test_restructure_rejects_claude_result_string_with_embedded_article_json() -
 def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
     calls: list[str] = []
 
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         calls.append(args[0])
         if args[0] == "claude":
             refused = {
@@ -432,7 +458,9 @@ def test_runtime_plan_keeps_primary_and_warns_when_fallback_is_gemini() -> None:
 def test_response_capture_redacts_content_by_default(tmp_path) -> None:
     capture_dir = tmp_path / "llm-capture"
 
-    async def fake_runner(args: list[str], timeout: int, stdin_text: str | None) -> CommandExecutionResult:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
         output_path = Path(args[args.index("--output-last-message") + 1])
         output_path.write_text(
             json.dumps(

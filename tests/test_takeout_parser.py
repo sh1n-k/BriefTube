@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from app.services.bulk_channels import collect_inputs_from_sources, parse_takeout_entries
-from app.services.takeout_parser import parse_bulk_text_inputs, parse_takeout_file, parse_takeout_file_details
+from app.services.takeout_parser import (
+    parse_bulk_text_inputs,
+    parse_takeout_file,
+    parse_takeout_file_details,
+)
 
 
 def test_parse_bulk_text_inputs_supports_delimiters_and_dedupe() -> None:
@@ -22,7 +26,9 @@ def test_parse_takeout_json_extracts_channel_tokens() -> None:
 
 
 def test_parse_takeout_csv_extracts_channel_fields() -> None:
-    content = b"channel_name,channel_url,channel_id\nCSV Channel,https://www.youtube.com/@csv,UCcsv001\n"
+    content = (
+        b"channel_name,channel_url,channel_id\nCSV Channel,https://www.youtube.com/@csv,UCcsv001\n"
+    )
     items = parse_takeout_file("subscriptions.csv", content)
     assert "CSV Channel" in items
     assert "https://www.youtube.com/@csv" in items
@@ -46,7 +52,7 @@ def test_collect_inputs_merges_takeout_and_text_inputs() -> None:
         (
             "Channel Id,Channel Url,Channel Title\n"
             "UC0oRRcVleNBmELYTgzwoBpg,http://www.youtube.com/channel/UC0oRRcVleNBmELYTgzwoBpg,유브이 방 - UV BANG\n"
-        ).encode("utf-8"),
+        ).encode(),
     )
     collected = collect_inputs_from_sources(
         bulk_text="@GoogleDevelopers\nhttps://www.youtube.com/@MKBHD",
@@ -67,9 +73,9 @@ def test_parse_takeout_json_supports_utf8_bom() -> None:
 
 def test_parse_takeout_csv_supports_semicolon_delimiter() -> None:
     content = (
-        "Channel Id;Channel Url;Channel Title\n"
-        "UC0byV7SMA-MjzByM5fZR1EA;https://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA;Semi Channel\n"
-    ).encode("utf-8")
+        b"Channel Id;Channel Url;Channel Title\n"
+        b"UC0byV7SMA-MjzByM5fZR1EA;https://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA;Semi Channel\n"
+    )
     parsed = parse_takeout_file_details("subscriptions.csv", content)
     assert len(parsed.direct_channels) == 1
     assert parsed.direct_channels[0]["channel_name"] == "Semi Channel"
@@ -87,9 +93,9 @@ def test_parse_takeout_csv_supports_korean_headers_and_cp949() -> None:
 
 def test_parse_takeout_csv_falls_back_to_channel_id_when_name_missing() -> None:
     content = (
-        "Channel Id,Channel Url,Channel Title\n"
-        "UC0byV7SMA-MjzByM5fZR1EA,https://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA,\n"
-    ).encode("utf-8")
+        b"Channel Id,Channel Url,Channel Title\n"
+        b"UC0byV7SMA-MjzByM5fZR1EA,https://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA,\n"
+    )
     parsed = parse_takeout_file_details("subscriptions.csv", content)
     assert len(parsed.direct_channels) == 1
     assert parsed.direct_channels[0]["channel_name"] == "UC0byV7SMA-MjzByM5fZR1EA"

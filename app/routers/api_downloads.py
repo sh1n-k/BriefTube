@@ -5,7 +5,8 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.domains.downloads import enqueue_video_download, retry_download_job as retry_download_job_request
+from app.domains.downloads import enqueue_video_download
+from app.domains.downloads import retry_download_job as retry_download_job_request
 from app.repositories import downloads as downloads_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import parse_bool_input
@@ -53,7 +54,9 @@ async def request_video_download(video_id: str, request: Request):
         video=video,
         quality=quality,
         overwrite=overwrite,
-        default_output_dir=str(defaults.get("output_dir") or request.app.state.runtime.config.download_dir),
+        default_output_dir=str(
+            defaults.get("output_dir") or request.app.state.runtime.config.download_dir
+        ),
     )
 
     if operation.payload.get("queued") is True:
@@ -80,7 +83,10 @@ async def request_video_download(video_id: str, request: Request):
             "event=downloads.enqueue_rejected video_id=%s code=%s",
             str(video["video_id"]),
             str(operation.payload.get("code") or "unknown"),
-            extra={"event": "downloads.enqueue_rejected", "code": str(operation.payload.get("code") or "unknown")},
+            extra={
+                "event": "downloads.enqueue_rejected",
+                "code": str(operation.payload.get("code") or "unknown"),
+            },
         )
     return JSONResponse(status_code=operation.status_code, content=operation.payload)
 
@@ -134,7 +140,8 @@ async def get_download_progress(
             after_event_id,
             event_count,
             int(payload["latest_event_id"]),
-            int(counts[downloads_repo.DOWNLOAD_STATUS_PENDING]) + int(counts[downloads_repo.DOWNLOAD_STATUS_RUNNING]),
+            int(counts[downloads_repo.DOWNLOAD_STATUS_PENDING])
+            + int(counts[downloads_repo.DOWNLOAD_STATUS_RUNNING]),
             extra={"event": "downloads.progress_events"},
         )
     return {
@@ -173,7 +180,10 @@ async def retry_download(job_id: int, request: Request):
             "event=downloads.retry_rejected job_id=%s reason=%s",
             job_id,
             str(operation.payload.get("code") or "unknown"),
-            extra={"event": "downloads.retry_rejected", "code": str(operation.payload.get("code") or "unknown")},
+            extra={
+                "event": "downloads.retry_rejected",
+                "code": str(operation.payload.get("code") or "unknown"),
+            },
         )
     return JSONResponse(status_code=operation.status_code, content=operation.payload)
 
@@ -190,18 +200,24 @@ async def set_download_defaults(request: Request):
         if "quality" in payload:
             parsed_quality = str(payload.get("quality", "")).strip().lower()
             if parsed_quality not in downloads_repo.DOWNLOAD_QUALITY_OPTIONS:
-                raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
+                raise HTTPException(
+                    status_code=400, detail=f"quality must be one of: {allowed_qualities}"
+                )
             quality = parsed_quality
         if "overwrite" in payload:
             overwrite = parse_bool_input(payload.get("overwrite"), default=False)
         if "output_dir" in payload or "download_output_dir" in payload:
-            output_dir = str(payload.get("output_dir", payload.get("download_output_dir", ""))).strip()
+            output_dir = str(
+                payload.get("output_dir", payload.get("download_output_dir", ""))
+            ).strip()
     else:
         form = await request.form()
         if "download_quality" in form:
             parsed_quality = str(form.get("download_quality", "")).strip().lower()
             if parsed_quality not in downloads_repo.DOWNLOAD_QUALITY_OPTIONS:
-                raise HTTPException(status_code=400, detail=f"quality must be one of: {allowed_qualities}")
+                raise HTTPException(
+                    status_code=400, detail=f"quality must be one of: {allowed_qualities}"
+                )
             quality = parsed_quality
         overwrite = parse_bool_input(form.get("download_overwrite"), default=False)
         if "download_output_dir" in form:
@@ -217,7 +233,9 @@ async def set_download_defaults(request: Request):
             require_existing=True,
         )
         if not validation.ok:
-            raise HTTPException(status_code=400, detail=validation.error_code or "download_path_invalid")
+            raise HTTPException(
+                status_code=400, detail=validation.error_code or "download_path_invalid"
+            )
         output_dir = validation.normalized_path
 
     try:
@@ -229,7 +247,7 @@ async def set_download_defaults(request: Request):
             default_output_dir=request.app.state.runtime.config.download_dir,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info(
         "event=downloads.settings_saved quality=%s overwrite=%s",
         saved.get("quality"),

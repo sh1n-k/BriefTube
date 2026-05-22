@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "sql" / "schema.sql"
@@ -84,13 +84,21 @@ def seed_video(
     processing_stage_snapshot: str = "full",
 ) -> None:
     if upload_time is None:
-        upload_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        upload_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = get_db_connection(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO videos "
         "(video_id, channel_id, title, upload_time, pipeline_status, thumbnail_path, processing_stage_snapshot) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (video_id, channel_id, title, upload_time, pipeline_status, thumbnail_path, processing_stage_snapshot),
+        (
+            video_id,
+            channel_id,
+            title,
+            upload_time,
+            pipeline_status,
+            thumbnail_path,
+            processing_stage_snapshot,
+        ),
     )
     conn.commit()
     conn.close()
@@ -146,8 +154,17 @@ def seed_download_job(
         "(video_id, video_title, status, quality, output_path, error_code, error_message, "
         "file_size_bytes, target_dir) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (video_id, video_title, status, quality, output_path, error_code, error_message,
-         file_size_bytes, target_dir),
+        (
+            video_id,
+            video_title,
+            status,
+            quality,
+            output_path,
+            error_code,
+            error_message,
+            file_size_bytes,
+            target_dir,
+        ),
     )
     job_id = cursor.lastrowid
     conn.commit()
@@ -205,5 +222,5 @@ def disable_all_workers(db_path: str) -> None:
 
 
 def make_past_time(days_ago: int) -> str:
-    dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    dt = datetime.now(UTC) - timedelta(days=days_ago)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")

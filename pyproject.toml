@@ -19,8 +19,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "import-linter>=2.0",
+  "pyright>=1.1",
   "pytest>=8.0.0",
   "pytest-playwright>=0.6.0",
+  "ruff>=0.15.14",
 ]
 
 [tool.uv]
@@ -44,3 +47,137 @@ markers = ["e2e: Playwright browser-based end-to-end tests"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+  ".venv",
+  ".worktrees",
+  "build",
+  "dist",
+  "brieftube.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",      # pycodestyle errors
+  "F",      # pyflakes
+  "W",      # pycodestyle warnings
+  "I",      # isort
+  "B",      # flake8-bugbear
+  "UP",     # pyupgrade
+  "SIM",    # flake8-simplify
+  "RUF",    # ruff-specific
+  "ASYNC",  # async correctness
+  "S",      # bandit (security)
+  "T20",    # flake8-print (forbid print)
+  "TID",    # tidy imports
+  "PTH",    # pathlib usage
+]
+ignore = [
+  "E501",     # line-too-long handled by formatter
+  "S101",     # asserts allowed (used in tests/runtime invariants)
+  "S104",     # bind-all-interfaces is intentional for local dev server
+  "S110",     # try-except-pass acceptable in narrow cleanup paths
+  "S311",     # non-crypto random usage acceptable
+  "S608",     # SQL f-strings use whitelist-validated column names (CLAUDE.md)
+  "B008",     # FastAPI Depends() default value pattern
+  "SIM102",   # explicit nested if preserves guard-flow readability
+  "SIM103",   # explicit return False/True branches read better in worker gates
+  "SIM108",   # ternary preference is taste-only
+  "SIM118",   # `for k in row.keys()` is required for sqlite3.Row / explicit on FormData
+  "RUF012",   # ClassVar suggestion noisy on legacy code
+  "ASYNC109", # async timeout=... param is an intentional cancellation knob; revisit per-callsite
+  "ASYNC240", # blocking pathlib/os in async startup paths; revisit case-by-case
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "T20", "B", "ASYNC", "PTH", "E402"]
+"scripts/**" = ["T20", "S"]
+"app/cli.py" = ["T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.pyright]
+# Phase 1 (basic): app/ production code is basic-checked by default.
+# Phase 2 (strict): core boundary modules listed in `strict` get full checks
+# (untyped functions, return types, missing parameter types, etc).
+include = ["app"]
+exclude = [
+  "**/__pycache__",
+  ".venv",
+  ".worktrees",
+  "build",
+  "dist",
+  "brieftube.egg-info",
+]
+# Directory entries (e.g. "app/repositories") opt in newly added files
+# under that path automatically — keep this in mind when adding modules.
+strict = [
+  "app/config.py",
+  "app/state.py",
+  "app/schemas.py",
+  "app/repositories",
+  "app/domains",
+]
+pythonVersion = "3.11"
+pythonPlatform = "All"
+typeCheckingMode = "basic"
+# External lib stubs are noisy; ignore reports about unknown 3rd-party types in basic mode
+reportMissingTypeStubs = false
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+# Useful even in basic mode
+reportMissingImports = "error"
+reportInvalidTypeArguments = "error"
+# typing.override is 3.12+ only; revisit when minimum Python bumps
+reportImplicitOverride = "none"
+
+[tool.importlinter]
+root_packages = ["app"]
+include_external_packages = false
+
+# Layered architecture (top → bottom):
+#   routers : workers           (siblings, no cross-imports)
+#       ↓
+#   domains
+#       ↓
+#   services
+#       ↓
+#   repositories
+#       ↓
+#   infrastructure (logging_setup → time_utils → config, database, ...)
+#
+# `app.state` (composition root that wires service instances), `app.main`,
+# and `app.cli` (entry points) are intentionally outside the layered graph.
+# Baseline violations are tracked in `ignore_imports` and should be removed
+# by future refactors.
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+  "app.routers : app.workers",
+  "app.domains",
+  "app.services",
+  "app.repositories",
+  "app.logging_setup",
+  "app.time_utils",
+  "app.database | app.schemas | app.i18n | app.pagination | app.download_error_registry | app.timezone_policy | app.config",
+]
+exhaustive = false
+ignore_imports = [
+  # `_impl` reuses validators/constants that currently live in services.
+  # Follow-up: move shared symbols into domains or a dedicated constants module.
+  "app.repositories._impl -> app.services.downloads",
+  "app.repositories._impl -> app.services.llm",
+]

@@ -1,4 +1,5 @@
 """E2E tests for system alerts toast and retention notice."""
+
 from __future__ import annotations
 
 import re

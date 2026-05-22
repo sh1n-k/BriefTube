@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import re
+from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx
-
 
 CHANNEL_ID_RE = re.compile(r"UC[-_A-Za-z0-9]{22}")
 YOUTUBE_URL_RE = re.compile(r"https?://(?:www\.)?youtube\.com/[^\s]+", re.IGNORECASE)
@@ -18,7 +17,9 @@ CHANNEL_ID_PATTERNS = [
     re.compile(r'"channelId":"(UC[-_A-Za-z0-9]{22})"'),
 ]
 OG_TITLE_PATTERN = re.compile(r'<meta\s+property="og:title"\s+content="([^"]+)"', re.IGNORECASE)
-OG_DESCRIPTION_PATTERN = re.compile(r'<meta\s+property="og:description"\s+content="([^"]*)"', re.IGNORECASE)
+OG_DESCRIPTION_PATTERN = re.compile(
+    r'<meta\s+property="og:description"\s+content="([^"]*)"', re.IGNORECASE
+)
 OG_IMAGE_PATTERN = re.compile(r'<meta\s+property="og:image"\s+content="([^"]+)"', re.IGNORECASE)
 CANONICAL_LINK_PATTERN = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"', re.IGNORECASE)
 CANONICAL_BASE_URL_PATTERN = re.compile(r'"canonicalBaseUrl":"(\/@[^"]+)"', re.IGNORECASE)
@@ -141,17 +142,23 @@ class ChannelResolverService:
             )
         url = f"https://www.youtube.com/channel/{normalized_channel_id}"
         page = await self._fetch_page(url)
+        status_value = page.get("status")
+        http_status = status_value if isinstance(status_value, int) else None
         if page.get("error"):
             return ChannelMetadataResult(
                 ok=False,
                 channel_id=normalized_channel_id,
                 error=str(page.get("error")),
-                http_status=page.get("status"),
+                http_status=http_status,
                 is_rate_limited=bool(page.get("is_rate_limited")),
             )
         html = str(page.get("html") or "")
         final_url = str(page.get("final_url") or url)
-        resolved_channel_id = self._extract_channel_id(html) or self._extract_channel_id(final_url) or normalized_channel_id
+        resolved_channel_id = (
+            self._extract_channel_id(html)
+            or self._extract_channel_id(final_url)
+            or normalized_channel_id
+        )
         canonical_url = self._extract_canonical_url(html) or final_url
         return ChannelMetadataResult(
             ok=True,
@@ -162,7 +169,7 @@ class ChannelResolverService:
             channel_thumbnail_url=self._extract_og_image(html),
             channel_description=self._extract_channel_description(html),
             channel_language_hint=self._extract_language_hint(html),
-            http_status=page.get("status"),
+            http_status=http_status,
         )
 
     async def _resolve_from_channel_id(self, channel_id: str) -> ChannelCandidate | None:
@@ -177,7 +184,9 @@ class ChannelResolverService:
         channel_id = self._extract_channel_id(html) or self._extract_channel_id(final_url)
         if not channel_id:
             return None
-        canonical_url = self._extract_canonical_url(html) or f"https://www.youtube.com/channel/{channel_id}"
+        canonical_url = (
+            self._extract_canonical_url(html) or f"https://www.youtube.com/channel/{channel_id}"
+        )
         return ChannelCandidate(
             channel_id=channel_id,
             channel_name=self._extract_channel_name(html) or channel_id,

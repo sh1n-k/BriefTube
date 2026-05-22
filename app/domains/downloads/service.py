@@ -91,7 +91,7 @@ async def enqueue_video_download(
         overwrite=overwrite,
         target_dir=target_dir,
     )
-    job = result.get("job") or {}
+    job: dict[str, Any] = result.get("job") or {}
     if bool(result.get("created")):
         return DownloadActionResult(
             ok=True,

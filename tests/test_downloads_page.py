@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import sqlite3
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 LONG_ERROR = (
     "this is a very long failure message to verify one-line summary truncation "
@@ -23,14 +23,23 @@ def _seed_download_jobs(db_path: str) -> None:
             INSERT OR IGNORE INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCdownload-view-1", "View Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCdownload-view-1"),
+            (
+                "UCdownload-view-1",
+                "View Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdownload-view-1",
+            ),
         )
         conn.execute(
             """
             INSERT OR IGNORE INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
             VALUES (?, ?, ?, ?, 'done')
             """,
-            ("vid-download-view-1", "UCdownload-view-1", "View Video 1", "2026-02-26T00:00:00+00:00"),
+            (
+                "vid-download-view-1",
+                "UCdownload-view-1",
+                "View Video 1",
+                "2026-02-26T00:00:00+00:00",
+            ),
         )
         conn.execute(
             """
@@ -104,7 +113,9 @@ def test_downloads_page_summary_and_mobile_card_contract(client: TestClient) -> 
     assert "data-error-message=" in html
     assert "data-output-url=" in html
     assert 'id="download-history-fragment"' in html
-    assert 'data-download-history-refresh-url="/views/downloads/table?status=all&amp;page=1"' in html
+    assert (
+        'data-download-history-refresh-url="/views/downloads/table?status=all&amp;page=1"' in html
+    )
 
 
 def test_download_history_fragment_view_returns_partial_markup(client: TestClient) -> None:
@@ -119,4 +130,7 @@ def test_download_history_fragment_view_returns_partial_markup(client: TestClien
     assert "<body" not in html.lower()
     assert 'id="download-history-fragment"' in html
     assert "View Video 1" in html
-    assert 'data-download-history-refresh-url="/views/downloads/table?status=failed&amp;page=1"' in html
+    assert (
+        'data-download-history-refresh-url="/views/downloads/table?status=failed&amp;page=1"'
+        in html
+    )

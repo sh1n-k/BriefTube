@@ -8,8 +8,8 @@ import pytest
 
 from app.database import init_database, open_database
 from app.repositories import manual_transcripts as manual_transcripts_repo
-from app.workers import manual_transcript_worker
 from app.services.transcript_guard import TranscriptErrorCategory
+from app.workers import manual_transcript_worker
 
 
 class _FakeTranscriptService:
@@ -158,7 +158,9 @@ def test_manual_transcript_worker_marks_no_subtitle(
         try:
             await init_database(db)
             await _seed_auto_paused_video(db, "vid-manual-tx-worker-002")
-            await manual_transcripts_repo.enqueue_manual_transcript_job(db, "vid-manual-tx-worker-002")
+            await manual_transcripts_repo.enqueue_manual_transcript_job(
+                db, "vid-manual-tx-worker-002"
+            )
             monkeypatch.setattr(
                 manual_transcript_worker,
                 "_classify_transcript_error",
@@ -185,7 +187,9 @@ def test_manual_transcript_worker_records_external_failure(tmp_path: Path) -> No
         try:
             await init_database(db)
             await _seed_auto_paused_video(db, "vid-manual-tx-worker-003")
-            await manual_transcripts_repo.enqueue_manual_transcript_job(db, "vid-manual-tx-worker-003")
+            await manual_transcripts_repo.enqueue_manual_transcript_job(
+                db, "vid-manual-tx-worker-003"
+            )
             return await _run_worker_until(
                 db,
                 _FakeTranscriptService(exc=RuntimeError("upstream unavailable")),
@@ -210,7 +214,9 @@ def test_manual_transcript_worker_opens_guard_on_hard_throttle(
         try:
             await init_database(db)
             await _seed_auto_paused_video(db, "vid-manual-tx-worker-004")
-            await manual_transcripts_repo.enqueue_manual_transcript_job(db, "vid-manual-tx-worker-004")
+            await manual_transcripts_repo.enqueue_manual_transcript_job(
+                db, "vid-manual-tx-worker-004"
+            )
             monkeypatch.setattr(
                 manual_transcript_worker,
                 "_classify_transcript_error",
@@ -238,7 +244,9 @@ def test_manual_transcript_recovery_keeps_fresh_running_job(tmp_path: Path) -> N
         try:
             await init_database(db)
             await _seed_auto_paused_video(db, "vid-manual-tx-worker-005")
-            await manual_transcripts_repo.enqueue_manual_transcript_job(db, "vid-manual-tx-worker-005")
+            await manual_transcripts_repo.enqueue_manual_transcript_job(
+                db, "vid-manual-tx-worker-005"
+            )
             claimed = await manual_transcripts_repo.claim_next_manual_transcript_job(db)
             assert claimed is not None
             recovered = await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(

@@ -1,4 +1,5 @@
 """E2E tests for navigation, theme toggle, i18n, and page transitions."""
+
 from __future__ import annotations
 
 from urllib.parse import urlparse
@@ -15,6 +16,7 @@ from tests.e2e.seed_helpers import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True, scope="module")
 def _seed_data(e2e_server: dict) -> None:
@@ -38,6 +40,7 @@ def _url(page: Page, path: str = "/") -> str:
 # ---------------------------------------------------------------------------
 # 1. test_navigation_links
 # ---------------------------------------------------------------------------
+
 
 def test_navigation_links(e2e_page: Page) -> None:
     """All nav links click and navigate to the correct pages."""
@@ -68,6 +71,7 @@ def test_navigation_links(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 2. test_navigation_active_highlight
 # ---------------------------------------------------------------------------
+
 
 def test_navigation_active_highlight(e2e_page: Page) -> None:
     """Current page nav link has the active style (bg-white/20)."""
@@ -103,6 +107,7 @@ def test_navigation_active_highlight(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 3. test_theme_toggle_button
 # ---------------------------------------------------------------------------
+
 
 def test_theme_toggle_button(e2e_page: Page) -> None:
     """Theme toggle button changes data-theme attribute on <html>."""
@@ -141,6 +146,7 @@ def test_theme_toggle_button(e2e_page: Page) -> None:
 # 4. test_theme_persists_across_pages
 # ---------------------------------------------------------------------------
 
+
 def test_theme_persists_across_pages(e2e_page: Page) -> None:
     """Set theme then navigate; theme is preserved via localStorage."""
     page = e2e_page
@@ -178,6 +184,7 @@ def test_theme_persists_across_pages(e2e_page: Page) -> None:
 # 5. test_theme_dark_mode_css_variables
 # ---------------------------------------------------------------------------
 
+
 def test_theme_dark_mode_css_variables(e2e_page: Page) -> None:
     """Dark mode CSS variables are applied correctly."""
     page = e2e_page
@@ -202,18 +209,14 @@ def test_theme_dark_mode_css_variables(e2e_page: Page) -> None:
     assert app_bg == "#171717", f"Expected --app-bg '#171717' in dark/neutral, got '{app_bg}'"
 
     # Check body background color matches the variable.
-    body_bg = page.evaluate(
-        "getComputedStyle(document.body).backgroundColor"
-    )
+    body_bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
     # body background should not be plain white.
     assert body_bg != "rgb(255, 255, 255)", (
         f"Body background should not be white in dark mode, got '{body_bg}'"
     )
 
     # Check color-scheme.
-    color_scheme = page.evaluate(
-        "getComputedStyle(document.documentElement).colorScheme"
-    )
+    color_scheme = page.evaluate("getComputedStyle(document.documentElement).colorScheme")
     assert "dark" in color_scheme, f"Expected color-scheme to contain 'dark', got '{color_scheme}'"
 
     # Clean up.
@@ -223,6 +226,7 @@ def test_theme_dark_mode_css_variables(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 6. test_i18n_korean_default
 # ---------------------------------------------------------------------------
+
 
 def test_i18n_korean_default(e2e_page: Page) -> None:
     """Default language is Korean; Korean text appears in nav and page headings."""
@@ -254,6 +258,7 @@ def test_i18n_korean_default(e2e_page: Page) -> None:
 # 7. test_i18n_english
 # ---------------------------------------------------------------------------
 
+
 def test_i18n_english(e2e_page: Page) -> None:
     """Changing language to English shows English text."""
     page = e2e_page
@@ -283,6 +288,7 @@ def test_i18n_english(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 8. test_page_transition_fade
 # ---------------------------------------------------------------------------
+
 
 def test_page_transition_fade(e2e_page: Page) -> None:
     """Nav transition animation class is applied to [data-page-shell]."""
@@ -318,6 +324,7 @@ def test_page_transition_fade(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 9. test_responsive_nav
 # ---------------------------------------------------------------------------
+
 
 def test_responsive_nav(e2e_page: Page) -> None:
     """Browser resize affects nav layout. Verify nav links remain accessible."""
@@ -363,6 +370,7 @@ def test_responsive_nav(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 10. test_healthz_endpoint
 # ---------------------------------------------------------------------------
+
 
 def test_healthz_endpoint(e2e_page: Page) -> None:
     """/healthz returns {"status": "ok"}."""

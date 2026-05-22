@@ -13,7 +13,11 @@ def _seed_channel_with_video(db_path: str, channel_id: str, video_id: str) -> No
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            (channel_id, f"Name-{channel_id}", f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"),
+            (
+                channel_id,
+                f"Name-{channel_id}",
+                f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+            ),
         )
         conn.execute(
             """
@@ -49,8 +53,13 @@ def test_delete_single_channel_removes_related_data(client: TestClient) -> None:
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT 1 FROM channels WHERE channel_id='UCdel001'").fetchone() is None
         assert conn.execute("SELECT 1 FROM videos WHERE video_id='vid-del-001'").fetchone() is None
-        assert conn.execute("SELECT 1 FROM transcripts WHERE video_id='vid-del-001'").fetchone() is None
-        assert conn.execute("SELECT 1 FROM articles WHERE video_id='vid-del-001'").fetchone() is None
+        assert (
+            conn.execute("SELECT 1 FROM transcripts WHERE video_id='vid-del-001'").fetchone()
+            is None
+        )
+        assert (
+            conn.execute("SELECT 1 FROM articles WHERE video_id='vid-del-001'").fetchone() is None
+        )
 
 
 def test_delete_selected_channels_removes_multiple(client: TestClient) -> None:

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
 import time
+from datetime import UTC, datetime
 
 from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
-from app.state import AppState
 from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
@@ -22,6 +21,7 @@ from app.services.transcript_guard import (
     _open_breaker,
     _save_guard_state,
 )
+from app.state import AppState
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
         return
     try:
         await asyncio.wait_for(wake_event.wait(), timeout=safe_timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     finally:
         if wake_event.is_set():
@@ -74,7 +74,9 @@ async def _recover_stale_running_manual_article_jobs(
     stale_after_seconds: int,
     exclude_job_id: int | None = None,
 ) -> None:
-    exclude_job_ids = [exclude_job_id] if isinstance(exclude_job_id, int) and exclude_job_id > 0 else None
+    exclude_job_ids = (
+        [exclude_job_id] if isinstance(exclude_job_id, int) and exclude_job_id > 0 else None
+    )
     recovered = await manual_articles_repo.recover_stuck_manual_article_jobs(
         state.db,
         stale_after_seconds=stale_after_seconds,
@@ -117,7 +119,9 @@ async def run_manual_article_worker(state: AppState) -> None:
     request_interval_seconds = max(1, int(state.config.transcript_request_interval_seconds))
     fetch_timeout_seconds = max(1, int(state.config.transcript_fetch_timeout_seconds))
     retry_base_delay_seconds = max(1, int(state.config.transcript_retry_base_delay_seconds))
-    retry_max_delay_seconds = max(retry_base_delay_seconds, int(state.config.transcript_retry_max_delay_seconds))
+    retry_max_delay_seconds = max(
+        retry_base_delay_seconds, int(state.config.transcript_retry_max_delay_seconds)
+    )
     retry_max_attempts = max(1, int(state.config.transcript_retry_max_attempts))
     jitter_ratio = max(0.0, min(0.5, float(state.config.transcript_jitter_ratio)))
     adaptive_enabled = bool(state.config.transcript_adaptive_enabled)
@@ -132,13 +136,17 @@ async def run_manual_article_worker(state: AppState) -> None:
         1.0,
         float(state.config.transcript_general_error_slowdown_multiplier),
     )
-    channel_hard_cooldown_seconds = max(1, int(state.config.transcript_channel_hard_cooldown_seconds))
+    channel_hard_cooldown_seconds = max(
+        1, int(state.config.transcript_channel_hard_cooldown_seconds)
+    )
     half_open_probe_count = max(1, int(state.config.transcript_breaker_half_open_probe_count))
     next_request_monotonic_at = 0.0
-    runtime_recover_stale_after_seconds, runtime_recover_check_interval_seconds = _runtime_recover_policy(
-        idle_sleep_seconds=idle_sleep_seconds,
-        request_interval_seconds=request_interval_seconds,
-        fetch_timeout_seconds=fetch_timeout_seconds,
+    runtime_recover_stale_after_seconds, runtime_recover_check_interval_seconds = (
+        _runtime_recover_policy(
+            idle_sleep_seconds=idle_sleep_seconds,
+            request_interval_seconds=request_interval_seconds,
+            fetch_timeout_seconds=fetch_timeout_seconds,
+        )
     )
     next_runtime_recover_monotonic_at = 0.0
     active_job_id: int | None = None
@@ -163,10 +171,16 @@ async def run_manual_article_worker(state: AppState) -> None:
                     stale_after_seconds=runtime_recover_stale_after_seconds,
                     exclude_job_id=active_job_id,
                 )
-                next_runtime_recover_monotonic_at = now_monotonic + runtime_recover_check_interval_seconds
+                next_runtime_recover_monotonic_at = (
+                    now_monotonic + runtime_recover_check_interval_seconds
+                )
 
-            now_utc = datetime.now(timezone.utc)
-            if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until and now_utc < guard.cooldown_until:
+            now_utc = datetime.now(UTC)
+            if (
+                guard.breaker_state == TranscriptBreakerState.OPEN
+                and guard.cooldown_until
+                and now_utc < guard.cooldown_until
+            ):
                 remaining = (guard.cooldown_until - now_utc).total_seconds()
                 await _sleep_with_wake(state, min(idle_sleep_seconds, max(1.0, remaining)))
                 continue
@@ -210,7 +224,10 @@ async def run_manual_article_worker(state: AppState) -> None:
                     continue
 
                 pipeline_status = str(job.get("pipeline_status") or "").strip().lower()
-                if pipeline_status in manual_articles_repo.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES:
+                if (
+                    pipeline_status
+                    in manual_articles_repo.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES
+                ):
                     await manual_articles_repo.mark_manual_article_job_skipped(
                         state.db,
                         job_id=active_job_id,
@@ -226,8 +243,14 @@ async def run_manual_article_worker(state: AppState) -> None:
                     continue
 
                 if bool(job.get("has_transcript")):
-                    updated = await manual_articles_repo.ensure_video_llm_pending_for_manual_article(state.db, video_id)
-                    await manual_articles_repo.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
+                    updated = (
+                        await manual_articles_repo.ensure_video_llm_pending_for_manual_article(
+                            state.db, video_id
+                        )
+                    )
+                    await manual_articles_repo.mark_manual_article_job_succeeded(
+                        state.db, job_id=active_job_id
+                    )
                     llm_wake_event = getattr(state, "llm_wake_event", None)
                     if updated > 0 and isinstance(llm_wake_event, asyncio.Event):
                         llm_wake_event.set()
@@ -240,7 +263,9 @@ async def run_manual_article_worker(state: AppState) -> None:
                     )
                     continue
 
-                preferred_language = str(job.get("transcript_target_language") or "").strip().lower() or None
+                preferred_language = (
+                    str(job.get("transcript_target_language") or "").strip().lower() or None
+                )
                 await _wait_until(next_request_monotonic_at)
                 if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
                     if guard.half_open_probe_remaining <= 0:
@@ -250,7 +275,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                     await _save_guard_state(state.db, guard)
                 try:
                     guard.last_channel_id = channel_id or guard.last_channel_id
-                    guard.last_channel_attempt_at = datetime.now(timezone.utc)
+                    guard.last_channel_attempt_at = datetime.now(UTC)
                     await _save_guard_state(state.db, guard)
                     raw_text, language, source_type = await asyncio.wait_for(
                         state.transcript_service.fetch_transcript(
@@ -279,7 +304,10 @@ async def run_manual_article_worker(state: AppState) -> None:
                         guard.consecutive_hard_errors = 0
                         if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
                             _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                        if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
+                        if (
+                            adaptive_enabled
+                            and guard.consecutive_successes >= recovery_success_window
+                        ):
                             guard.consecutive_successes = 0
                             decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
@@ -305,7 +333,9 @@ async def run_manual_article_worker(state: AppState) -> None:
                         )
                         guard.consecutive_hard_errors += 1
                         guard.consecutive_successes = 0
-                        guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+                        guard.adaptive_factor = min(
+                            adaptive_max_factor, guard.adaptive_factor * 2.0
+                        )
                         breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
                             hard_cooldown_base_seconds,
                             hard_cooldown_max_seconds,
@@ -375,7 +405,10 @@ async def run_manual_article_worker(state: AppState) -> None:
                         )
                     await _save_guard_state(state.db, guard)
 
-                    if error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT and next_retry_count <= retry_max_attempts:
+                    if (
+                        error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT
+                        and next_retry_count <= retry_max_attempts
+                    ):
                         next_delay_seconds = _compute_retry_delay_seconds(
                             retry_base_delay_seconds,
                             retry_max_delay_seconds,
@@ -424,11 +457,13 @@ async def run_manual_article_worker(state: AppState) -> None:
                 if not raw_text.strip():
                     error_message = "Transcript payload is empty"
                     current_retry_count = int(job.get("transcript_retry_count") or 0)
-                    await manual_articles_repo.force_mark_video_transcript_failed_for_manual_article(
-                        state.db,
-                        video_id=video_id,
-                        retry_count=current_retry_count + 1,
-                        error_message=error_message,
+                    await (
+                        manual_articles_repo.force_mark_video_transcript_failed_for_manual_article(
+                            state.db,
+                            video_id=video_id,
+                            retry_count=current_retry_count + 1,
+                            error_message=error_message,
+                        )
                     )
                     await manual_articles_repo.mark_manual_article_job_failed(
                         state.db,
@@ -462,7 +497,9 @@ async def run_manual_article_worker(state: AppState) -> None:
                     thumbnail_path=None,
                     force_llm_pending=True,
                 )
-                await manual_articles_repo.mark_manual_article_job_succeeded(state.db, job_id=active_job_id)
+                await manual_articles_repo.mark_manual_article_job_succeeded(
+                    state.db, job_id=active_job_id
+                )
                 llm_wake_event = getattr(state, "llm_wake_event", None)
                 if isinstance(llm_wake_event, asyncio.Event):
                     llm_wake_event.set()

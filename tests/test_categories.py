@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi.testclient import TestClient
 
 
@@ -53,7 +51,7 @@ def test_list_categories_with_channel_count(client: TestClient) -> None:
         json={"channel_ids": ["UC_tech1"]},
     )
     cats = client.get("/api/categories").json()
-    tech_cat = [c for c in cats if c["id"] == cat_id][0]
+    tech_cat = next(c for c in cats if c["id"] == cat_id)
     assert tech_cat["channel_count"] == 1
 
 
@@ -72,7 +70,7 @@ def test_category_processing_stage_contract(client: TestClient) -> None:
     resp = client.post("/api/categories", json={"name": "스테이지테스트"})
     cat_id = resp.json()["id"]
     categories = client.get("/api/categories").json()
-    created = [c for c in categories if c["id"] == cat_id][0]
+    created = next(c for c in categories if c["id"] == cat_id)
     assert created["processing_stage"] in {"off", "transcript_only", "full"}
     assert created["processing_stage"] == "off"
     update_resp = client.put(
@@ -110,7 +108,7 @@ def test_delete_category(client: TestClient) -> None:
 
 def test_delete_default_category_fails(client: TestClient) -> None:
     cats = client.get("/api/categories").json()
-    default_cat = [c for c in cats if c["is_default"]][0]
+    default_cat = next(c for c in cats if c["is_default"])
     resp = client.delete(f"/api/categories/{default_cat['id']}")
     assert resp.status_code == 400
 
@@ -164,7 +162,7 @@ def test_channel_management_page_renders(client: TestClient) -> None:
 
 def test_channel_management_page_with_category_filter(client: TestClient) -> None:
     cats = client.get("/api/categories").json()
-    default_id = [c for c in cats if c["is_default"]][0]["id"]
+    default_id = next(c for c in cats if c["is_default"])["id"]
     resp = client.get(f"/channels?category_id={default_id}")
     assert resp.status_code == 200
 

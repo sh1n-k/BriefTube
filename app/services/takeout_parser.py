@@ -108,12 +108,37 @@ def _parse_csv(content: bytes) -> ParsedTakeout:
     seen_ids: set[str] = set()
 
     id_aliases = {"channelid", "channelidentifier", "id", "채널id", "채널아이디", "아이디"}
-    title_aliases = {"channeltitle", "channelname", "title", "name", "채널명", "채널이름", "이름", "제목"}
+    title_aliases = {
+        "channeltitle",
+        "channelname",
+        "title",
+        "name",
+        "채널명",
+        "채널이름",
+        "이름",
+        "제목",
+    }
     url_aliases = {"channelurl", "url", "link", "채널url", "채널링크", "주소", "링크"}
-    fallback_header_terms = ("channel", "url", "id", "title", "name", "handle", "채널", "이름", "제목", "링크", "주소", "아이디", "핸들")
+    fallback_header_terms = (
+        "channel",
+        "url",
+        "id",
+        "title",
+        "name",
+        "handle",
+        "채널",
+        "이름",
+        "제목",
+        "링크",
+        "주소",
+        "아이디",
+        "핸들",
+    )
 
     for row in reader:
-        normalized_row = {str(key or "").strip(): str(value or "").strip() for key, value in row.items()}
+        normalized_row = {
+            str(key or "").strip(): str(value or "").strip() for key, value in row.items()
+        }
 
         channel_id = _find_value(normalized_row, id_aliases)
         channel_name = _find_value(normalized_row, title_aliases)
@@ -126,7 +151,8 @@ def _parse_csv(content: bytes) -> ParsedTakeout:
                     {
                         "channel_id": channel_id,
                         "channel_name": channel_name or channel_id,
-                        "channel_url": channel_url or f"https://www.youtube.com/channel/{channel_id}",
+                        "channel_url": channel_url
+                        or f"https://www.youtube.com/channel/{channel_id}",
                     }
                 )
             continue
@@ -160,7 +186,10 @@ def _parse_json(content: bytes) -> list[str]:
                     stripped = value.strip()
                     if not stripped:
                         continue
-                    if any(term in key_lower for term in ["channel", "name", "title", "url", "id", "handle"]):
+                    if any(
+                        term in key_lower
+                        for term in ["channel", "name", "title", "url", "id", "handle"]
+                    ):
                         entries.append(stripped)
                     entries.extend(_extract_tokens(stripped))
                 else:

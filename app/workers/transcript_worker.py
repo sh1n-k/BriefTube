@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from enum import Enum
 import logging
 import os
 import random
 import time
-from typing import Any
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from typing import Any
 
 from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImports]
     AgeRestricted,
@@ -33,14 +33,14 @@ from app.state import AppState
 logger = logging.getLogger(__name__)
 
 
-class TranscriptErrorCategory(str, Enum):
+class TranscriptErrorCategory(StrEnum):
     NO_SUBTITLE = "no_subtitle"
     HARD_THROTTLE = "hard_throttle"
     RETRYABLE_TRANSIENT = "retryable_transient"
     NON_RETRYABLE_FAILURE = "non_retryable_failure"
 
 
-class TranscriptBreakerState(str, Enum):
+class TranscriptBreakerState(StrEnum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -105,7 +105,9 @@ def _compute_retry_delay_seconds(base_delay: int, max_delay: int, retry_count: i
     return delay
 
 
-def _compute_hard_cooldown_seconds(base_seconds: int, max_seconds: int, hard_error_count: int) -> int:
+def _compute_hard_cooldown_seconds(
+    base_seconds: int, max_seconds: int, hard_error_count: int
+) -> int:
     safe_base = max(1, int(base_seconds))
     safe_max = max(safe_base, int(max_seconds))
     safe_count = max(1, int(hard_error_count))
@@ -119,8 +121,8 @@ def _parse_cooldown(value: str | None) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     except Exception:
         return None
 
@@ -170,8 +172,10 @@ class TranscriptGuardState:
     last_channel_attempt_at: datetime | None = None
 
     @classmethod
-    def from_repository(cls, payload: dict[str, Any]) -> "TranscriptGuardState":
-        state_raw = str(payload.get("breaker_state") or TranscriptBreakerState.CLOSED.value).strip().lower()
+    def from_repository(cls, payload: dict[str, Any]) -> TranscriptGuardState:
+        state_raw = (
+            str(payload.get("breaker_state") or TranscriptBreakerState.CLOSED.value).strip().lower()
+        )
         if state_raw not in {item.value for item in TranscriptBreakerState}:
             state_raw = TranscriptBreakerState.CLOSED.value
         return cls(
@@ -222,7 +226,7 @@ def _open_breaker(
     half_open_probe_count: int,
 ) -> None:
     guard.breaker_state = TranscriptBreakerState.OPEN
-    guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=max(1, int(cooldown_seconds)))
+    guard.cooldown_until = datetime.now(UTC) + timedelta(seconds=max(1, int(cooldown_seconds)))
     guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
 
 
@@ -267,7 +271,7 @@ async def _lease_heartbeat_loop(
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=safe_interval)
             return
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         if stop_event.is_set():
             return
@@ -313,7 +317,9 @@ async def run_transcript_fetcher(state: AppState) -> None:
     request_interval_seconds = max(1, int(state.config.transcript_request_interval_seconds))
     idle_sleep_seconds = max(1, int(state.config.transcript_idle_sleep_seconds))
     retry_base_delay_seconds = max(1, int(state.config.transcript_retry_base_delay_seconds))
-    retry_max_delay_seconds = max(retry_base_delay_seconds, int(state.config.transcript_retry_max_delay_seconds))
+    retry_max_delay_seconds = max(
+        retry_base_delay_seconds, int(state.config.transcript_retry_max_delay_seconds)
+    )
     retry_max_attempts = max(1, int(state.config.transcript_retry_max_attempts))
     fetch_timeout_seconds = max(1, int(state.config.transcript_fetch_timeout_seconds))
     jitter_ratio = max(0.0, min(0.5, float(state.config.transcript_jitter_ratio)))
@@ -330,8 +336,12 @@ async def run_transcript_fetcher(state: AppState) -> None:
         float(state.config.transcript_general_error_slowdown_multiplier),
     )
     channel_min_interval_seconds = max(0, int(state.config.transcript_channel_min_interval_seconds))
-    channel_pick_lookahead = max(fetch_batch_size, int(state.config.transcript_channel_pick_lookahead))
-    channel_hard_cooldown_seconds = max(1, int(state.config.transcript_channel_hard_cooldown_seconds))
+    channel_pick_lookahead = max(
+        fetch_batch_size, int(state.config.transcript_channel_pick_lookahead)
+    )
+    channel_hard_cooldown_seconds = max(
+        1, int(state.config.transcript_channel_hard_cooldown_seconds)
+    )
     half_open_probe_count = max(1, int(state.config.transcript_breaker_half_open_probe_count))
     lease_enabled = bool(state.config.transcript_worker_lease_enabled)
     lease_ttl_seconds = max(
@@ -401,12 +411,17 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     lease_stop_event = asyncio.Event()
                     lease_lost_event = asyncio.Event()
                     try:
-                        await transcripts_repo.release_transcript_worker_lease(worker_db, lease_owner_id)
+                        await transcripts_repo.release_transcript_worker_lease(
+                            worker_db, lease_owner_id
+                        )
                     except Exception:
                         logger.exception(
                             "event=transcript.lease_release_failed worker=transcript owner=%s",
                             lease_owner_id,
-                            extra={"event": "transcript.lease_release_failed", "worker": "transcript"},
+                            extra={
+                                "event": "transcript.lease_release_failed",
+                                "worker": "transcript",
+                            },
                         )
                     lease_held = False
                 await asyncio.sleep(idle_sleep_seconds)
@@ -428,7 +443,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         logger.exception(
                             "event=transcript.lease_acquire_failed worker=transcript owner=%s",
                             lease_owner_id,
-                            extra={"event": "transcript.lease_acquire_failed", "worker": "transcript"},
+                            extra={
+                                "event": "transcript.lease_acquire_failed",
+                                "worker": "transcript",
+                            },
                         )
                         await asyncio.sleep(idle_sleep_seconds)
                         continue
@@ -436,7 +454,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         logger.debug(
                             "event=transcript.lease_not_acquired worker=transcript owner=%s",
                             lease_owner_id,
-                            extra={"event": "transcript.lease_not_acquired", "worker": "transcript"},
+                            extra={
+                                "event": "transcript.lease_not_acquired",
+                                "worker": "transcript",
+                            },
                         )
                         await asyncio.sleep(idle_sleep_seconds)
                         continue
@@ -462,8 +483,12 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         extra={"event": "transcript.lease_acquired", "worker": "transcript"},
                     )
 
-            now_utc = datetime.now(timezone.utc)
-            if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until and now_utc < guard.cooldown_until:
+            now_utc = datetime.now(UTC)
+            if (
+                guard.breaker_state == TranscriptBreakerState.OPEN
+                and guard.cooldown_until
+                and now_utc < guard.cooldown_until
+            ):
                 remaining = (guard.cooldown_until - now_utc).total_seconds()
                 await asyncio.sleep(min(idle_sleep_seconds, max(1.0, remaining)))
                 continue
@@ -509,7 +534,8 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 )
                 if avoid_channel_id and remaining_channel_wait > 0:
                     pending = [
-                        v for v in pending
+                        v
+                        for v in pending
                         if str(v.get("channel_id") or "").strip() != avoid_channel_id
                     ]
                 if not pending:
@@ -531,34 +557,41 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     if lease_enabled and (not lease_held or lease_lost_event.is_set()):
                         break
                     if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until:
-                        if datetime.now(timezone.utc) < guard.cooldown_until:
+                        if datetime.now(UTC) < guard.cooldown_until:
                             break
 
                     video_id = video["video_id"]
                     channel_id = str(video.get("channel_id") or "").strip()
-                    preferred_language = str(video.get("transcript_target_language") or "").strip().lower() or None
+                    preferred_language = (
+                        str(video.get("transcript_target_language") or "").strip().lower() or None
+                    )
 
                     try:
                         await _wait_until(next_request_monotonic_at)
                         if lease_enabled and (not lease_held or lease_lost_event.is_set()):
                             runtime_recovery_pending = True
                             break
-                        if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until:
-                            if datetime.now(timezone.utc) < guard.cooldown_until:
+                        if (
+                            guard.breaker_state == TranscriptBreakerState.OPEN
+                            and guard.cooldown_until
+                        ):
+                            if datetime.now(UTC) < guard.cooldown_until:
                                 break
                         if (
                             guard.breaker_state == TranscriptBreakerState.HALF_OPEN
                             and guard.half_open_probe_remaining <= 0
                         ):
                             break
-                        marked = await transcripts_repo.mark_transcript_processing(worker_db, video_id)
+                        marked = await transcripts_repo.mark_transcript_processing(
+                            worker_db, video_id
+                        )
                         if marked == 0:
                             continue
                         if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
                             guard.half_open_probe_remaining -= 1
                             await _save_guard_state(worker_db, guard)
                         guard.last_channel_id = channel_id or guard.last_channel_id
-                        guard.last_channel_attempt_at = datetime.now(timezone.utc)
+                        guard.last_channel_attempt_at = datetime.now(UTC)
                         await _save_guard_state(worker_db, guard)
                         raw_text, language, source_type = await asyncio.wait_for(
                             state.transcript_service.fetch_transcript(
@@ -609,7 +642,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         guard.consecutive_hard_errors = 0
                         if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
                             _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                        if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
+                        if (
+                            adaptive_enabled
+                            and guard.consecutive_successes >= recovery_success_window
+                        ):
                             guard.consecutive_successes = 0
                             decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
                             guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
@@ -649,9 +685,14 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.consecutive_hard_errors = 0
                             if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
                                 _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                            if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
+                            if (
+                                adaptive_enabled
+                                and guard.consecutive_successes >= recovery_success_window
+                            ):
                                 guard.consecutive_successes = 0
-                                decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
+                                decay = _adaptive_decay_rate(
+                                    guard.adaptive_factor, adaptive_max_factor
+                                )
                                 guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
                             await _save_guard_state(worker_db, guard)
                             logger.info(
@@ -670,7 +711,9 @@ async def run_transcript_fetcher(state: AppState) -> None:
 
                             guard.consecutive_hard_errors += 1
                             guard.consecutive_successes = 0
-                            guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+                            guard.adaptive_factor = min(
+                                adaptive_max_factor, guard.adaptive_factor * 2.0
+                            )
                             breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
                                 hard_cooldown_base_seconds,
                                 hard_cooldown_max_seconds,
@@ -751,11 +794,13 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                     adaptive_max_factor,
                                     guard.adaptive_factor * general_error_slowdown_multiplier,
                                 )
-                            probe_cooldown_seconds = _reopen_breaker_after_half_open_retryable_failure(
-                                guard,
-                                hard_cooldown_base_seconds=hard_cooldown_base_seconds,
-                                hard_cooldown_max_seconds=hard_cooldown_max_seconds,
-                                half_open_probe_count=half_open_probe_count,
+                            probe_cooldown_seconds = (
+                                _reopen_breaker_after_half_open_retryable_failure(
+                                    guard,
+                                    hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+                                    hard_cooldown_max_seconds=hard_cooldown_max_seconds,
+                                    half_open_probe_count=half_open_probe_count,
+                                )
                             )
                             await _save_guard_state(worker_db, guard)
                             next_delay_seconds = max(

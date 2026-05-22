@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.parametrize("bulk_text", ["resolved-input\nneeds-input\nfail-input"])
@@ -86,7 +86,7 @@ def test_bulk_resolve_google_csv_upload_directly_resolves(client: TestClient) ->
     csv_content = (
         "Channel Id,Channel Url,Channel Title\n"
         "UC0byV7SMA-MjzByM5fZR1EA,http://www.youtube.com/channel/UC0byV7SMA-MjzByM5fZR1EA,범죄심리 연구소\n"
-    ).encode("utf-8")
+    ).encode()
 
     response = client.post(
         "/api/channels/bulk/resolve",
@@ -101,7 +101,9 @@ def test_bulk_resolve_google_csv_upload_directly_resolves(client: TestClient) ->
     assert len(payload["needs_selection"]) == 0
 
 
-def test_bulk_resolve_handles_resolver_exception(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bulk_resolve_handles_resolver_exception(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     resolver = client.app.state.runtime.channel_resolver
 
     async def fake_resolve_input(raw_input: str) -> dict:
@@ -119,7 +121,9 @@ def test_bulk_resolve_handles_resolver_exception(client: TestClient, monkeypatch
 
     monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
 
-    response = client.post("/api/channels/bulk/resolve", json={"bulk_text": "raise-input\nsafe-input"})
+    response = client.post(
+        "/api/channels/bulk/resolve", json={"bulk_text": "raise-input\nsafe-input"}
+    )
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["resolved"]) == 1
@@ -128,7 +132,9 @@ def test_bulk_resolve_handles_resolver_exception(client: TestClient, monkeypatch
     assert payload["failed"][0]["reason"] == "resolver exception: RuntimeError"
 
 
-def test_bulk_resolve_json_takeout_entries_uses_parser(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bulk_resolve_json_takeout_entries_uses_parser(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     resolver = client.app.state.runtime.channel_resolver
     seen_inputs: list[str] = []
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import logging
+from collections.abc import MutableMapping
 
 import bleach
 from markdown_it import MarkdownIt
@@ -35,7 +36,12 @@ _ALLOWED_ATTRIBUTES = {
 _ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
 
-def _set_link_attrs(attrs: dict[tuple[str | None, str], str], _new: bool = False) -> dict[tuple[str | None, str], str]:
+def _set_link_attrs(
+    attrs: MutableMapping[tuple[str | None, str], str],
+    new: bool = False,  # bleach callback signature requires positional bool
+    /,
+) -> MutableMapping[tuple[str | None, str], str]:
+    del new
     href_key = (None, "href")
     if href_key not in attrs:
         return attrs
@@ -70,4 +76,3 @@ def render_markdown_to_safe_html(markdown_text: str | None) -> str:
             extra={"event": "markdown.render_failed"},
         )
         return f"<pre>{html.escape(source)}</pre>"
-

@@ -20,8 +20,7 @@ TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS: dict[str, str] = {
 
 _DEFAULT_TRANSCRIPT_REQUEST_HEADERS: dict[str, str] = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) "
-        "Gecko/20100101 Firefox/128.0"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.6,en;q=0.3",
@@ -126,7 +125,4 @@ def validate_complete_header_fields(raw: dict[str, Any]) -> None:
 
 def format_headers_multiline(raw: dict[str, Any]) -> str:
     merged = merge_with_default_headers(raw)
-    return "\n".join(
-        f"{key}: {merged[key]}"
-        for key in TRANSCRIPT_REQUEST_HEADER_KEYS
-    )
+    return "\n".join(f"{key}: {merged[key]}" for key in TRANSCRIPT_REQUEST_HEADER_KEYS)

@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from app.repositories import manual_articles as manual_articles_repo
 from app.config import AppConfig
 from app.database import init_database, open_database
+from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
-from tests.helpers.db_seed import seed_channel, seed_video
 from app.workers.manual_article_worker import run_manual_article_worker
+from tests.helpers.db_seed import seed_channel, seed_video
 
 CHANNEL_ID = "UCmanualworker002"
 repository = SimpleNamespace(
@@ -17,6 +17,7 @@ repository = SimpleNamespace(
     recover_stuck_manual_article_jobs=manual_articles_repo.recover_stuck_manual_article_jobs,
     get_video=videos_repo.get_video,
 )
+
 
 async def _seed_channel(db) -> None:
     await seed_channel(db, channel_id=CHANNEL_ID, channel_name="Manual Worker Channel")
@@ -40,7 +41,9 @@ async def _insert_pending_job(db, *, video_id: str) -> int:
     return int(row["max_id"])
 
 
-async def _wait_for_job_status(db, *, job_id: int, expected: str, timeout_seconds: float = 6.0) -> None:
+async def _wait_for_job_status(
+    db, *, job_id: int, expected: str, timeout_seconds: float = 6.0
+) -> None:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while True:
         row = await repository.get_manual_article_job(db, job_id)
@@ -66,7 +69,9 @@ class _FailingTranscriptService:
         raise RuntimeError("manual fetch failed")
 
 
-def test_manual_article_worker_save_transcript_failure_marks_job_failed(tmp_path, monkeypatch) -> None:
+def test_manual_article_worker_save_transcript_failure_marks_job_failed(
+    tmp_path, monkeypatch
+) -> None:
     db_path = tmp_path / "manual-worker-save-fail.db"
 
     async def _failing_save_transcript(*args, **kwargs):
@@ -346,8 +351,12 @@ def test_manual_article_worker_processes_jobs_sequentially_with_spacing(tmp_path
 
         task = asyncio.create_task(run_manual_article_worker(state))
         try:
-            await _wait_for_job_status(db, job_id=job_id_1, expected="succeeded", timeout_seconds=8.0)
-            await _wait_for_job_status(db, job_id=job_id_2, expected="succeeded", timeout_seconds=8.0)
+            await _wait_for_job_status(
+                db, job_id=job_id_1, expected="succeeded", timeout_seconds=8.0
+            )
+            await _wait_for_job_status(
+                db, job_id=job_id_2, expected="succeeded", timeout_seconds=8.0
+            )
             assert len(starts) >= 2
             order = [starts[0][0], starts[1][0]]
             spacing = starts[1][1] - starts[0][1]

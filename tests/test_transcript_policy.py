@@ -60,7 +60,11 @@ def test_pop_pending_transcript_videos_prioritizes_recent_and_due(client) -> Non
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCpolicy001", "Policy Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCpolicy001"),
+            (
+                "UCpolicy001",
+                "Policy Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCpolicy001",
+            ),
         )
         conn.execute(
             """
@@ -74,14 +78,26 @@ def test_pop_pending_transcript_videos_prioritizes_recent_and_due(client) -> Non
             INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, transcript_next_attempt_at)
             VALUES (?, ?, ?, ?, 'transcript_pending', ?)
             """,
-            ("vid-policy-new", "UCpolicy001", "new", "2026-02-01T00:00:00+00:00", "2000-01-01 00:00:00"),
+            (
+                "vid-policy-new",
+                "UCpolicy001",
+                "new",
+                "2026-02-01T00:00:00+00:00",
+                "2000-01-01 00:00:00",
+            ),
         )
         conn.execute(
             """
             INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, transcript_next_attempt_at)
             VALUES (?, ?, ?, ?, 'transcript_pending', ?)
             """,
-            ("vid-policy-future", "UCpolicy001", "future", "2026-03-01T00:00:00+00:00", "2999-01-01 00:00:00"),
+            (
+                "vid-policy-future",
+                "UCpolicy001",
+                "future",
+                "2026-03-01T00:00:00+00:00",
+                "2999-01-01 00:00:00",
+            ),
         )
         conn.commit()
 
@@ -105,7 +121,11 @@ def test_schedule_transcript_retry_updates_retry_count_and_next_attempt(client) 
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCretry001", "Retry Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry001"),
+            (
+                "UCretry001",
+                "Retry Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry001",
+            ),
         )
         conn.execute(
             """
@@ -146,7 +166,11 @@ def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> 
                 INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
                 VALUES (?, ?, ?, 1)
                 """,
-                ("UCrecover001", "Recover Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover001"),
+                (
+                    "UCrecover001",
+                    "Recover Channel",
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover001",
+                ),
             )
             await db.execute(
                 """
@@ -199,14 +223,23 @@ def test_recover_stuck_transcript_jobs_requeues_processing_rows(tmp_path) -> Non
                 INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
                 VALUES (?, ?, ?, 1)
                 """,
-                ("UCrecover002", "Recover Channel 2", "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover002"),
+                (
+                    "UCrecover002",
+                    "Recover Channel 2",
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover002",
+                ),
             )
             await db.execute(
                 """
                 INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
                 VALUES (?, ?, ?, ?, 'transcript_processing')
                 """,
-                ("vid-recover-transcript-only", "UCrecover002", "recover transcript only", "2026-02-10T00:00:00+00:00"),
+                (
+                    "vid-recover-transcript-only",
+                    "UCrecover002",
+                    "recover transcript only",
+                    "2026-02-10T00:00:00+00:00",
+                ),
             )
             await db.commit()
             recovered = await repository.recover_stuck_transcript_jobs(db)
@@ -335,7 +368,11 @@ def test_schedule_transcript_retry_persists_last_error(client) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCretry002", "Retry Channel 2", "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry002"),
+            (
+                "UCretry002",
+                "Retry Channel 2",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry002",
+            ),
         )
         conn.execute(
             """
@@ -389,7 +426,9 @@ def test_transcript_service_applies_requests_timeout(monkeypatch: pytest.MonkeyP
     assert captured_timeouts == [7, 3]
 
 
-def test_transcript_service_reapplies_configured_headers_after_api_init(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcript_service_reapplies_configured_headers_after_api_init(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     observed_headers: dict[str, str] = {}
 
     class _FakeFetchedTranscript:
@@ -408,7 +447,9 @@ def test_transcript_service_reapplies_configured_headers_after_api_init(monkeypa
             observed_headers.update(dict(self.http_client.headers))
             return _FakeFetchedTranscript()
 
-    monkeypatch.setattr(transcript_service_module, "YouTubeTranscriptApi", _FakeYouTubeTranscriptApi)
+    monkeypatch.setattr(
+        transcript_service_module, "YouTubeTranscriptApi", _FakeYouTubeTranscriptApi
+    )
     service = transcript_service_module.TranscriptService(
         client=None,  # type: ignore[arg-type]
         request_timeout_seconds=7,
@@ -431,7 +472,11 @@ def test_save_transcript_sets_target_language_and_clears_last_error(client) -> N
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCsave001", "Save Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCsave001"),
+            (
+                "UCsave001",
+                "Save Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCsave001",
+            ),
         )
         conn.execute(
             """
@@ -556,7 +601,11 @@ def test_defer_channel_transcript_retries_defers_same_channel_except_excluded(cl
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCdefer001", "Defer Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCdefer001"),
+            (
+                "UCdefer001",
+                "Defer Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdefer001",
+            ),
         )
         conn.execute(
             """
@@ -613,7 +662,11 @@ def test_mark_restructure_failed_skips_when_video_is_not_llm_processing(client) 
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCllm001", "LLM Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCllm001"),
+            (
+                "UCllm001",
+                "LLM Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCllm001",
+            ),
         )
         conn.execute(
             """
@@ -657,7 +710,11 @@ def test_llm_retry_count_floor_allows_at_least_one_attempt(client) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCllmfloor001", "LLM Floor Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCllmfloor001"),
+            (
+                "UCllmfloor001",
+                "LLM Floor Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCllmfloor001",
+            ),
         )
         conn.execute(
             """
@@ -705,7 +762,9 @@ def test_llm_retry_count_floor_allows_at_least_one_attempt(client) -> None:
         finally:
             await db.close()
 
-    candidate_id, processing_affected, next_status, affected, pipeline_status, retry_count = asyncio.run(_run())
+    candidate_id, processing_affected, next_status, affected, pipeline_status, retry_count = (
+        asyncio.run(_run())
+    )
     assert candidate_id == "vid-llm-floor-001"
     assert processing_affected == 1
     assert next_status == "manual_review"
@@ -722,7 +781,11 @@ def test_requeue_llm_pending_without_retry_keeps_retry_count(client) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCrequeue001", "Requeue Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCrequeue001"),
+            (
+                "UCrequeue001",
+                "Requeue Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCrequeue001",
+            ),
         )
         conn.execute(
             """
@@ -763,7 +826,11 @@ def test_repair_orphan_llm_candidates_moves_only_orphans_to_manual_review(client
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCorphan001", "Orphan Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCorphan001"),
+            (
+                "UCorphan001",
+                "Orphan Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCorphan001",
+            ),
         )
         conn.execute(
             """
@@ -830,7 +897,11 @@ def test_ensure_llm_config_missing_alert_is_deduplicated_and_reset(client) -> No
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCalert001", "Alert Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCalert001"),
+            (
+                "UCalert001",
+                "Alert Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCalert001",
+            ),
         )
         conn.execute(
             """
@@ -903,11 +974,20 @@ def test_transcript_worker_lease_allows_single_owner(tmp_path) -> None:
                 owner_id="owner-b",
                 ttl_seconds=60,
             )
-            return acquired_a, acquired_b, renewed_a, released_b, released_a, acquired_b_after_release
+            return (
+                acquired_a,
+                acquired_b,
+                renewed_a,
+                released_b,
+                released_a,
+                acquired_b_after_release,
+            )
         finally:
             await db.close()
 
-    acquired_a, acquired_b, renewed_a, released_b, released_a, acquired_b_after_release = asyncio.run(_run())
+    acquired_a, acquired_b, renewed_a, released_b, released_a, acquired_b_after_release = (
+        asyncio.run(_run())
+    )
     assert acquired_a is True
     assert acquired_b is False
     assert renewed_a is True
@@ -967,7 +1047,9 @@ def test_lease_heartbeat_loop_renews_before_stop(tmp_path, monkeypatch) -> None:
                 stop_event.set()
                 return await original(*args, **kwargs)
 
-            monkeypatch.setattr(transcript_worker.transcripts_repo, "renew_transcript_worker_lease", _wrapped_renew)
+            monkeypatch.setattr(
+                transcript_worker.transcripts_repo, "renew_transcript_worker_lease", _wrapped_renew
+            )
 
             await transcript_worker._lease_heartbeat_loop(
                 db=db,

@@ -32,33 +32,31 @@ UC_BETA = "UC_BETA_CHANNEL_002"
 #   llm_failed           2  (BETA 8-9)
 #   manual_review        1  (BETA 10)
 
-ALPHA_VIDEOS: list[tuple[str, str, str, int]] = [
-    # (video_id, title, pipeline_status, days_ago)
-    (f"ALPHA_DONE_{i:02d}", f"Alpha Done Video {i}", "done", 30 - i)
-    for i in range(1, 8)
-] + [
-    (f"ALPHA_TP_{i:02d}", f"Alpha Transcript Pending {i}", "transcript_pending", 20 - i)
-    for i in range(1, 6)
-] + [
-    (f"ALPHA_LP_{i:02d}", f"Alpha LLM Pending {i}", "llm_pending", 10 - i)
-    for i in range(1, 4)
-]
+ALPHA_VIDEOS: list[tuple[str, str, str, int]] = (
+    [
+        # (video_id, title, pipeline_status, days_ago)
+        (f"ALPHA_DONE_{i:02d}", f"Alpha Done Video {i}", "done", 30 - i)
+        for i in range(1, 8)
+    ]
+    + [
+        (f"ALPHA_TP_{i:02d}", f"Alpha Transcript Pending {i}", "transcript_pending", 20 - i)
+        for i in range(1, 6)
+    ]
+    + [(f"ALPHA_LP_{i:02d}", f"Alpha LLM Pending {i}", "llm_pending", 10 - i) for i in range(1, 4)]
+)
 
-BETA_VIDEOS: list[tuple[str, str, str, int]] = [
-    (f"BETA_DONE_{i:02d}", f"Beta Done Video {i}", "done", 25 - i)
-    for i in range(1, 4)
-] + [
-    (f"BETA_TF_{i:02d}", f"Beta Transcript Failed {i}", "transcript_failed", 15 - i)
-    for i in range(1, 3)
-] + [
-    (f"BETA_NS_{i:02d}", f"Beta No Subtitle {i}", "no_subtitle", 12 - i)
-    for i in range(1, 3)
-] + [
-    (f"BETA_LF_{i:02d}", f"Beta LLM Failed {i}", "llm_failed", 8 - i)
-    for i in range(1, 3)
-] + [
-    ("BETA_MR_01", "Beta Manual Review 1", "manual_review", 3),
-]
+BETA_VIDEOS: list[tuple[str, str, str, int]] = (
+    [(f"BETA_DONE_{i:02d}", f"Beta Done Video {i}", "done", 25 - i) for i in range(1, 4)]
+    + [
+        (f"BETA_TF_{i:02d}", f"Beta Transcript Failed {i}", "transcript_failed", 15 - i)
+        for i in range(1, 3)
+    ]
+    + [(f"BETA_NS_{i:02d}", f"Beta No Subtitle {i}", "no_subtitle", 12 - i) for i in range(1, 3)]
+    + [(f"BETA_LF_{i:02d}", f"Beta LLM Failed {i}", "llm_failed", 8 - i) for i in range(1, 3)]
+    + [
+        ("BETA_MR_01", "Beta Manual Review 1", "manual_review", 3),
+    ]
+)
 
 # The 3 done videos that get transcript + article
 DONE_WITH_ARTICLE = ["ALPHA_DONE_01", "ALPHA_DONE_02", "BETA_DONE_01"]
@@ -81,10 +79,16 @@ def seeded_server(e2e_server: dict) -> dict:
 
     # Channels
     seed_channel(
-        db_path, UC_ALPHA, "Alpha Channel", category_id=invest_cat_id,
+        db_path,
+        UC_ALPHA,
+        "Alpha Channel",
+        category_id=invest_cat_id,
     )
     seed_channel(
-        db_path, UC_BETA, "Beta Channel", category_id=default_cat_id,
+        db_path,
+        UC_BETA,
+        "Beta Channel",
+        category_id=default_cat_id,
     )
 
     # Videos — Alpha
@@ -111,7 +115,9 @@ def seeded_server(e2e_server: dict) -> dict:
 
     # Transcripts + articles for 3 done videos
     for vid_id in DONE_WITH_ARTICLE:
-        seed_transcript(db_path, vid_id, f"Transcript text for {vid_id}. This is sample subtitle content.")
+        seed_transcript(
+            db_path, vid_id, f"Transcript text for {vid_id}. This is sample subtitle content."
+        )
         seed_article(
             db_path,
             vid_id,
@@ -197,9 +203,7 @@ def test_video_list_pagination(e2e_page: Page, seeded_server: dict) -> None:
     expect(pager_info).to_contain_text("1 / 3")
 
     # Click next page button
-    next_btn = page.locator(
-        "#video-list-wrap button[hx-get*='page=2']"
-    )
+    next_btn = page.locator("#video-list-wrap button[hx-get*='page=2']")
     expect(next_btn).to_be_visible()
     next_btn.click()
 
@@ -293,14 +297,10 @@ def test_video_list_sort_order(e2e_page: Page, seeded_server: dict) -> None:
     )
 
     # Click the sortable upload column header to toggle to asc
-    upload_header = page.locator(
-        "#video-list-wrap th[hx-get*='order=asc']"
-    )
+    upload_header = page.locator("#video-list-wrap th[hx-get*='order=asc']")
     if upload_header.count() == 0:
         # Already asc, look for desc toggle
-        upload_header = page.locator(
-            "#video-list-wrap th[hx-get*='order=desc']"
-        )
+        upload_header = page.locator("#video-list-wrap th[hx-get*='order=desc']")
     with page.expect_response(lambda resp: "/views/video-list" in resp.url and resp.status == 200):
         upload_header.click()
     page.wait_for_selector("#video-list-wrap tbody tr")
@@ -401,7 +401,9 @@ def test_video_detail_article_section(e2e_page: Page, seeded_server: dict) -> No
 
 
 @pytest.mark.e2e
-def test_video_detail_auto_refresh_preserves_player_card(e2e_page: Page, seeded_server: dict) -> None:
+def test_video_detail_auto_refresh_preserves_player_card(
+    e2e_page: Page, seeded_server: dict
+) -> None:
     """기사 대기 중 자동 갱신은 dynamic bundle만 교체하고 player card DOM은 유지된다."""
     page = e2e_page
     video_id = "ALPHA_LP_01"
@@ -416,7 +418,9 @@ def test_video_detail_auto_refresh_preserves_player_card(e2e_page: Page, seeded_
     player_card.evaluate("(node) => node.setAttribute('data-player-stability-marker', 'kept')")
 
     with page.expect_response(
-        lambda resp: f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200,
+        lambda resp: (
+            f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200
+        ),
         timeout=5_000,
     ):
         pass
@@ -431,7 +435,9 @@ def test_video_detail_auto_refresh_preserves_player_card(e2e_page: Page, seeded_
 
 
 @pytest.mark.e2e
-def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(e2e_page: Page, seeded_server: dict) -> None:
+def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(
+    e2e_page: Page, seeded_server: dict
+) -> None:
     """서버 응답이 같으면 dynamic bundle을 다시 갈아끼우지 않는다."""
     page = e2e_page
     video_id = "ALPHA_LP_01"
@@ -443,7 +449,9 @@ def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(e2e_page: Page,
     article_card.evaluate("(node) => node.setAttribute('data-refresh-stability-marker', 'kept')")
 
     with page.expect_response(
-        lambda resp: f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200,
+        lambda resp: (
+            f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200
+        ),
         timeout=5_000,
     ):
         pass
@@ -543,18 +551,14 @@ def test_video_list_empty_state(e2e_page: Page, seeded_server: dict) -> None:
     page = e2e_page
 
     # Navigate to video-list with a nonexistent channel_id to force empty state
-    page.goto(
-        f"{seeded_server['base_url']}/?channel_id=UC_NONEXISTENT_CHANNEL"
-    )
+    page.goto(f"{seeded_server['base_url']}/?channel_id=UC_NONEXISTENT_CHANNEL")
     page.wait_for_selector("#video-list-wrap")
 
     # The empty state has colspan="6" cell with the empty message
     empty_cell = page.locator("#video-list-wrap td[colspan='6']")
     expect(empty_cell).to_be_visible()
     # Check for the empty title text (ko or en)
-    expect(empty_cell).to_contain_text(
-        re.compile(r"(영상이 없습니다|No videos yet)")
-    )
+    expect(empty_cell).to_contain_text(re.compile(r"(영상이 없습니다|No videos yet)"))
 
 
 @pytest.mark.e2e

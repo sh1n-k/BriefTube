@@ -4,8 +4,8 @@ import json
 import os
 import sqlite3
 
-from fastapi.testclient import TestClient
 import httpx
+from fastapi.testclient import TestClient
 
 
 def _seed_channel(
@@ -112,7 +112,9 @@ def test_reactivate_single_channel_success_after_rss_probe(
         is_active=0,
     )
 
-    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+    async def fake_fetch_channel_feed(
+        channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+    ):
         assert channel_id == "UCinactive101"
         return [], "etag-101", "mod-101"
 
@@ -148,7 +150,9 @@ def test_reactivate_single_channel_keeps_inactive_on_rss_failure(
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UCinactive102", "Inactive 102", is_active=0)
 
-    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+    async def fake_fetch_channel_feed(
+        channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+    ):
         raise _http_error(404)
 
     monkeypatch.setattr(
@@ -181,7 +185,9 @@ def test_reactivate_selected_channels_partial_success_single_toast(
     _seed_channel(db_path, "UCinactive202", "Inactive 202", is_active=0)
     _seed_channel(db_path, "UCinactive203", "Inactive 203", is_active=0)
 
-    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+    async def fake_fetch_channel_feed(
+        channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+    ):
         if channel_id == "UCinactive202":
             raise _http_error(404)
         return [], "etag", "mod"
@@ -194,7 +200,10 @@ def test_reactivate_selected_channels_partial_success_single_toast(
 
     response = client.post(
         "/views/channels/reactivate-selected",
-        data={"status": "inactive", "channel_id": ["UCinactive201", "UCinactive202", "UCinactive203"]},
+        data={
+            "status": "inactive",
+            "channel_id": ["UCinactive201", "UCinactive202", "UCinactive203"],
+        },
     )
     assert response.status_code == 200
     toast = _parse_reactivate_toast(response)
@@ -243,7 +252,9 @@ def test_reactivate_selected_channels_enforces_batch_limit(
 
     called = False
 
-    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+    async def fake_fetch_channel_feed(
+        channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+    ):
         nonlocal called
         called = True
         return [], "etag", "mod"
@@ -306,7 +317,9 @@ def test_reactivate_resets_rss_fail_streak(
         )
         conn.commit()
 
-    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+    async def fake_fetch_channel_feed(
+        channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+    ):
         return [], "etag", "mod"
 
     monkeypatch.setattr(

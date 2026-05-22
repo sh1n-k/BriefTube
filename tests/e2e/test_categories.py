@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """E2E tests for the category management feature on the channels page."""
 
-import json
 
 import pytest
 from playwright.sync_api import Page, expect

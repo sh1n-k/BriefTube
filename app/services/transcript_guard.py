@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from enum import Enum
 import random
 import time
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
 from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImports]
@@ -25,14 +25,14 @@ from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImp
 from app.repositories import transcripts as transcripts_repo
 
 
-class TranscriptErrorCategory(str, Enum):
+class TranscriptErrorCategory(StrEnum):
     NO_SUBTITLE = "no_subtitle"
     HARD_THROTTLE = "hard_throttle"
     RETRYABLE_TRANSIENT = "retryable_transient"
     NON_RETRYABLE_FAILURE = "non_retryable_failure"
 
 
-class TranscriptBreakerState(str, Enum):
+class TranscriptBreakerState(StrEnum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -97,7 +97,9 @@ def _compute_retry_delay_seconds(base_delay: int, max_delay: int, retry_count: i
     return delay
 
 
-def _compute_hard_cooldown_seconds(base_seconds: int, max_seconds: int, hard_error_count: int) -> int:
+def _compute_hard_cooldown_seconds(
+    base_seconds: int, max_seconds: int, hard_error_count: int
+) -> int:
     safe_base = max(1, int(base_seconds))
     safe_max = max(safe_base, int(max_seconds))
     safe_count = max(1, int(hard_error_count))
@@ -111,8 +113,8 @@ def _parse_cooldown(value: str | None) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     except Exception:
         return None
 
@@ -162,8 +164,10 @@ class TranscriptGuardState:
     last_channel_attempt_at: datetime | None = None
 
     @classmethod
-    def from_repository(cls, payload: dict[str, Any]) -> "TranscriptGuardState":
-        state_raw = str(payload.get("breaker_state") or TranscriptBreakerState.CLOSED.value).strip().lower()
+    def from_repository(cls, payload: dict[str, Any]) -> TranscriptGuardState:
+        state_raw = (
+            str(payload.get("breaker_state") or TranscriptBreakerState.CLOSED.value).strip().lower()
+        )
         if state_raw not in {item.value for item in TranscriptBreakerState}:
             state_raw = TranscriptBreakerState.CLOSED.value
         return cls(
@@ -214,7 +218,7 @@ def _open_breaker(
     half_open_probe_count: int,
 ) -> None:
     guard.breaker_state = TranscriptBreakerState.OPEN
-    guard.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=max(1, int(cooldown_seconds)))
+    guard.cooldown_until = datetime.now(UTC) + timedelta(seconds=max(1, int(cooldown_seconds)))
     guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
 
 

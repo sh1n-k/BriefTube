@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from app.database import init_database, open_database
 
@@ -37,7 +37,11 @@ def test_init_database_normalizes_legacy_pipeline_status_values(tmp_path: Path) 
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCnorm001", "Normalize Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCnorm001"),
+            (
+                "UCnorm001",
+                "Normalize Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCnorm001",
+            ),
         )
         conn.execute(
             """
@@ -103,7 +107,9 @@ def test_init_database_normalizes_legacy_pipeline_status_values(tmp_path: Path) 
     assert statuses["vid-norm-done"] == "done"
 
 
-def test_init_database_migrates_legacy_split_status_columns_before_index_creation(tmp_path: Path) -> None:
+def test_init_database_migrates_legacy_split_status_columns_before_index_creation(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "legacy_split_status.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -134,7 +140,11 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UClegacy001", "Legacy Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UClegacy001"),
+            (
+                "UClegacy001",
+                "Legacy Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UClegacy001",
+            ),
         )
         conn.execute(
             """

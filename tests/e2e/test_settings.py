@@ -17,6 +17,7 @@ pytestmark = pytest.mark.e2e
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def seeded_server(e2e_server: dict) -> dict:
     """Seed the e2e_server DB with settings-page-specific data."""
@@ -57,6 +58,7 @@ def _goto_settings(page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 1. test_settings_page_loads
 # ---------------------------------------------------------------------------
+
 
 def test_settings_page_loads(page: Page) -> None:
     """Settings page loads and core setting sections are visible."""
@@ -101,6 +103,7 @@ def test_settings_page_loads(page: Page) -> None:
 # 2. test_settings_language_change
 # ---------------------------------------------------------------------------
 
+
 def test_settings_language_change(page: Page) -> None:
     """Changing the language dropdown fires HTMX PUT and shows toast."""
     _goto_settings(page)
@@ -126,6 +129,7 @@ def test_settings_language_change(page: Page) -> None:
 # 3. test_settings_timezone_change
 # ---------------------------------------------------------------------------
 
+
 def test_settings_timezone_change(page: Page) -> None:
     """Changing timezone fires API call and shows toast."""
     _goto_settings(page)
@@ -146,6 +150,7 @@ def test_settings_timezone_change(page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 4. test_settings_theme_mode_toggle
 # ---------------------------------------------------------------------------
+
 
 def test_settings_theme_mode_toggle(page: Page) -> None:
     """Theme mode select (light/dark/system) changes data-theme on <html>."""
@@ -174,6 +179,7 @@ def test_settings_theme_mode_toggle(page: Page) -> None:
 # 5. test_settings_theme_tone_toggle
 # ---------------------------------------------------------------------------
 
+
 def test_settings_theme_tone_toggle(page: Page) -> None:
     """Theme tone select (brand/neutral/high-contrast) changes data-tone."""
     _goto_settings(page)
@@ -197,6 +203,7 @@ def test_settings_theme_tone_toggle(page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 6. test_settings_workers_toggle
 # ---------------------------------------------------------------------------
+
 
 def test_settings_workers_toggle(page: Page) -> None:
     """Toggling a worker checkbox fires HTMX PUT and shows toast."""
@@ -223,6 +230,7 @@ def test_settings_workers_toggle(page: Page) -> None:
 # 7. test_settings_videos_per_page
 # ---------------------------------------------------------------------------
 
+
 def test_settings_videos_per_page(page: Page) -> None:
     """Changing videos_per_page input triggers a save via HTMX."""
     _goto_settings(page)
@@ -241,6 +249,7 @@ def test_settings_videos_per_page(page: Page) -> None:
 # 8. test_settings_policy_lookback_days
 # ---------------------------------------------------------------------------
 
+
 def test_settings_policy_lookback_days(page: Page) -> None:
     """Changing RSS lookback days triggers a policy save."""
     _goto_settings(page)
@@ -257,6 +266,7 @@ def test_settings_policy_lookback_days(page: Page) -> None:
 # 9. test_settings_policy_retention_days
 # ---------------------------------------------------------------------------
 
+
 def test_settings_policy_retention_days(page: Page) -> None:
     """Changing retention days triggers a policy save."""
     _goto_settings(page)
@@ -271,6 +281,7 @@ def test_settings_policy_retention_days(page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 10. test_settings_download_quality
 # ---------------------------------------------------------------------------
+
 
 def test_settings_download_quality(page: Page) -> None:
     """Changing download quality fires save and shows toast."""
@@ -302,6 +313,7 @@ def test_settings_telegram_save(page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 11. test_settings_transcript_guard_reset
 # ---------------------------------------------------------------------------
+
 
 def test_settings_transcript_guard_reset(page: Page) -> None:
     """Guard reset: open modal, check confirm, submit, redirect with success."""
@@ -340,6 +352,7 @@ def test_settings_transcript_guard_reset(page: Page) -> None:
 # 12. test_settings_llm_runtime_status
 # ---------------------------------------------------------------------------
 
+
 def test_settings_llm_runtime_status(page: Page) -> None:
     """LLM runtime status section is visible with status info."""
     _goto_settings(page)
@@ -363,6 +376,7 @@ def test_settings_llm_runtime_status(page: Page) -> None:
 # 13. test_settings_channel_manage_link
 # ---------------------------------------------------------------------------
 
+
 def test_settings_llm_prompt_modal(page: Page) -> None:
     """LLM prompt preview opens a large modal editor and closes cleanly."""
     _goto_settings(page)
@@ -383,6 +397,7 @@ def test_settings_llm_prompt_modal(page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 14. test_settings_saved_toast
 # ---------------------------------------------------------------------------
+
 
 def test_settings_saved_toast(page: Page) -> None:
     """Toast with the save confirmation message appears after a setting change."""

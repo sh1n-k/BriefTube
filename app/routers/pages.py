@@ -50,7 +50,7 @@ def _build_video_detail_dynamic_refresh_key(detail: dict[str, object] | None) ->
         "raw_text": str(detail.get("raw_text") or ""),
         "language": str(detail.get("language") or ""),
         "source_type": str(detail.get("source_type") or ""),
-        "retry_count": int(detail.get("transcript_retry_count") or 0),
+        "retry_count": int(str(detail.get("transcript_retry_count") or 0)),
         "llm_provider": str(detail.get("llm_provider") or ""),
         "llm_model": str(detail.get("llm_model") or ""),
         "llm_reasoning_effort": str(detail.get("llm_reasoning_effort") or ""),
@@ -58,10 +58,11 @@ def _build_video_detail_dynamic_refresh_key(detail: dict[str, object] | None) ->
         "manual_transcript_job_id": str(detail.get("manual_transcript_job_id") or ""),
         "manual_transcript_status": str(detail.get("manual_transcript_status") or ""),
         "manual_transcript_error": str(detail.get("manual_transcript_error") or ""),
-        "manual_transcript_retry_count": int(detail.get("manual_transcript_retry_count") or 0),
+        "manual_transcript_retry_count": int(str(detail.get("manual_transcript_retry_count") or 0)),
     }
     return hashlib.sha1(
-        json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8"),
+        usedforsecurity=False,
     ).hexdigest()
 
 
@@ -78,7 +79,9 @@ def _should_auto_refresh_video_detail(detail: dict[str, object] | None) -> bool:
     }
 
 
-def _build_video_detail_dynamic_context_values(detail: dict[str, object] | None) -> dict[str, object]:
+def _build_video_detail_dynamic_context_values(
+    detail: dict[str, object] | None,
+) -> dict[str, object]:
     article_body_html = ""
     article_lead_html = ""
     article_fact_box_html = ""
@@ -138,7 +141,9 @@ async def home(
         category_id=normalized_category_id,
         pipeline_status=normalized_pipeline_status,
     )
-    search_results = await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
+    search_results = (
+        await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
+    )
 
     context = await build_template_context(
         request,
@@ -160,7 +165,9 @@ async def home(
             "order": order,
         },
     )
-    return request.app.state.templates.TemplateResponse(request=request, name="index.html", context=context)
+    return request.app.state.templates.TemplateResponse(
+        request=request, name="index.html", context=context
+    )
 
 
 async def build_video_detail_context(
@@ -210,7 +217,9 @@ async def video_page(video_id: str, request: Request):
         transcript_retry_done=request.query_params.get("transcript_retry") == "1",
         mark_viewed=True,
     )
-    return request.app.state.templates.TemplateResponse(request=request, name="video_detail.html", context=context)
+    return request.app.state.templates.TemplateResponse(
+        request=request, name="video_detail.html", context=context
+    )
 
 
 @router.get("/channels")
@@ -244,7 +253,9 @@ async def channel_page(
             max(0.0, float(request.app.state.runtime.config.rss_inter_channel_delay_seconds)),
         ),
     )
-    return request.app.state.templates.TemplateResponse(request=request, name="channels.html", context=context)
+    return request.app.state.templates.TemplateResponse(
+        request=request, name="channels.html", context=context
+    )
 
 
 @router.get("/settings")
@@ -310,19 +321,25 @@ async def settings_reset_transcript_guard(request: Request):
 
 @router.post("/videos/{video_id}/transcript/retry")
 async def retry_transcript(video_id: str, request: Request):
-    affected = await transcripts_repo.reset_transcript_for_retry(request.app.state.runtime.db, video_id)
+    affected = await transcripts_repo.reset_transcript_for_retry(
+        request.app.state.runtime.db, video_id
+    )
     retry_flag = "1" if affected > 0 else "0"
-    return RedirectResponse(url=f"/videos/{video_id}?transcript_retry={retry_flag}", status_code=303)
+    return RedirectResponse(
+        url=f"/videos/{video_id}?transcript_retry={retry_flag}", status_code=303
+    )
 
 
 @router.get("/queue")
 async def queue_page(request: Request):
     db = request.app.state.runtime.db
     transcript_items = await transcripts_repo.list_queue_items(
-        db, transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
+        db,
+        transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
     )
     llm_items = await transcripts_repo.list_queue_items(
-        db, llm_repo.LLM_QUEUE_STATUSES,
+        db,
+        llm_repo.LLM_QUEUE_STATUSES,
     )
     queue_counts = await transcripts_repo.queue_status(db)
     worker_settings = await settings_repo.get_worker_settings(db)
@@ -347,7 +364,7 @@ async def retention_page(request: Request):
     policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
     expired_videos = await alerts_repo.list_retention_expired_videos(
         request.app.state.runtime.db,
-        retention_days=policy["retention_days"],
+        retention_days=int(policy["retention_days"]),
     )
     deleted_raw = request.query_params.get("deleted", "0")
     try:
@@ -357,7 +374,7 @@ async def retention_page(request: Request):
     context = await build_template_context(
         request,
         expired_videos=expired_videos,
-        retention_days=policy["retention_days"],
+        retention_days=int(policy["retention_days"]),
         deleted_count=deleted_count,
     )
     return request.app.state.templates.TemplateResponse(
@@ -394,7 +411,7 @@ async def delete_retention_selected(request: Request):
     expired_ids = set(
         await alerts_repo.list_retention_expired_video_ids(
             request.app.state.runtime.db,
-            retention_days=policy["retention_days"],
+            retention_days=int(policy["retention_days"]),
         )
     )
     targets = [video_id for video_id in selected if video_id in expired_ids]
@@ -416,7 +433,7 @@ async def delete_retention_all(request: Request):
     policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
     expired_ids = await alerts_repo.list_retention_expired_video_ids(
         request.app.state.runtime.db,
-        retention_days=policy["retention_days"],
+        retention_days=int(policy["retention_days"]),
     )
     result = await videos_repo.delete_videos_by_ids(request.app.state.runtime.db, expired_ids)
     _cleanup_thumbnail_files(

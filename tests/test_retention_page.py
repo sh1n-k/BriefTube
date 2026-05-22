@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import os
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
 
 def _seed_retention_data(db_path: str) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     old_time = (now - timedelta(days=200)).isoformat()
     recent_time = (now - timedelta(days=10)).isoformat()
 
@@ -18,7 +18,11 @@ def _seed_retention_data(db_path: str) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCret001", "Retention Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCret001"),
+            (
+                "UCret001",
+                "Retention Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCret001",
+            ),
         )
         conn.execute(
             """
@@ -46,12 +50,12 @@ def test_retention_page_shows_expired_only(client: TestClient) -> None:
     html = response.text
     assert "vid-ret-old-001" in html
     assert "vid-ret-new-001" not in html
-    assert 'data-retention-select-all' not in html
-    assert 'data-retention-select-toggle' in html
-    assert 'data-retention-select-item' in html
-    assert 'w-28 whitespace-nowrap' in html
-    assert 'w-52 whitespace-nowrap p-3 text-left' in html
-    assert 'w-52 whitespace-nowrap p-3 text-slate-600' in html
+    assert "data-retention-select-all" not in html
+    assert "data-retention-select-toggle" in html
+    assert "data-retention-select-item" in html
+    assert "w-28 whitespace-nowrap" in html
+    assert "w-52 whitespace-nowrap p-3 text-left" in html
+    assert "w-52 whitespace-nowrap p-3 text-slate-600" in html
 
     home = client.get("/")
     assert home.status_code == 200
@@ -59,7 +63,7 @@ def test_retention_page_shows_expired_only(client: TestClient) -> None:
     assert "data-retention-notice" in home.text
     assert "fixed bottom-4 right-4" in home.text
     assert "data-retention-notice-dismiss" in home.text
-    assert '/static/js/main-ui.js' in home.text
+    assert "/static/js/main-ui.js" in home.text
 
 
 def test_retention_delete_all_requires_confirmation(client: TestClient) -> None:

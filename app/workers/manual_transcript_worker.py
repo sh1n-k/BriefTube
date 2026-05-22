@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
 import time
+from datetime import UTC, datetime
 
 from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
-from app.state import AppState
 from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
@@ -20,6 +19,7 @@ from app.services.transcript_guard import (
     _open_breaker,
     _save_guard_state,
 )
+from app.state import AppState
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
         return
     try:
         await asyncio.wait_for(wake_event.wait(), timeout=safe_timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     finally:
         if wake_event.is_set():
@@ -103,14 +103,18 @@ async def run_manual_transcript_worker(state: AppState) -> None:
         hard_cooldown_base_seconds,
         int(state.config.transcript_hard_cooldown_max_seconds),
     )
-    channel_hard_cooldown_seconds = max(1, int(state.config.transcript_channel_hard_cooldown_seconds))
+    channel_hard_cooldown_seconds = max(
+        1, int(state.config.transcript_channel_hard_cooldown_seconds)
+    )
     half_open_probe_count = max(1, int(state.config.transcript_breaker_half_open_probe_count))
     recovery_success_window = max(1, int(state.config.transcript_recovery_success_window))
     next_request_monotonic_at = 0.0
-    runtime_recover_stale_after_seconds, runtime_recover_check_interval_seconds = _runtime_recover_policy(
-        idle_sleep_seconds=idle_sleep_seconds,
-        request_interval_seconds=request_interval_seconds,
-        fetch_timeout_seconds=fetch_timeout_seconds,
+    runtime_recover_stale_after_seconds, runtime_recover_check_interval_seconds = (
+        _runtime_recover_policy(
+            idle_sleep_seconds=idle_sleep_seconds,
+            request_interval_seconds=request_interval_seconds,
+            fetch_timeout_seconds=fetch_timeout_seconds,
+        )
     )
     next_runtime_recover_monotonic_at = 0.0
     active_job_id: int | None = None
@@ -136,10 +140,16 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                     stale_after_seconds=runtime_recover_stale_after_seconds,
                     exclude_job_ids=[active_job_id] if active_job_id else None,
                 )
-                next_runtime_recover_monotonic_at = now_monotonic + runtime_recover_check_interval_seconds
+                next_runtime_recover_monotonic_at = (
+                    now_monotonic + runtime_recover_check_interval_seconds
+                )
 
-            now_utc = datetime.now(timezone.utc)
-            if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until and now_utc < guard.cooldown_until:
+            now_utc = datetime.now(UTC)
+            if (
+                guard.breaker_state == TranscriptBreakerState.OPEN
+                and guard.cooldown_until
+                and now_utc < guard.cooldown_until
+            ):
                 remaining = (guard.cooldown_until - now_utc).total_seconds()
                 await _sleep_with_wake(state, min(idle_sleep_seconds, max(1.0, remaining)))
                 continue
@@ -170,7 +180,10 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                     continue
 
                 pipeline_status = str(job.get("pipeline_status") or "").strip().lower()
-                if pipeline_status not in manual_transcripts_repo.MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES:
+                if (
+                    pipeline_status
+                    not in manual_transcripts_repo.MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES
+                ):
                     await manual_transcripts_repo.mark_manual_transcript_job_skipped(
                         state.db,
                         job_id=active_job_id,
@@ -199,7 +212,9 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                     )
                     continue
 
-                preferred_language = str(job.get("transcript_target_language") or "").strip().lower() or None
+                preferred_language = (
+                    str(job.get("transcript_target_language") or "").strip().lower() or None
+                )
                 if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
                     if guard.half_open_probe_remaining <= 0:
                         await _sleep_with_wake(state, idle_sleep_seconds)
@@ -210,7 +225,7 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                 await _wait_until(next_request_monotonic_at)
                 try:
                     guard.last_channel_id = channel_id or guard.last_channel_id
-                    guard.last_channel_attempt_at = datetime.now(timezone.utc)
+                    guard.last_channel_attempt_at = datetime.now(UTC)
                     await _save_guard_state(state.db, guard)
                     raw_text, language, source_type = await asyncio.wait_for(
                         state.transcript_service.fetch_transcript(
@@ -225,10 +240,13 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                     error_message = str(exc).strip() or exc.__class__.__name__
                     retry_count = int(job.get("retry_count") or 0) + 1
                     error_category = _classify_transcript_error(exc)
-                    next_request_monotonic_at = time.monotonic() + _compute_jittered_interval_seconds(
-                        request_interval_seconds,
-                        guard.adaptive_factor if adaptive_enabled else 1.0,
-                        jitter_ratio,
+                    next_request_monotonic_at = (
+                        time.monotonic()
+                        + _compute_jittered_interval_seconds(
+                            request_interval_seconds,
+                            guard.adaptive_factor if adaptive_enabled else 1.0,
+                            jitter_ratio,
+                        )
                     )
                     if error_category == TranscriptErrorCategory.NO_SUBTITLE:
                         await transcripts_repo.mark_no_subtitle(state.db, video_id)
@@ -241,7 +259,9 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                         guard.consecutive_hard_errors += 1
                         guard.consecutive_successes = 0
                         if adaptive_enabled:
-                            guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+                            guard.adaptive_factor = min(
+                                adaptive_max_factor, guard.adaptive_factor * 2.0
+                            )
                         breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
                             hard_cooldown_base_seconds,
                             hard_cooldown_max_seconds,
@@ -333,7 +353,10 @@ async def run_manual_transcript_worker(state: AppState) -> None:
         except Exception:
             logger.exception(
                 "event=manual_transcript.worker_loop_failed worker=manual_transcript",
-                extra={"event": "manual_transcript.worker_loop_failed", "worker": "manual_transcript"},
+                extra={
+                    "event": "manual_transcript.worker_loop_failed",
+                    "worker": "manual_transcript",
+                },
             )
             active_job_id = None
             await _sleep_with_wake(state, idle_sleep_seconds)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import httpx
 import os
+
+import httpx
 
 from app.config import AppConfig
 
@@ -107,7 +108,7 @@ def build_telegram_settings_payload(
 
 
 def configure_telegram_notifier(
-    notifier: "TelegramNotifier",
+    notifier: TelegramNotifier,
     config: AppConfig,
     *,
     stored_bot_token: str = "",

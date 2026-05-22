@@ -81,7 +81,9 @@ def test_home_uses_default_videos_per_page_when_limit_is_missing(client: TestCli
 def test_video_list_fragment_keeps_pipeline_status_in_paging_queries(client: TestClient) -> None:
     _seed_videos(25)
 
-    response = client.get("/views/video-list", params={"page": 2, "limit": 10, "pipeline_status": "done"})
+    response = client.get(
+        "/views/video-list", params={"page": 2, "limit": 10, "pipeline_status": "done"}
+    )
     assert response.status_code == 200
     html = response.text
 

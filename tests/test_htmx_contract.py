@@ -59,7 +59,7 @@ def test_create_category_fragment_returns_dual_oob_contract(client: TestClient) 
     html = response.text
     assert 'id="channel-list-wrap" hx-swap-oob="true"' in html
     assert 'id="category-sidebar"' in html
-    assert "hx-swap-oob=\"true\"" in html
+    assert 'hx-swap-oob="true"' in html
 
 
 def test_reactivate_selected_returns_single_toast_trigger_with_fragment(
@@ -69,7 +69,9 @@ def test_reactivate_selected_returns_single_toast_trigger_with_fragment(
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UChtmxreact001", "HTMX Reactivate", is_active=0)
 
-    async def fake_fetch_channel_feed(channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"):
+    async def fake_fetch_channel_feed(
+        channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+    ):
         assert channel_id == "UChtmxreact001"
         return [], "etag", "last-modified"
 

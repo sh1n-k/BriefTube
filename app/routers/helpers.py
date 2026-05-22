@@ -22,7 +22,7 @@ def parse_bool_input(value: object, default: bool) -> bool:
     return default
 
 
-def safe_int(value: str | None, default: int) -> int:
+def safe_int(value: object | None, default: int) -> int:
     if value is None:
         return default
     try:
@@ -31,7 +31,7 @@ def safe_int(value: str | None, default: int) -> int:
         return default
 
 
-def parse_optional_int(value: str | None) -> int | None:
+def parse_optional_int(value: object | None) -> int | None:
     if value is None:
         return None
     text = str(value).strip()

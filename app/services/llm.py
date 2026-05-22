@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import shutil
 import tempfile
-from typing import Any, Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 LLM_PROVIDER_CODEX = "codex"
@@ -36,7 +37,9 @@ ARTICLE_JSON_SCHEMA: dict[str, Any] = {
     "required": list(ARTICLE_FIELD_KEYS),
     "additionalProperties": False,
 }
-ARTICLE_JSON_SCHEMA_COMPACT = json.dumps(ARTICLE_JSON_SCHEMA, ensure_ascii=True, separators=(",", ":"))
+ARTICLE_JSON_SCHEMA_COMPACT = json.dumps(
+    ARTICLE_JSON_SCHEMA, ensure_ascii=True, separators=(",", ":")
+)
 
 REFUSAL_KEYWORDS = (
     "prompt injection",
@@ -199,7 +202,7 @@ async def _default_command_runner(
             process.communicate(input=input_bytes),
             timeout=max(1, int(timeout_seconds)),
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         process.kill()
         await process.wait()
         raise LlmClientError(
@@ -228,7 +231,9 @@ class UnifiedLlmClient:
         self.timeout_seconds = max(1, int(timeout_seconds))
         self._runner = runner or _default_command_runner
         self._command_exists = command_exists or (lambda name: shutil.which(name) is not None)
-        self._response_capture_dir = Path(response_capture_dir).expanduser() if response_capture_dir else None
+        self._response_capture_dir = (
+            Path(response_capture_dir).expanduser() if response_capture_dir else None
+        )
         self._response_capture_max_chars = max(1_000, int(response_capture_max_chars))
         self._capture_full_response_content = bool(capture_full_response_content)
 
@@ -332,7 +337,7 @@ class UnifiedLlmClient:
                     article["_llm_reasoning_effort"] = str(
                         normalized.llm_reasoning_effort.get(provider, "") or ""
                     )
-                    article["_llm_generated_at"] = datetime.now(timezone.utc).isoformat()
+                    article["_llm_generated_at"] = datetime.now(UTC).isoformat()
                     return article
                 except LlmClientError as exc:
                     last_error = exc
@@ -412,7 +417,9 @@ class UnifiedLlmClient:
         with tempfile.TemporaryDirectory(prefix="brieftube-llm-codex-") as tmpdir:
             schema_file = Path(tmpdir) / "article.schema.json"
             output_file = Path(tmpdir) / "last_message.json"
-            schema_file.write_text(self._provider_schema_compact(LLM_PROVIDER_CODEX), encoding="utf-8")
+            schema_file.write_text(
+                self._provider_schema_compact(LLM_PROVIDER_CODEX), encoding="utf-8"
+            )
 
             args = [
                 "codex",
@@ -593,7 +600,7 @@ class UnifiedLlmClient:
             return
         try:
             capture_dir.mkdir(parents=True, exist_ok=True)
-            day = datetime.now(timezone.utc).strftime("%Y%m%d")
+            day = datetime.now(UTC).strftime("%Y%m%d")
             capture_file = capture_dir / f"llm_response_{day}.jsonl"
             stdout_text, stdout_truncated, stdout_chars = self._capture_text(stdout)
             stderr_text, stderr_truncated, stderr_chars = self._capture_text(stderr)
@@ -601,7 +608,7 @@ class UnifiedLlmClient:
             include_content = self._capture_full_response_content
             payload: dict[str, Any] = {
                 "id": str(uuid4()),
-                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "captured_at": datetime.now(UTC).isoformat(),
                 "provider": provider,
                 "source_title": source_title,
                 "exit_code": int(exit_code),
@@ -838,7 +845,7 @@ class UnifiedLlmClient:
         lowered = text.lower()
         return (
             "invalid_json_schema" in lowered
-            or "response_format" in lowered and "schema" in lowered
+            or ("response_format" in lowered and "schema" in lowered)
             or "text.format.schema" in lowered
         )
 
@@ -851,7 +858,7 @@ class UnifiedLlmClient:
         return json.dumps(schema, ensure_ascii=True, separators=(",", ":"))
 
     def _provider_schema(self, provider: str) -> dict[str, Any]:
-        normalized = normalize_llm_provider(provider, allow_none=False)
+        del provider  # schema is currently provider-agnostic; signature kept for future divergence
         required = list(ARTICLE_FIELD_KEYS)
         return {
             "type": "object",

@@ -10,7 +10,7 @@ from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
-from app.routers.helpers import htmx_trigger_header, request_texts, safe_int
+from app.routers.helpers import htmx_trigger_header, parse_optional_int, request_texts, safe_int
 from app.routers.pages_downloads import build_download_history_context
 from app.routers.template_context import build_template_context
 
@@ -112,12 +112,13 @@ async def download_selected_videos(request: Request):
             page = safe_int(form.get("_page"), 1)
             limit_val = safe_int(form.get("_limit"), 0)
             if limit_val <= 0:
-                limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
+                limit_val = await settings_repo.get_videos_per_page_setting(
+                    request.app.state.runtime.db
+                )
             sort = str(form.get("_sort") or "upload_time")
             order = str(form.get("_order") or "desc")
             channel_id = str(form.get("_channel_id") or "") or None
-            raw_cat_early = form.get("_category_id")
-            category_id_early = int(raw_cat_early) if raw_cat_early and str(raw_cat_early).strip().isdigit() else None
+            category_id_early = parse_optional_int(form.get("_category_id"))
             pipeline_status_early = videos_repo.normalize_pipeline_status_filter(
                 str(form.get("_pipeline_status") or "")
             )
@@ -141,7 +142,11 @@ async def download_selected_videos(request: Request):
                 pipeline_status=pipeline_status_early,
             )
             all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
-            channels = [ch for ch in all_channels if ch.get("category_id") == category_id_early] if category_id_early is not None else all_channels
+            channels = (
+                [ch for ch in all_channels if ch.get("category_id") == category_id_early]
+                if category_id_early is not None
+                else all_channels
+            )
             categories_early = await categories_repo.list_categories(request.app.state.runtime.db)
             context = await build_template_context(
                 request,
@@ -212,9 +217,10 @@ async def download_selected_videos(request: Request):
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
-    raw_cat_final = form.get("_category_id")
-    category_id_final = int(raw_cat_final) if raw_cat_final and str(raw_cat_final).strip().isdigit() else None
-    pipeline_status_final = videos_repo.normalize_pipeline_status_filter(str(form.get("_pipeline_status") or ""))
+    category_id_final = parse_optional_int(form.get("_category_id"))
+    pipeline_status_final = videos_repo.normalize_pipeline_status_filter(
+        str(form.get("_pipeline_status") or "")
+    )
 
     total = await videos_repo.count_videos(
         request.app.state.runtime.db,
@@ -235,7 +241,11 @@ async def download_selected_videos(request: Request):
         pipeline_status=pipeline_status_final,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
-    channels = [ch for ch in all_channels if ch.get("category_id") == category_id_final] if category_id_final is not None else all_channels
+    channels = (
+        [ch for ch in all_channels if ch.get("category_id") == category_id_final]
+        if category_id_final is not None
+        else all_channels
+    )
     categories_final = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,

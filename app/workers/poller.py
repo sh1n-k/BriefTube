@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+import contextlib
 import logging
 import random
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -24,8 +25,8 @@ def _parse_iso_datetime(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
     except Exception:
         return None
 
@@ -61,7 +62,7 @@ async def run_rss_poller(state: AppState) -> None:
             try:
                 await asyncio.wait_for(state.poll_now_event.wait(), timeout=polling_interval_sec)
                 state.poll_now_event.clear()
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             continue
 
@@ -135,10 +136,8 @@ async def run_rss_poller(state: AppState) -> None:
 
             jitter = base_delay * jitter_ratio
             delay = base_delay + random.uniform(-jitter, jitter)
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(state.poll_now_event.wait(), timeout=max(0.1, delay))
-            except asyncio.TimeoutError:
-                pass
 
         if polled > 0:
             logger.info(
@@ -161,7 +160,7 @@ async def run_rss_poller(state: AppState) -> None:
                 try:
                     await asyncio.wait_for(state.poll_now_event.wait(), timeout=step)
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     remaining -= step
         except Exception:
             logger.exception(
@@ -314,7 +313,7 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
     policy = await settings_repo.get_policy_settings(state.db)
     feed_mode = str(policy.get("rss_feed_mode", "long_form_only"))
     lookback_days = max(1, int(policy["rss_bootstrap_lookback_days"]))
-    started_at = getattr(state, "started_at", datetime.now(timezone.utc))
+    started_at = getattr(state, "started_at", datetime.now(UTC))
     lower_bound = started_at - timedelta(days=lookback_days)
 
     if inter_channel_delay > 0:
@@ -333,7 +332,7 @@ async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int
             delay = inter_channel_delay + random.uniform(-jitter, jitter)
             await asyncio.sleep(max(0.0, delay))
 
-        ok, count = await _poll_single_channel(
+        _ok, count = await _poll_single_channel(
             state,
             channel=channel,
             deactivate_threshold=deactivate_threshold,

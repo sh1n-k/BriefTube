@@ -102,6 +102,7 @@ def downloads_seeded(e2e_server: dict) -> dict[str, int | str]:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _goto_downloads(page: Page, status: str = "all") -> None:
     base = page._e2e_base_url
     url = f"{base}/downloads" if status == "all" else f"{base}/downloads?status={status}"

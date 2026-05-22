@@ -11,7 +11,9 @@ def test_render_markdown_to_safe_html_basic() -> None:
 
 
 def test_render_markdown_to_safe_html_blocks_script() -> None:
-    html = render_markdown_to_safe_html('ok <script>alert("x")</script> [link](https://example.com)')
+    html = render_markdown_to_safe_html(
+        'ok <script>alert("x")</script> [link](https://example.com)'
+    )
     assert "<script" not in html
     assert '<a href="https://example.com"' in html
     assert 'target="_blank"' in html

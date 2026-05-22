@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 import logging
 import os
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import httpx
 
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
@@ -27,17 +27,17 @@ from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
 from app.services.rss import RSSService
-from app.services.transcript_headers import merge_with_default_headers
 from app.services.telegram import TelegramNotifier, configure_telegram_notifier
 from app.services.transcript import TranscriptService
+from app.services.transcript_headers import merge_with_default_headers
 from app.state import AppState
-from app.workers.llm_worker import run_llm_queue_worker
-from app.workers.notifier_worker import run_telegram_notifier
-from app.workers.poller import run_rss_poller
 from app.workers.channel_metadata_worker import run_channel_metadata_worker
 from app.workers.download_worker import run_download_worker
+from app.workers.llm_worker import run_llm_queue_worker
 from app.workers.manual_article_worker import run_manual_article_worker
 from app.workers.manual_transcript_worker import run_manual_transcript_worker
+from app.workers.notifier_worker import run_telegram_notifier
+from app.workers.poller import run_rss_poller
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,9 @@ def _is_transcript_worker_enabled() -> bool:
     if disabled in {"1", "true", "yes", "on"}:
         return False
     in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
-    allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
+    allow_in_tests = (
+        str(os.getenv("BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
+    )
     if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
         return False
     return True
@@ -70,7 +72,9 @@ def _is_manual_transcript_worker_enabled() -> bool:
     if disabled in {"1", "true", "yes", "on"}:
         return False
     in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
-    allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_MANUAL_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
+    allow_in_tests = (
+        str(os.getenv("BRIEFTUBE_ENABLE_MANUAL_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
+    )
     if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
         return False
     return True
@@ -131,7 +135,9 @@ async def lifespan(app: FastAPI):
     orphan_repaired = await llm_repo.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
     recovered_manual_article_jobs = await manual_articles_repo.recover_stuck_manual_article_jobs(db)
-    recovered_manual_transcript_jobs = await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
+    recovered_manual_transcript_jobs = (
+        await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
+    )
     metadata_worker_enabled = _is_channel_metadata_worker_enabled()
     recovered_metadata_running = 0
     scheduled_metadata_targets = 0
@@ -173,7 +179,7 @@ async def lifespan(app: FastAPI):
             chat_id="",
             client=http_client,
         ),
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     telegram_settings = await settings_repo.get_telegram_settings(db)
     configure_telegram_notifier(
@@ -224,11 +230,23 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),
     ]
     if metadata_worker_enabled:
-        tasks.insert(1, asyncio.create_task(run_channel_metadata_worker(runtime), name="channel_metadata_worker"))
+        tasks.insert(
+            1,
+            asyncio.create_task(
+                run_channel_metadata_worker(runtime), name="channel_metadata_worker"
+            ),
+        )
     if transcript_worker_enabled:
-        tasks.insert(3, asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher"))
+        tasks.insert(
+            3, asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher")
+        )
     if manual_transcript_worker_enabled:
-        tasks.insert(3, asyncio.create_task(run_manual_transcript_worker(runtime), name="manual_transcript_worker"))
+        tasks.insert(
+            3,
+            asyncio.create_task(
+                run_manual_transcript_worker(runtime), name="manual_transcript_worker"
+            ),
+        )
 
     try:
         yield
@@ -277,11 +295,15 @@ async def download_file(
 ):
     safe_name = Path(filename).name
     if safe_name != filename:
-        return JSONResponse(status_code=400, content={"detail": "invalid filename", "code": "invalid_filename"})
+        return JSONResponse(
+            status_code=400, content={"detail": "invalid filename", "code": "invalid_filename"}
+        )
 
     runtime = getattr(app.state, "runtime", None)
     if runtime is None:
-        return JSONResponse(status_code=503, content={"detail": "runtime not ready", "code": "runtime_not_ready"})
+        return JSONResponse(
+            status_code=503, content={"detail": "runtime not ready", "code": "runtime_not_ready"}
+        )
 
     target_result = await resolve_download_file_target(
         runtime.db,
@@ -291,7 +313,15 @@ async def download_file(
     )
     if not target_result.ok:
         status_code = 400 if target_result.code == "invalid_filename" else 404
-        return JSONResponse(status_code=status_code, content={"detail": target_result.message, "code": target_result.code})
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": target_result.message, "code": target_result.code},
+        )
     if probe:
         return {"ok": True, "filename": safe_name}
+    if target_result.target is None:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "download target missing", "code": "download_target_missing"},
+        )
     return FileResponse(target_result.target)

@@ -50,14 +50,24 @@ def test_queue_status_counts_unknown_values_in_unknown_count(client: TestClient)
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCunknown001", "Unknown Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCunknown001"),
+            (
+                "UCunknown001",
+                "Unknown Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCunknown001",
+            ),
         )
         conn.execute(
             """
             INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
             VALUES (?, ?, ?, ?, ?)
             """,
-            ("vid-unknown-001", "UCunknown001", "Unknown Video", "2026-02-20T00:00:00+00:00", "mystery_state"),
+            (
+                "vid-unknown-001",
+                "UCunknown001",
+                "Unknown Video",
+                "2026-02-20T00:00:00+00:00",
+                "mystery_state",
+            ),
         )
         conn.commit()
 

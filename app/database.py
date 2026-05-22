@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-import aiosqlite
 
+import aiosqlite
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 VALID_PIPELINE_STATUSES: tuple[str, ...] = (
@@ -82,7 +82,9 @@ async def _ensure_video_columns(db: aiosqlite.Connection) -> None:
         columns = await _table_columns(db, "videos")
 
     if "transcript_retry_count" not in columns:
-        await db.execute("ALTER TABLE videos ADD COLUMN transcript_retry_count INTEGER NOT NULL DEFAULT 0")
+        await db.execute(
+            "ALTER TABLE videos ADD COLUMN transcript_retry_count INTEGER NOT NULL DEFAULT 0"
+        )
     if "transcript_next_attempt_at" not in columns:
         await db.execute("ALTER TABLE videos ADD COLUMN transcript_next_attempt_at TEXT")
     if "transcript_target_language" not in columns:
@@ -235,7 +237,9 @@ async def _rebuild_videos_table_with_pipeline_status(
     retry_count_expr = _source_column_expr(columns, "retry_count", "0")
     created_at_expr = _source_column_expr(columns, "created_at", "datetime('now')")
     viewed_at_expr = _source_column_expr(columns, "viewed_at", "NULL")
-    processing_stage_snapshot_expr = _source_column_expr(columns, "processing_stage_snapshot", "'full'")
+    processing_stage_snapshot_expr = _source_column_expr(
+        columns, "processing_stage_snapshot", "'full'"
+    )
 
     pragma_cursor = await db.execute("PRAGMA foreign_keys")
     pragma_row = await pragma_cursor.fetchone()
@@ -358,13 +362,17 @@ async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:
 async def _ensure_article_columns(db: aiosqlite.Connection) -> None:
     migrated = False
     if not await _column_exists(db, "articles", "llm_provider"):
-        await db.execute("ALTER TABLE articles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'unknown'")
+        await db.execute(
+            "ALTER TABLE articles ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'unknown'"
+        )
         migrated = True
     if not await _column_exists(db, "articles", "llm_model"):
         await db.execute("ALTER TABLE articles ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
         migrated = True
     if not await _column_exists(db, "articles", "llm_reasoning_effort"):
-        await db.execute("ALTER TABLE articles ADD COLUMN llm_reasoning_effort TEXT NOT NULL DEFAULT ''")
+        await db.execute(
+            "ALTER TABLE articles ADD COLUMN llm_reasoning_effort TEXT NOT NULL DEFAULT ''"
+        )
         migrated = True
     if not await _column_exists(db, "articles", "llm_generated_at"):
         await db.execute("ALTER TABLE articles ADD COLUMN llm_generated_at TEXT")
@@ -461,7 +469,9 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
             extra={"event": "db.default_category_created"},
         )
     if not await _column_exists(db, "channels", "category_id"):
-        await db.execute("ALTER TABLE channels ADD COLUMN category_id INTEGER REFERENCES categories(id)")
+        await db.execute(
+            "ALTER TABLE channels ADD COLUMN category_id INTEGER REFERENCES categories(id)"
+        )
     default_cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1")
     default_row = await default_cursor.fetchone()
     if default_row is not None:
@@ -552,7 +562,9 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
     if not await _column_exists(db, "channels", "metadata_last_http_status"):
         await db.execute("ALTER TABLE channels ADD COLUMN metadata_last_http_status INTEGER")
     if not await _column_exists(db, "channels", "rss_fail_streak"):
-        await db.execute("ALTER TABLE channels ADD COLUMN rss_fail_streak INTEGER NOT NULL DEFAULT 0")
+        await db.execute(
+            "ALTER TABLE channels ADD COLUMN rss_fail_streak INTEGER NOT NULL DEFAULT 0"
+        )
     if not await _column_exists(db, "channels", "rss_last_polled_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN rss_last_polled_at TEXT")
 

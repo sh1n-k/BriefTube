@@ -28,7 +28,7 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
         return
     try:
         await asyncio.wait_for(wake_event.wait(), timeout=safe_timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     finally:
         if wake_event.is_set():

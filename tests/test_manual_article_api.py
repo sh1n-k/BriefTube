@@ -120,6 +120,7 @@ def test_article_request_api_rejects_when_more_than_ten_selected(client: TestCli
 
 def test_article_request_api_returns_new_retry_skip_failed_summary(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
+
     class _EventProbe:
         def __init__(self) -> None:
             self.called = False
@@ -130,8 +131,15 @@ def test_article_request_api_returns_new_retry_skip_failed_summary(client: TestC
     wake_probe = _EventProbe()
     client.app.state.runtime.manual_article_wake_event = wake_probe
 
-    _seed_video(db_path, video_id="vid-manual-new", pipeline_status="archived", with_transcript=True)
-    _seed_video(db_path, video_id="vid-manual-retry", pipeline_status="transcript_failed", with_transcript=True)
+    _seed_video(
+        db_path, video_id="vid-manual-new", pipeline_status="archived", with_transcript=True
+    )
+    _seed_video(
+        db_path,
+        video_id="vid-manual-retry",
+        pipeline_status="transcript_failed",
+        with_transcript=True,
+    )
     _seed_video(
         db_path,
         video_id="vid-manual-skip",
@@ -163,8 +171,11 @@ def test_article_request_api_returns_new_retry_skip_failed_summary(client: TestC
     assert wake_probe.called is True
 
 
-def test_article_request_api_allows_when_llm_worker_disabled_and_marks_waiting(client: TestClient) -> None:
+def test_article_request_api_allows_when_llm_worker_disabled_and_marks_waiting(
+    client: TestClient,
+) -> None:
     db_path = os.environ["DB_PATH"]
+
     class _EventProbe:
         def __init__(self) -> None:
             self.called = False

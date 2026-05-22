@@ -5,14 +5,13 @@ import logging
 import os
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
 import httpx
+from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
 from starlette.datastructures import UploadFile
 
 from app.repositories import alerts_retention as alerts_repo
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
-from app.repositories import downloads as downloads_repo
 from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
@@ -27,16 +26,13 @@ from app.routers.helpers import (
 )
 from app.routers.pages import build_video_detail_context, build_video_detail_dynamic_context
 from app.routers.template_context import build_template_context
-from app.services.article_render import render_fact_box_to_safe_html
 from app.services.bulk_channels import (
     collect_inputs_from_sources,
     parse_takeout_entries,
     resolve_bulk_inputs,
 )
-from app.services.rss import RSSParseError
-from app.services.downloads import is_ffmpeg_available
 from app.services.llm_runtime import LlmRuntimeStatus, is_runtime_ready_for_resume
-from app.services.markdown_render import render_markdown_to_safe_html
+from app.services.rss import RSSParseError
 
 router = APIRouter(prefix="/views", tags=["views"])
 router.include_router(views_downloads.router)
@@ -133,7 +129,9 @@ def _manual_transcript_requests_disabled() -> bool:
     return disabled in {"1", "true", "yes", "on"}
 
 
-def _manual_transcript_toast_from_result(txt: dict[str, str], result: dict[str, object]) -> tuple[str, str]:
+def _manual_transcript_toast_from_result(
+    txt: dict[str, str], result: dict[str, object]
+) -> tuple[str, str]:
     status = str(result.get("status") or "").strip().lower()
     reason = str(result.get("reason") or "").strip().lower()
     if status == "queued":
@@ -228,7 +226,11 @@ async def _probe_channel_reactivation(
         extra={"event": "channels.reactivate_probe_start"},
     )
     try:
-        _, new_etag, new_last_modified = await request.app.state.runtime.rss_service.fetch_channel_feed(
+        (
+            _,
+            new_etag,
+            new_last_modified,
+        ) = await request.app.state.runtime.rss_service.fetch_channel_feed(
             channel_id=channel_id,
             etag=etag,
             last_modified=last_modified,
@@ -325,7 +327,9 @@ async def category_sidebar(
     category_id: int | None = Query(default=None),
     status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
 ):
-    return await _render_category_sidebar(request, selected_category_id=category_id, channel_status=status)
+    return await _render_category_sidebar(
+        request, selected_category_id=category_id, channel_status=status
+    )
 
 
 @router.post("/categories")
@@ -334,14 +338,17 @@ async def create_category_fragment(request: Request):
     name = str(form.get("name", "")).strip()
     txt = await request_texts(request)
     if not name:
-        raise HTTPException(status_code=400, detail=txt.get("category_add_empty_error", "Name required"))
+        raise HTTPException(
+            status_code=400, detail=txt.get("category_add_empty_error", "Name required")
+        )
     try:
         await categories_repo.create_category(request.app.state.runtime.db, name)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=txt.get("category_add_duplicate_error", "Duplicate"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=txt.get("category_add_duplicate_error", "Duplicate")
+        ) from exc
     status = channels_repo.normalize_channel_management_status(str(form.get("status", "")).strip())
-    raw_cat = form.get("category_id")
-    selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
+    selected = parse_optional_int(form.get("category_id"))
     return await _render_category_sidebar(
         request,
         selected_category_id=selected,
@@ -353,13 +360,17 @@ async def create_category_fragment(request: Request):
 
 @router.put("/categories/{category_id}/cycle-processing-stage")
 async def cycle_category_processing_stage_fragment(category_id: int, request: Request):
-    next_stage = await categories_repo.cycle_category_processing_stage(request.app.state.runtime.db, category_id)
+    next_stage = await categories_repo.cycle_category_processing_stage(
+        request.app.state.runtime.db, category_id
+    )
     if next_stage is None:
         raise HTTPException(status_code=404, detail="category not found")
     status = request.query_params.get("status", channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
     raw_cat = request.query_params.get("category_id")
     selected = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
-    return await _render_category_sidebar(request, selected_category_id=selected, channel_status=status)
+    return await _render_category_sidebar(
+        request, selected_category_id=selected, channel_status=status
+    )
 
 
 @router.delete("/categories/{category_id}")
@@ -367,7 +378,7 @@ async def delete_category_fragment(category_id: int, request: Request):
     try:
         await categories_repo.delete_category(request.app.state.runtime.db, category_id)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     status = channels_repo.normalize_channel_management_status(
         request.query_params.get("status", channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE)
     )
@@ -391,7 +402,9 @@ async def channel_list(
     category_id: int | None = Query(default=None),
 ):
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
-        request, status, category_id=category_id,
+        request,
+        status,
+        category_id=category_id,
     )
     categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
@@ -642,7 +655,9 @@ async def retry_failed_channel_metadata(request: Request):
     requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
-    raw_category_id = str(form.get("category_id") or request.query_params.get("category_id", "")).strip()
+    raw_category_id = str(
+        form.get("category_id") or request.query_params.get("category_id", "")
+    ).strip()
     selected_category_id = int(raw_category_id) if raw_category_id.isdigit() else None
     queued = await channels_repo.enqueue_failed_channel_metadata(
         request.app.state.runtime.db,
@@ -773,7 +788,10 @@ async def reactivate_selected_channels(request: Request):
                 "event=channels.reactivate_bulk_limited selected=%s limit=%s",
                 len(channel_ids),
                 REACTIVATE_BATCH_LIMIT,
-                extra={"event": "channels.reactivate_bulk_limited", "code": str(REACTIVATE_BATCH_LIMIT)},
+                extra={
+                    "event": "channels.reactivate_bulk_limited",
+                    "code": str(REACTIVATE_BATCH_LIMIT),
+                },
             )
         else:
             policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
@@ -804,7 +822,9 @@ async def reactivate_selected_channels(request: Request):
             await channels_repo.reactivate_channels(request.app.state.runtime.db, success_ids)
 
             success_count = len(success_ids)
-            failed_labels = [channel_name_map.get(channel_id, channel_id) for channel_id, _ in failed]
+            failed_labels = [
+                channel_name_map.get(channel_id, channel_id) for channel_id, _ in failed
+            ]
             if not failed:
                 toast_message = txt["channel_reactivate_bulk_success"].format(success=success_count)
                 toast_tone = "success"
@@ -1039,7 +1059,8 @@ async def delete_selected_videos(request: Request):
 
     if video_ids:
         result = await videos_repo.delete_videos_by_ids(
-            request.app.state.runtime.db, video_ids,
+            request.app.state.runtime.db,
+            video_ids,
         )
         cleanup_thumbnail_files(
             result["thumbnail_paths"],
@@ -1053,9 +1074,10 @@ async def delete_selected_videos(request: Request):
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
-    raw_cat = form.get("_category_id")
-    category_id = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
-    pipeline_status = videos_repo.normalize_pipeline_status_filter(str(form.get("_pipeline_status") or ""))
+    category_id = parse_optional_int(form.get("_category_id"))
+    pipeline_status = videos_repo.normalize_pipeline_status_filter(
+        str(form.get("_pipeline_status") or "")
+    )
 
     total = await videos_repo.count_videos(
         request.app.state.runtime.db,
@@ -1076,7 +1098,11 @@ async def delete_selected_videos(request: Request):
         pipeline_status=pipeline_status,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
-    channels = [ch for ch in all_channels if ch.get("category_id") == category_id] if category_id is not None else all_channels
+    channels = (
+        [ch for ch in all_channels if ch.get("category_id") == category_id]
+        if category_id is not None
+        else all_channels
+    )
     categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
@@ -1130,10 +1156,18 @@ async def article_request_selected_videos(request: Request):
             request.app.state.runtime.db,
             video_ids=video_ids,
         )
-        new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-        retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-        skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-        failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        new_count = (
+            int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
+        retry_count = (
+            int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
+        skip_count = (
+            int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
+        failed_count = (
+            int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
 
         if (new_count + retry_count) > 0:
             request.app.state.runtime.manual_article_wake_event.set()
@@ -1165,14 +1199,15 @@ async def article_request_selected_videos(request: Request):
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
-    raw_cat = form.get("_category_id")
-    category_id = int(raw_cat) if raw_cat and str(raw_cat).strip().isdigit() else None
-    pipeline_status = videos_repo.normalize_pipeline_status_filter(str(form.get("_pipeline_status") or ""))
+    category_id = parse_optional_int(form.get("_category_id"))
+    pipeline_status = videos_repo.normalize_pipeline_status_filter(
+        str(form.get("_pipeline_status") or "")
+    )
 
     response = await video_list(
         request=request,
         channel_id=channel_id,
-        category_id=category_id,
+        category_id=str(category_id) if category_id is not None else None,
         pipeline_status=pipeline_status,
         sort=sort,
         order=order,
@@ -1239,10 +1274,18 @@ async def article_request_single_video(video_id: str, request: Request):
             request.app.state.runtime.db,
             video_ids=[video_id],
         )
-        new_count = int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-        retry_count = int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-        skip_count = int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
-        failed_count = int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        new_count = (
+            int(bulk_result.get("new_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
+        retry_count = (
+            int(bulk_result.get("retry_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
+        skip_count = (
+            int(bulk_result.get("skip_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
+        failed_count = (
+            int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
+        )
         if (new_count + retry_count) > 0:
             request.app.state.runtime.manual_article_wake_event.set()
 
@@ -1356,7 +1399,7 @@ async def bulk_commit(request: Request):
 
     resolved_ids = list(form.getlist("resolved_channel_id"))
     resolved_names = list(form.getlist("resolved_channel_name"))
-    for channel_id, channel_name in zip(resolved_ids, resolved_names):
+    for channel_id, channel_name in zip(resolved_ids, resolved_names, strict=False):
         channel_id = str(channel_id).strip()
         channel_name = str(channel_name).strip()
         if channel_id and channel_name:
@@ -1452,13 +1495,17 @@ async def resume_llm_runtime(request: Request):
             pending_count = int(llm_runtime_status.get("pending_count") or 0)
             if pending_count > 0:
                 request.app.state.runtime.llm_wake_event.set()
-                message = txt["settings_llm_runtime_resume_requested_toast"].format(count=pending_count)
+                message = txt["settings_llm_runtime_resume_requested_toast"].format(
+                    count=pending_count
+                )
                 tone = "success"
             else:
                 message = txt["settings_llm_runtime_resume_no_pending_toast"]
                 tone = "info"
         else:
-            reason = str(llm_runtime_status.get("reason_text") or txt["settings_llm_runtime_reason_generic"])
+            reason = str(
+                llm_runtime_status.get("reason_text") or txt["settings_llm_runtime_reason_generic"]
+            )
             message = txt["settings_llm_runtime_resume_blocked_toast"].format(reason=reason)
             tone = "error"
     else:

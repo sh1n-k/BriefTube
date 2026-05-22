@@ -7,7 +7,6 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 from app.domains.downloads import service as downloads_service
-from app.routers import views as views_router
 
 
 def _seed_channels_and_videos() -> None:
@@ -134,7 +133,9 @@ def test_video_list_pipeline_status_filter(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
-        conn.execute("UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id = 'vid-a-001'")
+        conn.execute(
+            "UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id = 'vid-a-001'"
+        )
         conn.commit()
 
     response = client.get("/views/video-list", params={"pipeline_status": "done", "limit": "20"})
@@ -151,10 +152,16 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        cursor = conn.execute("INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999))
+        cursor = conn.execute(
+            "INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999)
+        )
         category_id = int(cursor.lastrowid)
-        conn.execute("UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB"))
-        conn.execute("UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id IN ('vid-a-000', 'vid-b-001')")
+        conn.execute(
+            "UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB")
+        )
+        conn.execute(
+            "UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id IN ('vid-a-000', 'vid-b-001')"
+        )
         conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
         conn.commit()
 
@@ -179,7 +186,13 @@ def test_video_list_sets_home_push_url_header(client: TestClient) -> None:
 
     response = client.get(
         "/views/video-list",
-        params={"channel_id": "UC_BBB", "page": "2", "limit": "20", "sort": "upload_time", "order": "desc"},
+        params={
+            "channel_id": "UC_BBB",
+            "page": "2",
+            "limit": "20",
+            "sort": "upload_time",
+            "order": "desc",
+        },
     )
     assert response.status_code == 200
     push_url = response.headers.get("HX-Push-Url")
@@ -198,7 +211,13 @@ def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestC
 
     response = client.get(
         "/views/video-list",
-        params={"pipeline_status": "done", "page": "1", "limit": "20", "sort": "upload_time", "order": "desc"},
+        params={
+            "pipeline_status": "done",
+            "page": "1",
+            "limit": "20",
+            "sort": "upload_time",
+            "order": "desc",
+        },
     )
     assert response.status_code == 200
     push_url = response.headers.get("HX-Push-Url")
@@ -244,12 +263,18 @@ def test_video_list_category_then_all_restores_all_channel_options(client: TestC
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        cursor = conn.execute("INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999))
+        cursor = conn.execute(
+            "INSERT INTO categories(name, sort_order, is_default) VALUES (?, ?, 0)", ("Tech", 999)
+        )
         category_id = int(cursor.lastrowid)
-        conn.execute("UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB"))
+        conn.execute(
+            "UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB")
+        )
         conn.commit()
 
-    filtered = client.get("/views/video-list", params={"category_id": str(category_id), "limit": "20"})
+    filtered = client.get(
+        "/views/video-list", params={"category_id": str(category_id), "limit": "20"}
+    )
     assert filtered.status_code == 200
     assert "Channel B" in filtered.text
     assert "Channel A" not in filtered.text
@@ -311,7 +336,9 @@ def test_video_download_selected_preserves_pipeline_status_filter(client: TestCl
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE videos SET pipeline_status = 'no_subtitle' WHERE video_id = 'vid-b-001'")
+        conn.execute(
+            "UPDATE videos SET pipeline_status = 'no_subtitle' WHERE video_id = 'vid-b-001'"
+        )
         conn.commit()
 
     response = client.post(
@@ -358,7 +385,9 @@ def test_video_download_selected_uses_single_batch_query(client: TestClient, mon
     async def should_not_be_called(*_args, **_kwargs):
         raise AssertionError("videos_repo.get_video should not be called in bulk download flow")
 
-    monkeypatch.setattr("app.domains.downloads.service.videos_repo.list_videos_by_ids", wrapped_list_videos_by_ids)
+    monkeypatch.setattr(
+        "app.domains.downloads.service.videos_repo.list_videos_by_ids", wrapped_list_videos_by_ids
+    )
     monkeypatch.setattr("app.domains.downloads.service.videos_repo.get_video", should_not_be_called)
 
     response = client.post(
@@ -421,7 +450,11 @@ def test_video_article_selected_limit_exceeded_returns_bulk_toast(client: TestCl
             INSERT OR IGNORE INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UC_MANUAL_LIMIT", "Manual Limit Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UC_MANUAL_LIMIT"),
+            (
+                "UC_MANUAL_LIMIT",
+                "Manual Limit Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UC_MANUAL_LIMIT",
+            ),
         )
         for idx in range(11):
             conn.execute(

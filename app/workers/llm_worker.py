@@ -28,7 +28,7 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
         return
     try:
         await asyncio.wait_for(wake_event.wait(), timeout=safe_timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return
     finally:
         if wake_event.is_set():
@@ -91,7 +91,11 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         pending_count,
                         runtime_reason,
                         alert_created,
-                        extra={"event": "llm.runtime_unavailable", "worker": "llm", "code": runtime_reason},
+                        extra={
+                            "event": "llm.runtime_unavailable",
+                            "worker": "llm",
+                            "code": runtime_reason,
+                        },
                     )
                     next_missing_config_log_at = now + 60.0
                 await _sleep_with_wake(state, 10)
@@ -179,7 +183,11 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         error_code,
                         requeued,
                         alert_created,
-                        extra={"event": "llm.runtime_unavailable", "worker": "llm", "code": error_code},
+                        extra={
+                            "event": "llm.runtime_unavailable",
+                            "worker": "llm",
+                            "code": error_code,
+                        },
                     )
                     await _sleep_with_wake(state, 5)
                     continue
@@ -199,7 +207,11 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         exc.__class__.__name__,
                         error_code,
                         getattr(exc, "provider", None),
-                        extra={"event": "llm.restructure_non_retryable", "worker": "llm", "code": error_code},
+                        extra={
+                            "event": "llm.restructure_non_retryable",
+                            "worker": "llm",
+                            "code": error_code,
+                        },
                     )
                     continue
 
@@ -225,7 +237,11 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         exc.__class__.__name__,
                         error_code,
                         provider,
-                        extra={"event": "llm.restructure_failed", "worker": "llm", "code": error_code},
+                        extra={
+                            "event": "llm.restructure_failed",
+                            "worker": "llm",
+                            "code": error_code,
+                        },
                     )
                     if next_status == "llm_failed":
                         await _sleep_with_wake(state, LLM_RETRYABLE_FAILURE_DELAY_SECONDS)

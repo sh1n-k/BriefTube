@@ -13,7 +13,11 @@ def _seed_single_video(db_path: str) -> None:
             INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
             VALUES (?, ?, ?, 1)
             """,
-            ("UCtz001", "Timezone Channel", "https://www.youtube.com/feeds/videos.xml?channel_id=UCtz001"),
+            (
+                "UCtz001",
+                "Timezone Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCtz001",
+            ),
         )
         conn.execute(
             """

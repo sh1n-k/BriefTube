@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 import threading
 import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from app.config import AppConfig
-
 
 DEFAULT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
 DEV_ENV_NAMES = {"dev", "local", "development"}
