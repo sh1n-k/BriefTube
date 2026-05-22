@@ -74,7 +74,7 @@ def _classify_http_error(exc: httpx.HTTPStatusError) -> tuple[bool, float | None
 def _capped_backoff_seconds(attempt: int) -> float:
     return min(
         NOTIFIER_BACKOFF_MAX_SECONDS,
-        NOTIFIER_BACKOFF_BASE_SECONDS * (2 ** max(0, attempt - 1)),
+        NOTIFIER_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)),
     )
 
 
