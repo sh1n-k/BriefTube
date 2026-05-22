@@ -1906,6 +1906,45 @@
         );
       }
 
+      function bindQueueClearButtons(scope) {
+        if (!scope) return;
+        scope.querySelectorAll("[data-queue-clear-section]").forEach((btn) => {
+          if (btn.dataset.queueClearBound === "1") return;
+          btn.dataset.queueClearBound = "1";
+          btn.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            const section = btn.dataset.queueClearSection;
+            if (!section || btn.disabled) return;
+            const confirmMessage = btn.dataset.confirmMessage || "Clear queue items?";
+            if (!window.confirm(confirmMessage)) return;
+            btn.disabled = true;
+            const page = document.querySelector("[data-queue-page]");
+            try {
+              const resp = await fetch(`/api/queue/${encodeURIComponent(section)}/clear`, {
+                method: "POST",
+                headers: { "Accept": "application/json" },
+              });
+              const payload = await resp.json().catch(() => null);
+              if (resp.ok && payload?.ok) {
+                const count = Number.parseInt(String(payload.cleared_count || "0"), 10) || 0;
+                const template = count > 0
+                  ? (page?.dataset.clearSuccessText || "Cleared {count} queue item(s).")
+                  : (page?.dataset.clearEmptyText || "No queue items to clear.");
+                showUiToast(template.replace("{count}", String(count)), count > 0 ? "success" : "info");
+                void pollQueueStatus();
+                return;
+              }
+              showUiToast(page?.dataset.clearFailedText || "Failed to clear queue items.", "error");
+            } catch (err) {
+              if (typeof console !== "undefined") console.warn("[BriefTube] Queue clear error:", err);
+              showUiToast(page?.dataset.clearFailedText || "Failed to clear queue items.", "error");
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+      }
+
       function startQueuePolling() {
         if (queuePollingStarted) return;
         queuePollingStarted = true;
@@ -2623,7 +2662,8 @@
         } else {
           body.classList.add("hidden");
         }
-        toggle.addEventListener("click", () => {
+        toggle.addEventListener("click", (event) => {
+          if (event.target?.closest?.("button,a,input,select,textarea,label,form")) return;
           const isHidden = body.classList.toggle("hidden");
           if (icon) icon.style.transform = isHidden ? "" : "rotate(180deg)";
         });
@@ -3169,6 +3209,7 @@
         bindLlmRuntimeToasts();
         startDownloadProgressPolling();
         bindQueueRetryButtons(document);
+        bindQueueClearButtons(document);
         startQueuePolling();
         startVideoDetailAutoRefresh();
         startChannelListAutoRefresh();

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
@@ -134,3 +135,56 @@ def test_download_history_fragment_view_returns_partial_markup(client: TestClien
         'data-download-history-refresh-url="/views/downloads/table?status=failed&amp;page=1"'
         in html
     )
+
+
+def test_download_history_clear_removes_terminal_jobs_only(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_download_jobs(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO download_jobs(video_id, video_title, status, quality, overwrite)
+            VALUES (?, ?, 'pending', '1080', 0)
+            """,
+            ("vid-download-view-1", "View Video 1"),
+        )
+        conn.commit()
+
+    response = client.post("/views/downloads/clear", data={"status": "all"})
+
+    assert response.status_code == 200
+    assert "HX-Trigger" in response.headers
+    trigger = json.loads(response.headers["HX-Trigger"])
+    html = response.text
+    assert "View Video 1" in html
+    assert trigger["video-download-bulk-toast"]["tone"] == "success"
+    assert "2" in trigger["video-download-bulk-toast"]["message"]
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT status FROM download_jobs ORDER BY status").fetchall()
+    assert [row[0] for row in rows] == ["pending"]
+
+
+def test_download_history_clear_pending_filter_is_noop(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_download_jobs(db_path)
+
+    response = client.post("/views/downloads/clear", data={"status": "pending"})
+
+    assert response.status_code == 200
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["video-download-bulk-toast"]["tone"] == "info"
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(1) FROM download_jobs").fetchone()[0]
+    assert count == 2
+
+
+def test_download_history_clear_rejects_invalid_status(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_download_jobs(db_path)
+
+    response = client.post("/views/downloads/clear", data={"status": "invalid"})
+
+    assert response.status_code == 400
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(1) FROM download_jobs").fetchone()[0]
+    assert count == 2

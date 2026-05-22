@@ -9,6 +9,7 @@ ALERT_TYPE_LLM_SCHEMA_INVALID = legacy.ALERT_TYPE_LLM_SCHEMA_INVALID
 LLM_SCHEMA_INVALID_ALERT_SENT_KEY = legacy.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
 
 repair_orphan_llm_candidates = legacy.repair_orphan_llm_candidates
+clear_llm_queue_items = legacy.clear_llm_queue_items
 pop_llm_candidate = legacy.pop_llm_candidate
 mark_restructure_processing = legacy.mark_restructure_processing
 save_article = legacy.save_article

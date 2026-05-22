@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from app.domains.downloads import enqueue_bulk_downloads
 from app.repositories import categories as categories_repo
@@ -34,6 +34,38 @@ async def download_history_fragment(
         request=request,
         name="fragments/download_history.html",
         context=context,
+    )
+
+
+@router.post("/downloads/clear")
+async def clear_download_history_fragment(request: Request):
+    form = await request.form()
+    status = str(form.get("status") or "all").strip().lower()
+    if status not in {"all", "pending", "running", "succeeded", "failed"}:
+        raise HTTPException(status_code=400, detail="invalid download status")
+    normalized_status = downloads_repo.normalize_download_status_filter(status)
+    txt = await request_texts(request)
+
+    deleted_count = await downloads_repo.clear_download_jobs(
+        request.app.state.runtime.db,
+        status=normalized_status,
+    )
+    context = await build_download_history_context(
+        request,
+        status=normalized_status,
+        page=1,
+    )
+    if deleted_count > 0:
+        toast_message = txt["download_clear_done"].format(count=deleted_count)
+        toast_tone = "success"
+    else:
+        toast_message = txt["download_clear_none"]
+        toast_tone = "info"
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/download_history.html",
+        context=context,
+        headers=_download_bulk_toast_header(toast_message, toast_tone),
     )
 
 

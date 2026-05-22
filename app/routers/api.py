@@ -651,6 +651,18 @@ async def queue_poll(request: Request):
     }
 
 
+@router.post("/queue/{section}/clear")
+async def clear_queue_section(section: str, request: Request):
+    db = request.app.state.runtime.db
+    if section == "transcript":
+        cleared_count = await transcripts_repo.clear_transcript_queue_items(db)
+    elif section == "llm":
+        cleared_count = await llm_repo.clear_llm_queue_items(db)
+    else:
+        raise HTTPException(status_code=404, detail="Queue section not found")
+    return {"ok": True, "section": section, "cleared_count": cleared_count}
+
+
 @router.get("/status")
 async def status(request: Request):
     return await transcripts_repo.queue_status(request.app.state.runtime.db)

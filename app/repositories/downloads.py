@@ -26,6 +26,7 @@ recover_stuck_download_jobs = legacy.recover_stuck_download_jobs
 count_download_jobs_by_status = legacy.count_download_jobs_by_status
 list_download_jobs = legacy.list_download_jobs
 count_download_jobs = legacy.count_download_jobs
+clear_download_jobs = legacy.clear_download_jobs
 latest_download_event_id = legacy.latest_download_event_id
 list_download_events_after = legacy.list_download_events_after
 get_download_progress = legacy.get_download_progress
