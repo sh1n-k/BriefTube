@@ -15,6 +15,9 @@ if (-not $env:HOST) {
 if (-not $env:PORT) {
     $env:PORT = "8000"
 }
+if (-not $env:UV_LINK_MODE) {
+    $env:UV_LINK_MODE = "copy"
+}
 
 $UvCommand = Get-Command uv -ErrorAction SilentlyContinue
 if ($null -ne $UvCommand) {
