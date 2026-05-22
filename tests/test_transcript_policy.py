@@ -5,11 +5,16 @@ import os
 import sqlite3
 from types import SimpleNamespace
 
+import pytest
+from requests import Response, Session
+
 from app.database import init_database, open_database, recover_stuck_jobs
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
+from app.services import transcript as transcript_service_module
 from app.services.transcript_guard import _compute_retry_delay_seconds
+from app.workers.transcript_worker import run_transcript_fetcher
 
 repository = SimpleNamespace(
     ALERT_TYPE_LLM_CONFIG_MISSING=llm_repo.ALERT_TYPE_LLM_CONFIG_MISSING,
@@ -217,6 +222,109 @@ def test_recover_stuck_transcript_jobs_requeues_processing_rows(tmp_path) -> Non
     assert transcript_status == "transcript_pending"
 
 
+def test_transcript_fetcher_recovers_processing_rows_when_lease_disabled(tmp_path) -> None:
+    db_path = tmp_path / "recover-processing-lease-disabled.db"
+
+    class _FakeTranscriptService:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def fetch_transcript(self, video_id: str, preferred_language: str | None = None):
+            self.calls.append(video_id)
+            return "recovered transcript", "ko", "manual"
+
+    async def _run() -> tuple[str, str | None, list[str]]:
+        db = await open_database(str(db_path))
+        fake_service = _FakeTranscriptService()
+        try:
+            await init_database(db)
+            await db.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                (
+                    "UCrecover003",
+                    "Recover Channel 3",
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover003",
+                ),
+            )
+            await db.execute(
+                """
+                INSERT INTO videos(
+                    video_id,
+                    channel_id,
+                    title,
+                    upload_time,
+                    pipeline_status,
+                    processing_stage_snapshot
+                )
+                VALUES (?, ?, ?, ?, 'transcript_processing', 'transcript_only')
+                """,
+                (
+                    "vid-recover-lease-disabled",
+                    "UCrecover003",
+                    "recover lease disabled",
+                    "2026-02-10T00:00:00+00:00",
+                ),
+            )
+            await db.commit()
+            state = SimpleNamespace(
+                config=SimpleNamespace(
+                    db_path=str(db_path),
+                    transcript_fetch_batch_size=1,
+                    transcript_request_interval_seconds=1,
+                    transcript_idle_sleep_seconds=1,
+                    transcript_retry_base_delay_seconds=1,
+                    transcript_retry_max_delay_seconds=4,
+                    transcript_retry_max_attempts=2,
+                    transcript_fetch_timeout_seconds=3,
+                    transcript_jitter_ratio=0,
+                    transcript_adaptive_enabled=False,
+                    transcript_adaptive_max_factor=8.0,
+                    transcript_hard_cooldown_base_seconds=5,
+                    transcript_hard_cooldown_max_seconds=10,
+                    transcript_recovery_success_window=1,
+                    transcript_general_error_slowdown_multiplier=1.25,
+                    transcript_channel_min_interval_seconds=0,
+                    transcript_channel_pick_lookahead=1,
+                    transcript_channel_hard_cooldown_seconds=5,
+                    transcript_breaker_half_open_probe_count=1,
+                    transcript_worker_lease_enabled=False,
+                    transcript_worker_lease_ttl_seconds=5,
+                ),
+                db=db,
+                transcript_service=fake_service,
+            )
+            task = asyncio.create_task(run_transcript_fetcher(state))
+            try:
+                for _ in range(80):
+                    cursor = await db.execute(
+                        """
+                        SELECT v.pipeline_status, t.raw_text
+                        FROM videos v
+                        LEFT JOIN transcripts t ON t.video_id = v.video_id
+                        WHERE v.video_id = ?
+                        """,
+                        ("vid-recover-lease-disabled",),
+                    )
+                    row = await cursor.fetchone()
+                    if row is not None and row["raw_text"] == "recovered transcript":
+                        return str(row["pipeline_status"]), row["raw_text"], fake_service.calls
+                    await asyncio.sleep(0.05)
+                raise AssertionError("transcript fetcher did not recover and process row")
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        finally:
+            await db.close()
+
+    status, raw_text, calls = asyncio.run(_run())
+    assert status == "transcript_done"
+    assert raw_text == "recovered transcript"
+    assert calls == ["vid-recover-lease-disabled"]
+
+
 def test_schedule_transcript_retry_persists_last_error(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -257,6 +365,60 @@ def test_schedule_transcript_retry_persists_last_error(client) -> None:
     retry_count, last_error = asyncio.run(_run())
     assert retry_count == 1
     assert last_error == "network timeout"
+
+
+def test_transcript_service_applies_requests_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_timeouts: list[int] = []
+
+    def _fake_request(self, method, url, **kwargs):
+        captured_timeouts.append(kwargs.get("timeout"))
+        response = Response()
+        response.status_code = 200
+        response._content = b"ok"
+        response.url = url
+        return response
+
+    monkeypatch.setattr(Session, "request", _fake_request)
+    session = transcript_service_module._TimeoutSession(default_timeout_seconds=7)
+
+    session.get("https://example.com/default-timeout")
+    session.post("https://example.com/explicit-timeout", timeout=3)
+
+    assert captured_timeouts == [7, 3]
+
+
+def test_transcript_service_reapplies_configured_headers_after_api_init(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed_headers: dict[str, str] = {}
+
+    class _FakeFetchedTranscript:
+        language_code = "ko"
+        is_generated = False
+
+        def to_raw_data(self):
+            return [{"text": "hello"}]
+
+    class _FakeYouTubeTranscriptApi:
+        def __init__(self, http_client):
+            self.http_client = http_client
+            self.http_client.headers.update({"Accept-Language": "en-US"})
+
+        def fetch(self, video_id, languages):
+            observed_headers.update(dict(self.http_client.headers))
+            return _FakeFetchedTranscript()
+
+    monkeypatch.setattr(transcript_service_module, "YouTubeTranscriptApi", _FakeYouTubeTranscriptApi)
+    service = transcript_service_module.TranscriptService(
+        client=None,  # type: ignore[arg-type]
+        request_timeout_seconds=7,
+    )
+    service.apply_transcript_request_headers({"Accept-Language": "ko-KR,ko;q=0.9"})
+
+    raw_text, language, source_type = service._fetch_transcript_sync("vid-header-001", "ko")
+
+    assert raw_text == "hello"
+    assert language == "ko"
+    assert source_type == "manual"
+    assert observed_headers["Accept-Language"] == "ko-KR,ko;q=0.9"
 
 
 def test_save_transcript_sets_target_language_and_clears_last_error(client) -> None:

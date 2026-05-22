@@ -15,10 +15,21 @@ from app.services.transcript_headers import (
 )
 
 
+class _TimeoutSession(Session):
+    def __init__(self, default_timeout_seconds: int):
+        super().__init__()
+        self._default_timeout_seconds = max(1, int(default_timeout_seconds))
+
+    def request(self, method: str, url: str, **kwargs: Any) -> Any:
+        kwargs.setdefault("timeout", self._default_timeout_seconds)
+        return super().request(method, url, **kwargs)
+
+
 class TranscriptService:
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(self, client: httpx.AsyncClient, *, request_timeout_seconds: int = 45):
         self.client = client
         self._request_headers = default_transcript_request_headers()
+        self._request_timeout_seconds = max(1, int(request_timeout_seconds))
 
     def apply_transcript_request_headers(self, values: dict[str, str]) -> None:
         merged = merge_with_default_headers(values)
@@ -48,10 +59,12 @@ class TranscriptService:
         video_id: str,
         preferred_language: str | None,
     ) -> tuple[str, str | None, str]:
-        session = Session()
+        session = _TimeoutSession(self._request_timeout_seconds)
         try:
-            session.headers.update(self.get_transcript_request_headers())
+            request_headers = self.get_transcript_request_headers()
+            session.headers.update(request_headers)
             api = YouTubeTranscriptApi(http_client=session)
+            session.headers.update(request_headers)
             preferred = (preferred_language or "").strip().lower()
             if preferred:
                 transcript_obj = api.fetch(video_id, [preferred])

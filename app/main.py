@@ -158,7 +158,10 @@ async def lifespan(app: FastAPI):
         db=db,
         http_client=http_client,
         rss_service=RSSService(http_client, timeout_seconds=config.rss_timeout_seconds),
-        transcript_service=TranscriptService(http_client),
+        transcript_service=TranscriptService(
+            http_client,
+            request_timeout_seconds=config.transcript_fetch_timeout_seconds,
+        ),
         channel_resolver=ChannelResolverService(http_client),
         llm_client=UnifiedLlmClient(
             timeout_seconds=config.llm_timeout_seconds,

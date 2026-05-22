@@ -387,6 +387,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 lease_stop_event = asyncio.Event()
                 lease_lost_event = asyncio.Event()
                 lease_held = False
+                runtime_recovery_pending = True
                 await asyncio.sleep(idle_sleep_seconds)
                 continue
 
@@ -411,8 +412,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 await asyncio.sleep(idle_sleep_seconds)
                 continue
 
+            if not lease_enabled and runtime_recovery_pending:
+                await _recover_runtime_stuck_transcript_jobs(worker_db)
+                runtime_recovery_pending = False
+
             if lease_enabled:
-                now_mono = time.monotonic()
                 if not lease_held:
                     try:
                         lease_held = await transcripts_repo.acquire_transcript_worker_lease(
@@ -534,21 +538,28 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     channel_id = str(video.get("channel_id") or "").strip()
                     preferred_language = str(video.get("transcript_target_language") or "").strip().lower() or None
 
-                    if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                        if guard.half_open_probe_remaining <= 0:
-                            break
-                        guard.half_open_probe_remaining -= 1
-                        await _save_guard_state(worker_db, guard)
-
                     try:
-                        guard.last_channel_id = channel_id or guard.last_channel_id
-                        guard.last_channel_attempt_at = datetime.now(timezone.utc)
-                        await _save_guard_state(worker_db, guard)
+                        await _wait_until(next_request_monotonic_at)
+                        if lease_enabled and (not lease_held or lease_lost_event.is_set()):
+                            runtime_recovery_pending = True
+                            break
+                        if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until:
+                            if datetime.now(timezone.utc) < guard.cooldown_until:
+                                break
+                        if (
+                            guard.breaker_state == TranscriptBreakerState.HALF_OPEN
+                            and guard.half_open_probe_remaining <= 0
+                        ):
+                            break
                         marked = await transcripts_repo.mark_transcript_processing(worker_db, video_id)
                         if marked == 0:
                             continue
-
-                        await _wait_until(next_request_monotonic_at)
+                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                            guard.half_open_probe_remaining -= 1
+                            await _save_guard_state(worker_db, guard)
+                        guard.last_channel_id = channel_id or guard.last_channel_id
+                        guard.last_channel_attempt_at = datetime.now(timezone.utc)
+                        await _save_guard_state(worker_db, guard)
                         raw_text, language, source_type = await asyncio.wait_for(
                             state.transcript_service.fetch_transcript(
                                 video_id,
@@ -562,6 +573,18 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             jitter_ratio,
                         )
                         next_request_monotonic_at = time.monotonic() + interval_after_fetch
+
+                        if lease_enabled and lease_lost_event.is_set():
+                            runtime_recovery_pending = True
+                            logger.warning(
+                                "event=transcript.lease_lost_result_discarded worker=transcript video_id=%s",
+                                video_id,
+                                extra={
+                                    "event": "transcript.lease_lost_result_discarded",
+                                    "worker": "transcript",
+                                },
+                            )
+                            break
 
                         if not raw_text.strip():
                             raise ValueError("Transcript payload is empty")
@@ -606,6 +629,19 @@ async def run_transcript_fetcher(state: AppState) -> None:
 
                         current_retry_count = int(video.get("transcript_retry_count") or 0)
                         next_retry_count = current_retry_count + 1
+
+                        if lease_enabled and lease_lost_event.is_set():
+                            runtime_recovery_pending = True
+                            logger.warning(
+                                "event=transcript.lease_lost_failure_discarded worker=transcript video_id=%s error=%s",
+                                video_id,
+                                error_message,
+                                extra={
+                                    "event": "transcript.lease_lost_failure_discarded",
+                                    "worker": "transcript",
+                                },
+                            )
+                            break
 
                         if error_category == TranscriptErrorCategory.NO_SUBTITLE:
                             await transcripts_repo.mark_no_subtitle(worker_db, video_id)
