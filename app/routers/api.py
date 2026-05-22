@@ -1098,6 +1098,7 @@ async def resume_llm_runtime(request: Request):
         )
 
     pending_count = int(status_payload["pending_count"])
+    await llm_repo.clear_llm_runtime_issue(request.app.state.runtime.db)
     if pending_count > 0:
         request.app.state.runtime.llm_wake_event.set()
         message = txt["settings_llm_runtime_resume_requested_toast"].format(count=pending_count)

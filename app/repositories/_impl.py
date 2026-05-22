@@ -2089,6 +2089,7 @@ async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) ->
 
 
 async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> dict[str, Any] | None:
+    safe_max_retry_count = max(1, int(max_retry_count))
     cursor = await db.execute(
         """
         SELECT
@@ -2103,7 +2104,7 @@ async def pop_llm_candidate(db: aiosqlite.Connection, max_retry_count: int) -> d
         ORDER BY v.created_at ASC
         LIMIT 1
         """,
-        (max_retry_count,),
+        (safe_max_retry_count,),
     )
     row = await cursor.fetchone()
     return _row_to_dict(row)
@@ -2135,56 +2136,71 @@ async def save_article(
     llm_model: str | None = None,
     llm_reasoning_effort: str | None = None,
     llm_generated_at: str | None = None,
-) -> None:
+) -> int:
     safe_provider = _normalize_article_provider(llm_provider)
     safe_model = _normalize_article_text_meta(llm_model)
     safe_reasoning_effort = _normalize_article_text_meta(llm_reasoning_effort, max_length=32)
     safe_generated_at = str(llm_generated_at or "").strip() or None
 
-    await db.execute(
+    cursor = await db.execute(
         """
-        INSERT INTO articles(
-            video_id,
-            title,
-            lead,
-            body,
-            fact_box,
-            timestamps,
-            llm_provider,
-            llm_model,
-            llm_reasoning_effort,
-            llm_generated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
-        ON CONFLICT(video_id) DO UPDATE SET
-            title=excluded.title,
-            lead=excluded.lead,
-            body=excluded.body,
-            fact_box=excluded.fact_box,
-            timestamps=excluded.timestamps,
-            llm_provider=excluded.llm_provider,
-            llm_model=excluded.llm_model,
-            llm_reasoning_effort=excluded.llm_reasoning_effort,
-            llm_generated_at=excluded.llm_generated_at
+        UPDATE videos
+        SET pipeline_status = 'done'
+        WHERE video_id = ?
+          AND pipeline_status = 'llm_processing'
         """,
-        (
-            video_id,
-            title,
-            lead,
-            body,
-            fact_box,
-            timestamps,
-            safe_provider,
-            safe_model,
-            safe_reasoning_effort,
-            safe_generated_at,
-        ),
-    )
-    await db.execute(
-        "UPDATE videos SET pipeline_status = 'done' WHERE video_id = ?",
         (video_id,),
     )
-    await db.commit()
+    affected = int(cursor.rowcount or 0)
+    if affected == 0:
+        await db.commit()
+        return 0
+
+    try:
+        await db.execute(
+            """
+            INSERT INTO articles(
+                video_id,
+                title,
+                lead,
+                body,
+                fact_box,
+                timestamps,
+                llm_provider,
+                llm_model,
+                llm_reasoning_effort,
+                llm_generated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+            ON CONFLICT(video_id) DO UPDATE SET
+                title=excluded.title,
+                lead=excluded.lead,
+                body=excluded.body,
+                fact_box=excluded.fact_box,
+                timestamps=excluded.timestamps,
+                llm_provider=excluded.llm_provider,
+                llm_model=excluded.llm_model,
+                llm_reasoning_effort=excluded.llm_reasoning_effort,
+                llm_generated_at=excluded.llm_generated_at
+            """,
+            (
+                video_id,
+                title,
+                lead,
+                body,
+                fact_box,
+                timestamps,
+                safe_provider,
+                safe_model,
+                safe_reasoning_effort,
+                safe_generated_at,
+            ),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return affected
 
 
 async def mark_restructure_failed(
@@ -2193,8 +2209,9 @@ async def mark_restructure_failed(
     retry_count: int,
     max_retry_count: int,
 ) -> tuple[str, int]:
+    safe_max_retry_count = max(1, int(max_retry_count))
     next_retry = retry_count + 1
-    next_status = "llm_failed" if next_retry < max_retry_count else "manual_review"
+    next_status = "llm_failed" if next_retry < safe_max_retry_count else "manual_review"
     cursor = await db.execute(
         """
         UPDATE videos
@@ -2252,7 +2269,7 @@ async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
         """
         SELECT COUNT(1) AS cnt
         FROM videos
-        WHERE pipeline_status = 'llm_pending'
+        WHERE pipeline_status IN ('llm_pending', 'llm_failed')
         """
     )
     row = await cursor.fetchone()
@@ -2300,7 +2317,7 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
         """
         SELECT COUNT(1) AS cnt
         FROM videos
-        WHERE pipeline_status = 'llm_pending'
+        WHERE pipeline_status IN ('llm_pending', 'llm_failed')
         """
     )
     row = await cursor.fetchone()
@@ -2397,7 +2414,7 @@ async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
         """
         SELECT COUNT(1) AS cnt
         FROM videos v
-        WHERE v.pipeline_status = 'llm_pending'
+        WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
         """
     )
     row = await cursor.fetchone()
