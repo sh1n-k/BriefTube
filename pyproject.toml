@@ -54,6 +54,7 @@ line-length = 100
 extend-exclude = [
   ".venv",
   ".worktrees",
+  ".claude",
   "build",
   "dist",
   "brieftube.egg-info",
@@ -114,6 +115,7 @@ exclude = [
   "**/__pycache__",
   ".venv",
   ".worktrees",
+  ".claude",
   "build",
   "dist",
   "brieftube.egg-info",

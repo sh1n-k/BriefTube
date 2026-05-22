@@ -47,6 +47,7 @@ dist/
 
 # Local worktrees / screenshots
 .worktrees/
+.claude/
 .tmp-*/
 screenshot-*.png
 image.png
