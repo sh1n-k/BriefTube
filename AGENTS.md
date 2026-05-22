@@ -33,6 +33,7 @@
 ## 검증
 - 기본 단위 테스트 fixture(`tests/conftest.py`)는 `TRANSCRIPT_WORKER_LEASE_ENABLED=0`으로 실행한다. `TestClient` 환경에서 transcript lease 전용 DB 연결이 쓰기 잠금을 선점해 `database is locked`를 만들 수 있기 때문이다.
 - pytest 환경에서는 transcript background worker를 기본으로 띄우지 않는다. worker가 필요한 테스트만 `BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS=1`로 다시 켠다.
+- **정적 검사(ruff + pyright + lint-imports) 통과 필수.** 명령과 위반 처리 정책은 `CONTRIBUTING.md`의 "정적 검사" 섹션을 따른다. 새 모듈 추가 시 계층 import 방향(`routers:workers → domains → services → repositories → infrastructure`) 유지.
 - 변경 범위별 최신 명령은 `CONTRIBUTING.md`의 테스트/검증 기준을 canonical source로 따른다.
 - 검증을 일부만 했거나 못 했으면 이유와 재현 가능한 command를 남긴다.
 

@@ -13,6 +13,9 @@ pwsh ./run-prod.ps1                     # Windows PowerShell, config.prod.yaml
 uv run python -m pytest -q              # 테스트 (E2E 제외)
 uv run python -m pytest -q -m e2e tests/e2e   # Playwright E2E
 uv run python scripts/init_db.py        # DB 초기화 (최초 1회)
+uv run ruff check . && uv run ruff format --check .   # lint + format
+uv run pyright                          # 타입 검사 (basic + 핵심 모듈 strict)
+uv run lint-imports                     # 계층 import 계약
 ```
 
 ## Source Layout (`app/`)
@@ -135,6 +138,9 @@ uv run python scripts/init_db.py        # DB 초기화 (최초 1회)
 - 로깅: `event=카테고리.동작` (예: `event=downloads.job_started`)
 - HTMX fragment: 고유 `id` wrapper element 유지 (예: `#channel-list-wrap`)
 - HX-Trigger JSON: `json.dumps(..., ensure_ascii=True)` (latin-1 제약)
+- **정적 검사 통과 필수**: ruff/pyright/lint-imports (위 Quick Reference). 위반은 수정 원칙, 무시 시 사유 코멘트 필수. 세부 정책·계층 정의는 `CONTRIBUTING.md` 참조
+- Pyright **strict** 적용 영역(`app/config.py`, `app/state.py`, `app/schemas.py`, `app/repositories/`, `app/domains/`)에 새 모듈을 추가하면 자동 strict 적용
+- 새 모듈 추가 시 import 방향 준수: `routers:workers → domains → services → repositories → infrastructure` (역방향 금지)
 
 ## Key Patterns
 

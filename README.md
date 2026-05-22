@@ -171,7 +171,15 @@ Playwright E2E (명시 실행):
 uv run python -m pytest -q -m e2e tests/e2e
 ```
 
-변경 범위별 권장 명령은 `CONTRIBUTING.md`의 테스트/검증 기준을 우선합니다.
+정적 검사 (PR 머지 전 모두 통과 필수):
+
+```bash
+uv run ruff check . && uv run ruff format --check .
+uv run pyright
+uv run lint-imports
+```
+
+변경 범위별 권장 명령과 위반 처리 정책은 `CONTRIBUTING.md`의 테스트/검증 기준을 우선합니다.
 
 ## 참고 문서
 

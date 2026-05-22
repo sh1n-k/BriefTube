@@ -45,6 +45,39 @@ uv run pytest -q -m e2e tests/e2e
 uv run pytest -q
 ```
 
+## 정적 검사 (PR 머지 전 모두 통과 필수)
+
+설정은 `pyproject.toml`에 정의되어 있고, 도구는 `uv sync` 시 dev 그룹으로 함께 설치됩니다.
+
+```bash
+uv run ruff check .              # lint (E/F/W/I/B/UP/SIM/RUF/ASYNC/S/T20/TID/PTH)
+uv run ruff format --check .     # 포매팅 (line-length 100)
+uv run pyright                   # 타입 검사 (basic + 핵심 모듈 strict)
+uv run lint-imports              # 계층 import 계약
+```
+
+빠른 자동 수정:
+
+```bash
+uv run ruff check . --fix && uv run ruff format .
+```
+
+### 위반 처리 정책
+
+- **새 위반 발생 시**: 수정이 원칙. 코드 동작을 변경해야 하는 fix는 별도 PR로.
+- **의도된 패턴 보호**: 사유를 코멘트로 남기고 인라인 `# noqa: <RULE>` 또는 `# pyright: ignore[<rule>]` 사용. 사유 없는 무시 금지.
+- **전역 ignore 추가**는 비용이 크므로 다수 위반이 동일 패턴일 때만 검토. `pyproject.toml`에 사유 코멘트 동반.
+- **Pyright strict 적용 영역** (`app/config.py`, `app/state.py`, `app/schemas.py`, `app/repositories/`, `app/domains/`)에 새 모듈을 추가하면 자동으로 strict 적용됨에 유의.
+- **import-linter `ignore_imports`** 목록은 baseline 위반 추적용. 새 항목 추가는 후속 정리 계획과 함께 PR에 명시.
+
+### 계층 import 계약 요약
+
+```
+routers : workers  →  domains  →  services  →  repositories  →  logging_setup  →  time_utils  →  database/schemas/i18n/pagination/download_error_registry/timezone_policy/config
+```
+
+위쪽 layer만 아래쪽 layer를 import할 수 있습니다. `app.state`(composition root), `app.main`, `app.cli`(entry points)는 계약 외부.
+
 ## 리팩터링 PR 규칙
 
 - 동작 불변을 기본 원칙으로 유지
