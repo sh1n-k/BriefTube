@@ -2663,7 +2663,10 @@
           body.classList.add("hidden");
         }
         toggle.addEventListener("click", (event) => {
-          if (event.target?.closest?.("button,a,input,select,textarea,label,form")) return;
+          const target = event.target instanceof Element
+            ? event.target
+            : event.target?.parentElement;
+          if (target?.closest("button,a,input,select,textarea,label,form")) return;
           const isHidden = body.classList.toggle("hidden");
           if (icon) icon.style.transform = isHidden ? "" : "rotate(180deg)";
         });
