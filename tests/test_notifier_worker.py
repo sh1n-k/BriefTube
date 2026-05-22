@@ -267,3 +267,43 @@ def test_send_with_retry_terminal_4xx_via_ok_false(tmp_path, monkeypatch) -> Non
     assert ok is False
     assert "Bad Request" in reason
     assert call_count == 1  # no retry without retry_after
+
+
+def test_send_with_retry_absorbs_unhandled_exception(tmp_path, monkeypatch) -> None:
+    """httpx 외의 예외(JSON 파싱 실패 등)도 흡수해서 (False, reason) 반환."""
+
+    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
+    notifier = _FakeNotifier(responses=[], raise_exceptions=[RuntimeError("boom")])
+
+    async def _run() -> tuple[bool, str, int]:
+        state = SimpleNamespace(telegram_notifier=notifier)
+        ok, reason = await notifier_worker._send_with_retry(state, "msg", 1)
+        return ok, reason, len(notifier.calls)
+
+    ok, reason, call_count = asyncio.run(_run())
+    assert ok is False
+    assert reason == "unhandled_RuntimeError"
+    assert call_count == 1  # 추가 retry 없이 즉시 종료
+
+
+def test_send_with_retry_rejects_non_dict_response(tmp_path, monkeypatch) -> None:
+    """비-dict 응답은 즉시 종료해 AttributeError를 방지."""
+
+    async def _fake_sleep(seconds: float) -> None:  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
+    notifier = _FakeNotifier(responses=[["not", "a", "dict"]])
+
+    async def _run() -> tuple[bool, str, int]:
+        state = SimpleNamespace(telegram_notifier=notifier)
+        ok, reason = await notifier_worker._send_with_retry(state, "msg", 1)
+        return ok, reason, len(notifier.calls)
+
+    ok, reason, call_count = asyncio.run(_run())
+    assert ok is False
+    assert reason == "non_dict_response"
+    assert call_count == 1

@@ -71,6 +71,13 @@ def _classify_http_error(exc: httpx.HTTPStatusError) -> tuple[bool, float | None
     return transient, retry_after
 
 
+def _capped_backoff_seconds(attempt: int) -> float:
+    return min(
+        NOTIFIER_BACKOFF_MAX_SECONDS,
+        NOTIFIER_BACKOFF_BASE_SECONDS * (2 ** max(0, attempt - 1)),
+    )
+
+
 async def _send_with_retry(
     state: AppState,
     message: str,
@@ -96,10 +103,7 @@ async def _send_with_retry(
                     extra={"event": "notifier.send_http_error", "worker": "notifier", "code": str(status or "-")},
                 )
                 return False, last_reason
-            delay = retry_after if retry_after is not None else min(
-                NOTIFIER_BACKOFF_MAX_SECONDS,
-                NOTIFIER_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)),
-            )
+            delay = retry_after if retry_after is not None else _capped_backoff_seconds(attempt)
             logger.info(
                 "event=notifier.send_retry worker=notifier batch_size=%s status=%s attempt=%s sleep=%.1fs",
                 batch_size,
@@ -121,10 +125,7 @@ async def _send_with_retry(
                     extra={"event": "notifier.send_network_error", "worker": "notifier", "code": last_reason},
                 )
                 return False, last_reason
-            delay = min(
-                NOTIFIER_BACKOFF_MAX_SECONDS,
-                NOTIFIER_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)),
-            )
+            delay = _capped_backoff_seconds(attempt)
             logger.info(
                 "event=notifier.send_retry worker=notifier batch_size=%s error=%s attempt=%s sleep=%.1fs",
                 batch_size,
@@ -133,8 +134,28 @@ async def _send_with_retry(
                 delay,
                 extra={"event": "notifier.send_retry", "worker": "notifier", "code": last_reason},
             )
-            await asyncio.sleep(delay)
+            await asyncio.sleep(min(NOTIFIER_BACKOFF_MAX_SECONDS, delay))
             continue
+        except Exception as exc:
+            last_reason = f"unhandled_{exc.__class__.__name__}"
+            logger.exception(
+                "event=notifier.send_unhandled_error worker=notifier batch_size=%s attempt=%s",
+                batch_size,
+                attempt,
+                extra={"event": "notifier.send_unhandled_error", "worker": "notifier", "code": exc.__class__.__name__},
+            )
+            return False, last_reason
+
+        if not isinstance(response, dict):
+            last_reason = "non_dict_response"
+            logger.warning(
+                "event=notifier.send_invalid_response worker=notifier batch_size=%s attempt=%s response_type=%s",
+                batch_size,
+                attempt,
+                type(response).__name__,
+                extra={"event": "notifier.send_invalid_response", "worker": "notifier"},
+            )
+            return False, last_reason
 
         if response.get("ok", False):
             return True, ""
