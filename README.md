@@ -144,6 +144,7 @@ macOS에서 `prod` 설정으로 로컬 상주 실행:
 | `LOG_TO_FILE` | 파일 로그 활성화 여부 | `true` |
 | `LOG_FILE_MAX_BYTES` | 파일 로테이션 최대 바이트 | `10485760` |
 | `LOG_FILE_BACKUP_COUNT` | 백업 파일 개수 | `10` |
+| `LOG_CONSOLE_COLOR` | 콘솔 로그 컬러 정책 (`AUTO`/`ALWAYS`/`NEVER`) | `AUTO` |
 | `LOG_NOISE_WINDOW_SECONDS` | 반복 경고/에러 집계 시간창(초) | `60` |
 | `LOG_NOISE_SUPPRESS_THRESHOLD` | 시간창 내 상세 출력 허용 횟수 | `1` |
 | `LOG_DEPENDENCY_LEVEL` | 외부 라이브러리 로그 레벨 | `WARNING` |

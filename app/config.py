@@ -51,6 +51,7 @@ class AppConfig:
     log_file_name: str = "brieftube.log"
     log_file_max_bytes: int = 10 * 1024 * 1024
     log_file_backup_count: int = 10
+    log_console_color: str = "AUTO"
     rss_channel_deactivate_after_fails: int = 3
     rss_consecutive_error_abort_threshold: int = 5
     log_noise_window_seconds: int = 60
@@ -267,6 +268,7 @@ def load_config() -> AppConfig:
         log_file_backup_count=int(
             file_values.get("log_file_backup_count", base.log_file_backup_count)
         ),
+        log_console_color=str(file_values.get("log_console_color", base.log_console_color)),
         log_noise_window_seconds=int(
             file_values.get("log_noise_window_seconds", base.log_noise_window_seconds)
         ),
@@ -420,6 +422,9 @@ def load_config() -> AppConfig:
     cfg.log_file_name = os.getenv("LOG_FILE_NAME", cfg.log_file_name)
     cfg.log_file_max_bytes = int(os.getenv("LOG_FILE_MAX_BYTES", cfg.log_file_max_bytes))
     cfg.log_file_backup_count = int(os.getenv("LOG_FILE_BACKUP_COUNT", cfg.log_file_backup_count))
+    cfg.log_console_color = (
+        os.getenv("LOG_CONSOLE_COLOR", cfg.log_console_color).strip().upper() or "AUTO"
+    )
     cfg.log_noise_window_seconds = int(
         os.getenv("LOG_NOISE_WINDOW_SECONDS", cfg.log_noise_window_seconds)
     )
@@ -472,6 +477,8 @@ def load_config() -> AppConfig:
     cfg.download_timeout_seconds = max(30, cfg.download_timeout_seconds)
     cfg.log_file_max_bytes = max(1024, cfg.log_file_max_bytes)
     cfg.log_file_backup_count = max(1, cfg.log_file_backup_count)
+    if cfg.log_console_color not in {"AUTO", "ALWAYS", "NEVER"}:
+        cfg.log_console_color = "AUTO"
     cfg.log_noise_window_seconds = max(1, cfg.log_noise_window_seconds)
     cfg.log_noise_suppress_threshold = max(1, cfg.log_noise_suppress_threshold)
     cfg.log_dependency_level = cfg.log_dependency_level or "WARNING"
