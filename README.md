@@ -25,7 +25,7 @@ uv run python .\scripts\init_db.py
 .\run-dev.ps1
 ```
 
-- 앱: `http://127.0.0.1:8000`
+- 앱: `http://127.0.0.1:48080`
 - 작업 시작 전 운영 규칙: [AGENTS.md](./AGENTS.md)
 - 기여/검증 규칙: [CONTRIBUTING.md](./CONTRIBUTING.md)
 

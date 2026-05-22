@@ -13,7 +13,7 @@ if (-not $env:HOST) {
     $env:HOST = "127.0.0.1"
 }
 if (-not $env:PORT) {
-    $env:PORT = "8000"
+    $env:PORT = "48080"
 }
 if (-not $env:UV_LINK_MODE) {
     $env:UV_LINK_MODE = "copy"
