@@ -13,7 +13,7 @@ APP_CONFIG_FILE_PATH="${APP_CONFIG_FILE:-${ROOT_DIR}/config.prod.yaml}"
 HOST_VALUE="${HOST:-0.0.0.0}"
 PORT_VALUE="${PORT:-48000}"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
-LAUNCHER_PATH="${ROOT_DIR}/scripts/brieftube-prod-daemon.sh"
+LAUNCHER_PATH="${ROOT_DIR}/run-prod.sh"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
