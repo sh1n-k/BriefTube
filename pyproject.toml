@@ -15,6 +15,7 @@ dependencies = [
   "youtube-transcript-api>=1.2.0",
   "jinja2>=3.1.0",
   "python-multipart>=0.0.9",
+  "tzdata>=2026.2",
 ]
 
 [dependency-groups]
@@ -82,7 +83,7 @@ ignore = [
   "S104",     # bind-all-interfaces is intentional for local dev server
   "S110",     # try-except-pass acceptable in narrow cleanup paths
   "S311",     # non-crypto random usage acceptable
-  "S608",     # SQL f-strings use whitelist-validated column names (CLAUDE.md)
+  "S608",     # SQL f-strings use whitelist-validated column names
   "B008",     # FastAPI Depends() default value pattern
   "SIM102",   # explicit nested if preserves guard-flow readability
   "SIM103",   # explicit return False/True branches read better in worker gates

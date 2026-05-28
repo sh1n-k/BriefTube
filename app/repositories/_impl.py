@@ -1799,6 +1799,31 @@ async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
     return payload
 
 
+async def clear_transcript_queue_items(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'auto_paused',
+            transcript_next_attempt_at = NULL
+        WHERE pipeline_status IN ('transcript_pending', 'transcript_failed', 'no_subtitle')
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def clear_llm_queue_items(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_done'
+        WHERE pipeline_status IN ('llm_pending', 'llm_failed', 'manual_review')
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
 async def repair_orphan_llm_candidates(db: aiosqlite.Connection) -> int:
     cursor = await db.execute(
         """
@@ -4635,6 +4660,33 @@ async def count_download_jobs(
         )
     row = await cursor.fetchone()
     return int((row["cnt"] if row else 0) or 0)
+
+
+async def clear_download_jobs(
+    db: aiosqlite.Connection,
+    *,
+    status: str | None = None,
+) -> int:
+    normalized_status = normalize_download_status_filter(status)
+    if normalized_status in {DOWNLOAD_STATUS_PENDING, DOWNLOAD_STATUS_RUNNING}:
+        return 0
+    if normalized_status == "all":
+        cursor = await db.execute(
+            """
+            DELETE FROM download_jobs
+            WHERE status IN ('succeeded', 'failed')
+            """
+        )
+    else:
+        cursor = await db.execute(
+            """
+            DELETE FROM download_jobs
+            WHERE status = ?
+            """,
+            (normalized_status,),
+        )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def latest_download_event_id(db: aiosqlite.Connection) -> int:

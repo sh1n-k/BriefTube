@@ -213,6 +213,17 @@ def test_queue_section_collapsible(queue_page: Page):
     expect(transcript_body).to_be_visible()
 
 
+def test_queue_clear_button_does_not_toggle_section(queue_page: Page):
+    """Clicking the clear action must not collapse the queue section."""
+    transcript_body = queue_page.locator("[data-queue-transcript-list]")
+    expect(transcript_body).to_be_visible()
+
+    queue_page.once("dialog", lambda dialog: dialog.dismiss())
+    queue_page.locator("[data-queue-clear-section='transcript']").click()
+
+    expect(transcript_body).to_be_visible()
+
+
 # --------------------------------------------------------------------------- #
 # 7. Retry button — failed video retry triggers API call and shows toast
 # --------------------------------------------------------------------------- #

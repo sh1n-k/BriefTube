@@ -11,6 +11,6 @@ fi
 
 export APP_CONFIG_FILE="${APP_CONFIG_FILE:-config.dev.yaml}"
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-48080}"
 
 exec uv run python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --reload

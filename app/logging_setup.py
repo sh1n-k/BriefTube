@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import threading
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Protocol
 
 from app.config import AppConfig
 
 DEFAULT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+COLOR_FORMAT = "\033[2m%(asctime)s\033[0m [%(levelname)s] \033[34m%(name)s\033[0m - %(message)s"
 DEV_ENV_NAMES = {"dev", "local", "development"}
 DEPENDENCY_LOGGERS = (
     "httpx",
@@ -18,6 +22,18 @@ DEPENDENCY_LOGGERS = (
     "python_multipart",
     "python_multipart.multipart",
 )
+LEVEL_COLORS = {
+    logging.DEBUG: "\033[2;36m",
+    logging.INFO: "\033[32m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[1;37;41m",
+}
+RESET = "\033[0m"
+
+
+class ColorCapableStream(Protocol):
+    def isatty(self) -> bool: ...
 
 
 class NoiseGateFilter(logging.Filter):
@@ -80,6 +96,21 @@ class NoiseGateFilter(logging.Filter):
             return False
 
 
+class ColorConsoleFormatter(logging.Formatter):
+    def __init__(self) -> None:
+        super().__init__(COLOR_FORMAT)
+
+    def format(self, record: logging.LogRecord) -> str:
+        original_levelname = record.levelname
+        color = LEVEL_COLORS.get(record.levelno)
+        if color:
+            record.levelname = f"{color}{record.levelname}{RESET}"
+        try:
+            return super().format(record)
+        finally:
+            record.levelname = original_levelname
+
+
 def _resolve_effective_log_level(config: AppConfig) -> int:
     configured = (config.log_level or "").strip().upper()
     if configured and configured != "AUTO":
@@ -93,6 +124,23 @@ def _resolve_effective_log_level(config: AppConfig) -> int:
 def _resolve_dependency_level(config: AppConfig) -> int:
     level_name = (config.log_dependency_level or "WARNING").strip().upper()
     return getattr(logging, level_name, logging.WARNING)
+
+
+def _stream_supports_color(stream: ColorCapableStream) -> bool:
+    if os.getenv("NO_COLOR") is not None:
+        return False
+    if os.getenv("TERM", "").strip().lower() == "dumb":
+        return False
+    return bool(getattr(stream, "isatty", lambda: False)())
+
+
+def _resolve_console_color_enabled(config: AppConfig, stream: ColorCapableStream) -> bool:
+    mode = (config.log_console_color or "AUTO").strip().upper()
+    if mode == "ALWAYS":
+        return True
+    if mode == "NEVER":
+        return False
+    return _stream_supports_color(stream)
 
 
 def configure_logging(config: AppConfig) -> None:
@@ -111,9 +159,13 @@ def configure_logging(config: AppConfig) -> None:
         suppress_threshold=config.log_noise_suppress_threshold,
     )
 
-    console_handler = logging.StreamHandler()
+    console_stream = sys.stderr
+    console_handler = logging.StreamHandler(console_stream)
     console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
+    if _resolve_console_color_enabled(config, console_stream):
+        console_handler.setFormatter(ColorConsoleFormatter())
+    else:
+        console_handler.setFormatter(formatter)
     console_handler.addFilter(noise_filter)
     root.addHandler(console_handler)
 

@@ -70,7 +70,7 @@ def test_poll_once_deactivates_404_channel_after_streak(client) -> None:
                 db=db,
                 rss_cache={},
                 rss_service=FakeRSSService(),
-                started_at=datetime.now(UTC),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
             )
             # 1회차: streak=1, 아직 활성
             await poll_once(state)  # type: ignore[arg-type]
@@ -151,7 +151,7 @@ def test_rss_fail_streak_resets_on_success(client) -> None:
                 db=db,
                 rss_cache={},
                 rss_service=FakeRSSService(),
-                started_at=datetime.now(UTC),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
             )
             await poll_once(state)  # type: ignore[arg-type]
             cursor = await db.execute(
@@ -289,7 +289,7 @@ def test_poll_once_applies_inter_channel_delay(client) -> None:
                 db=db,
                 rss_cache={},
                 rss_service=FakeRSSService(),
-                started_at=datetime.now(UTC),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
             )
             return await poll_once(state, inter_channel_delay=0.5)  # type: ignore[arg-type]
         finally:

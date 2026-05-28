@@ -1,14 +1,39 @@
 # AGENTS.md
 
-이 문서는 BriefTube에서 작업 시작 전에 꼭 알아야 하는 레포 전용 규칙만 남긴다. 일반 개발 절차와 상세 테스트 매트릭스는 `CONTRIBUTING.md`를 따른다.
+BriefTube는 YouTube RSS 수집, 자막 수집, LLM 기사화, 다운로드/알림을 단일 FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. 일반 검증 기준은 `CONTRIBUTING.md`가 canonical source다.
+
+## 바로 쓰는 명령
+
+```bash
+uv sync
+uv run python scripts/init_db.py
+./run-dev.sh                         # http://127.0.0.1:48080
+uv run pytest -q                     # E2E 제외
+uv run pytest -q -m e2e tests/e2e
+uv run ruff check . && uv run ruff format --check .
+uv run pyright && uv run lint-imports
+```
+
+## 핵심 경로
+
+- `app/main.py`, `app/state.py`, `app/config.py`, `app/database.py`: 앱 조립, 설정, DB 초기화/복구.
+- `app/routers/`: `/api` JSON, `/views` HTMX fragment, 페이지 라우트. 템플릿 컨텍스트는 `template_context.py` 사용.
+- `app/workers/`: RSS, transcript, LLM, download, manual article/transcript, metadata, notifier 워커.
+- `app/services/`: 외부 I/O와 변환 로직. LLM은 `UnifiedLlmClient`.
+- `app/repositories/`: DB 접근. 새 저장소 경로는 `app.repositories.<domain>`.
+- `app/templates/fragments/`: HTMX swap 계약이 있는 fragment.
+- `scripts/`, `run-*`: DB 초기화, 실행, macOS LaunchAgent 관리.
 
 ## 작업 방식
+
 - 문서/설정처럼 로직 변경이 없으면 `main`에서 직접 작업 가능.
 - 로직 변경은 시작 전에 `main 직접` 또는 `feature + worktree`를 사용자와 합의.
 - 본인이 만들지 않은 변경은 되돌리지 않는다.
 - `git reset --hard`, 대량 삭제, 전면 포맷팅, 대규모 rename/migration, 바이너리 변경, 대량 의존성 업데이트는 사용자 확인 없이 진행하지 않는다.
+- 커밋에는 `data*.db`, `logs/`, `thumbnails*/`, 다운로드 산출물, 로컬 설정, 비밀값을 포함하지 않는다.
 
 ## 핵심 불변조건
+
 - `channels.is_active=0`는 삭제가 아니라 “폴링 대상 제외” 의미다.
 - RSS Poller는 `rss_channel_not_found(404)`를 만나면 채널을 자동 비활성화한다.
 - 수동 재활성화(단건/다건)는 RSS probe 성공 시에만 활성화된다.
@@ -19,18 +44,22 @@
 - 채널 목록 갱신은 `#channel-list-wrap` fragment 교체 계약을 유지한다.
 
 ## 트리거별 확인 포인트
+
 - 채널 관리/재활성화 변경: `app/routers/views.py`, `app/templates/fragments/channel_list.html`, `app/templates/base.html`, `app/i18n.py`와 재활성화 토스트/fragment 계약을 함께 확인.
 - 설정/저장 UX 변경: `app/templates/settings.html`, `app/routers/template_context.py`, `tests/test_settings_views.py`를 같이 본다.
 - RSS 비활성화 정책 변경: `app/workers/poller.py`, `app/services/rss.py`, `app/repositories/channels.py`를 함께 점검한다.
 - LLM 워커 변경: 자유 텍스트 파싱 금지, 스키마 검증 JSON만 저장, prompt injection/policy refusal은 1회만 재시도 후 `llm_provider_refused`로 종료한다.
+- 다운로드 변경: `app/domains/downloads/`, `app/services/downloads.py`, `app/workers/download_worker.py`, `tests/test_download_api.py`, `tests/test_downloads_page.py`를 같이 본다.
 
 ## LLM CLI 안전정책
+
 - Codex는 `--output-schema`와 `--output-last-message`, Claude는 `--output-format json`과 `--json-schema`를 우선 사용한다.
 - 지시문과 원문 데이터는 분리하고, 원문 내부 지시문/링크/코드는 실행 지시로 해석하지 않는다.
 - Provider fallback은 동일 스키마와 동일 타임아웃에서만 허용한다.
 - 원문 전문과 모델 원응답 전문은 로그에 남기지 않고, `provider`, `exit_code`, `schema_valid`, `retry_count`, `refusal_detected`, `latency_ms` 같은 메타만 남긴다.
 
 ## 검증
+
 - 기본 단위 테스트 fixture(`tests/conftest.py`)는 `TRANSCRIPT_WORKER_LEASE_ENABLED=0`으로 실행한다. `TestClient` 환경에서 transcript lease 전용 DB 연결이 쓰기 잠금을 선점해 `database is locked`를 만들 수 있기 때문이다.
 - pytest 환경에서는 transcript background worker를 기본으로 띄우지 않는다. worker가 필요한 테스트만 `BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS=1`로 다시 켠다.
 - **정적 검사(ruff + pyright + lint-imports) 통과 필수.** 명령과 위반 처리 정책은 `CONTRIBUTING.md`의 "정적 검사" 섹션을 따른다. 새 모듈 추가 시 계층 import 방향(`routers:workers → domains → services → repositories → infrastructure`) 유지.
@@ -38,5 +67,6 @@
 - 검증을 일부만 했거나 못 했으면 이유와 재현 가능한 command를 남긴다.
 
 ## 운영 체크
+
 - 개발 환경에서 재활성화 트러블슈팅은 `tail -f logs/dev/brieftube-dev.log | rg "channels.reactivate"`로 본다.
-- 커밋에는 `data*.db`, `logs/`, `thumbnails*/`, 로컬 스크린샷, 비밀값을 포함하지 않는다.
+- LaunchAgent 스크립트는 dry-run 가능: `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-prod.sh`.

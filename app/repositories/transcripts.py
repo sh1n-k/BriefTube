@@ -6,6 +6,7 @@ TRANSCRIPT_QUEUE_STATUSES = legacy.TRANSCRIPT_QUEUE_STATUSES
 
 list_queue_items = legacy.list_queue_items
 queue_status = legacy.queue_status
+clear_transcript_queue_items = legacy.clear_transcript_queue_items
 pop_pending_transcript_videos = legacy.pop_pending_transcript_videos
 mark_transcript_processing = legacy.mark_transcript_processing
 recover_stuck_transcript_jobs = legacy.recover_stuck_transcript_jobs

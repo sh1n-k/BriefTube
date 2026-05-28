@@ -10,27 +10,46 @@
   {% set failed_count = counts.get('failed', 0) %}
 
   <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-    <div class="flex flex-wrap items-center gap-2 text-sm">
-      <a href="/downloads?status=all"
-         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'all' else 'text-slate-600 hover:bg-slate-100' }}">
-        {{ txt.download_status_all }} ({{ download_total }})
-      </a>
-      <a href="/downloads?status=pending"
-         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'pending' else 'text-slate-600 hover:bg-slate-100' }}">
-        {{ txt.download_status_pending }} ({{ pending_count }})
-      </a>
-      <a href="/downloads?status=running"
-         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'running' else 'text-slate-600 hover:bg-slate-100' }}">
-        {{ txt.download_status_running }} ({{ running_count }})
-      </a>
-      <a href="/downloads?status=succeeded"
-         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'succeeded' else 'text-slate-600 hover:bg-slate-100' }}">
-        {{ txt.download_status_succeeded }} ({{ succeeded_count }})
-      </a>
-      <a href="/downloads?status=failed"
-         class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'failed' else 'text-slate-600 hover:bg-slate-100' }}">
-        {{ txt.download_status_failed }} ({{ failed_count }})
-      </a>
+    <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/downloads?status=all"
+           class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'all' else 'text-slate-600 hover:bg-slate-100' }}">
+          {{ txt.download_status_all }} ({{ download_total }})
+        </a>
+        <a href="/downloads?status=pending"
+           class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'pending' else 'text-slate-600 hover:bg-slate-100' }}">
+          {{ txt.download_status_pending }} ({{ pending_count }})
+        </a>
+        <a href="/downloads?status=running"
+           class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'running' else 'text-slate-600 hover:bg-slate-100' }}">
+          {{ txt.download_status_running }} ({{ running_count }})
+        </a>
+        <a href="/downloads?status=succeeded"
+           class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'succeeded' else 'text-slate-600 hover:bg-slate-100' }}">
+          {{ txt.download_status_succeeded }} ({{ succeeded_count }})
+        </a>
+        <a href="/downloads?status=failed"
+           class="rounded-md px-3 py-1.5 font-medium transition-colors {{ 'bg-indigo-600 text-white' if download_status == 'failed' else 'text-slate-600 hover:bg-slate-100' }}">
+          {{ txt.download_status_failed }} ({{ failed_count }})
+        </a>
+      </div>
+      <form
+        class="flex items-center gap-2"
+        hx-post="/views/downloads/clear"
+        hx-target="#download-history-fragment"
+        hx-swap="outerHTML"
+        hx-confirm="{{ txt.download_clear_confirm }}"
+      >
+        <select name="status" class="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700">
+          <option value="{{ download_status }}">{{ txt.download_clear_current }}</option>
+          <option value="failed">{{ txt.download_clear_failed }}</option>
+          <option value="succeeded">{{ txt.download_clear_succeeded }}</option>
+          <option value="all">{{ txt.download_clear_all }}</option>
+        </select>
+        <button type="submit" class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
+          {{ txt.download_clear_button }}
+        </button>
+      </form>
     </div>
   </div>
 

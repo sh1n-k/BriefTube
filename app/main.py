@@ -43,41 +43,37 @@ from app.workers.transcript_worker import run_transcript_fetcher
 logger = logging.getLogger(__name__)
 
 
-def _is_channel_metadata_worker_enabled() -> bool:
-    disabled = str(os.getenv("BRIEFTUBE_DISABLE_CHANNEL_METADATA_WORKER", "")).strip().lower()
+def _is_background_worker_enabled(worker_name: str, *, test_allow_alias: str | None = None) -> bool:
+    env_name = worker_name.upper()
+    disabled = str(os.getenv(f"BRIEFTUBE_DISABLE_{env_name}_WORKER", "")).strip().lower()
     if disabled in {"1", "true", "yes", "on"}:
         return False
     in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
-    allow_in_tests = str(os.getenv("BRIEFTUBE_ENABLE_METADATA_WORKER_IN_TESTS", "")).strip().lower()
+    allow_in_tests = (
+        str(os.getenv(f"BRIEFTUBE_ENABLE_{env_name}_WORKER_IN_TESTS", "")).strip().lower()
+    )
+    if test_allow_alias:
+        alias_value = str(os.getenv(test_allow_alias, "")).strip().lower()
+        if alias_value in {"1", "true", "yes", "on"}:
+            allow_in_tests = alias_value
     if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
         return False
     return True
+
+
+def _is_channel_metadata_worker_enabled() -> bool:
+    return _is_background_worker_enabled(
+        "channel_metadata",
+        test_allow_alias="BRIEFTUBE_ENABLE_METADATA_WORKER_IN_TESTS",
+    )
 
 
 def _is_transcript_worker_enabled() -> bool:
-    disabled = str(os.getenv("BRIEFTUBE_DISABLE_TRANSCRIPT_WORKER", "")).strip().lower()
-    if disabled in {"1", "true", "yes", "on"}:
-        return False
-    in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
-    allow_in_tests = (
-        str(os.getenv("BRIEFTUBE_ENABLE_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
-    )
-    if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
-        return False
-    return True
+    return _is_background_worker_enabled("transcript")
 
 
 def _is_manual_transcript_worker_enabled() -> bool:
-    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_WORKER", "")).strip().lower()
-    if disabled in {"1", "true", "yes", "on"}:
-        return False
-    in_pytest = os.getenv("PYTEST_CURRENT_TEST") is not None
-    allow_in_tests = (
-        str(os.getenv("BRIEFTUBE_ENABLE_MANUAL_TRANSCRIPT_WORKER_IN_TESTS", "")).strip().lower()
-    )
-    if in_pytest and allow_in_tests not in {"1", "true", "yes", "on"}:
-        return False
-    return True
+    return _is_background_worker_enabled("manual_transcript")
 
 
 def _build_templates() -> Jinja2Templates:
@@ -222,13 +218,19 @@ async def lifespan(app: FastAPI):
     transcript_worker_enabled = _is_transcript_worker_enabled()
     manual_transcript_worker_enabled = _is_manual_transcript_worker_enabled()
 
-    tasks = [
-        asyncio.create_task(run_rss_poller(runtime), name="rss_poller"),
-        asyncio.create_task(run_download_worker(runtime), name="download_worker"),
-        asyncio.create_task(run_manual_article_worker(runtime), name="manual_article_worker"),
-        asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"),
-        asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"),
-    ]
+    tasks = []
+    if _is_background_worker_enabled("rss"):
+        tasks.append(asyncio.create_task(run_rss_poller(runtime), name="rss_poller"))
+    if _is_background_worker_enabled("download"):
+        tasks.append(asyncio.create_task(run_download_worker(runtime), name="download_worker"))
+    if _is_background_worker_enabled("manual_article"):
+        tasks.append(
+            asyncio.create_task(run_manual_article_worker(runtime), name="manual_article_worker")
+        )
+    if _is_background_worker_enabled("llm"):
+        tasks.append(asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"))
+    if _is_background_worker_enabled("notifier"):
+        tasks.append(asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"))
     if metadata_worker_enabled:
         tasks.insert(
             1,
