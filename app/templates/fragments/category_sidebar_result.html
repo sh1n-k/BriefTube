@@ -1,4 +1,6 @@
 {% include "fragments/category_sidebar.html" %}
+{% set rss_poll_preview_oob = true %}
+{% include "fragments/rss_poll_preview_card.html" %}
 <div id="channel-list-wrap" hx-swap-oob="true">
   {% include "fragments/channel_list.html" %}
 </div>

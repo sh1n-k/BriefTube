@@ -42,6 +42,42 @@ def parse_optional_int(value: object | None) -> int | None:
     return None
 
 
+def build_rss_poll_preview(
+    *,
+    config: object,
+    channel_counts: dict[str, int] | None,
+) -> dict[str, object]:
+    active_count = int((channel_counts or {}).get("active", 0) or 0)
+    inactive_count = int((channel_counts or {}).get("inactive", 0) or 0)
+    polling_interval_seconds = max(
+        60.0,
+        float(getattr(config, "polling_interval_minutes", 15)) * 60.0,
+    )
+    preview: dict[str, object] = {
+        "active_count": active_count,
+        "inactive_count": inactive_count,
+        "polling_interval_minutes": polling_interval_seconds / 60.0,
+        "average_request_interval_seconds": None,
+        "min_request_interval_seconds": None,
+        "max_request_interval_seconds": None,
+        "status": "idle",
+    }
+    if active_count <= 0:
+        return preview
+
+    jitter_ratio = 0.3
+    average_seconds = polling_interval_seconds / active_count
+    preview.update(
+        average_request_interval_seconds=average_seconds,
+        min_request_interval_seconds=max(0.1, average_seconds * (1.0 - jitter_ratio)),
+        max_request_interval_seconds=average_seconds * (1.0 + jitter_ratio),
+        status=(
+            "danger" if average_seconds < 2.0 else "warning" if average_seconds < 5.0 else "normal"
+        ),
+    )
+    return preview
+
+
 def htmx_trigger_header(event_name: str, payload: dict[str, object]) -> dict[str, str]:
     return {"HX-Trigger": json.dumps({event_name: payload}, ensure_ascii=True)}
 

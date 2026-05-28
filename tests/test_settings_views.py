@@ -17,6 +17,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert "테마" in response.text
     assert "목록 설정" in response.text
     assert "수집/보관 정책" in response.text
+    assert 'data-rss-poll-preview="settings"' in response.text
+    assert "요청 간격 미리보기" in response.text
     assert "워커 제어" in response.text
     assert "Telegram 알림" in response.text
     assert "봇 토큰과 채팅 ID를 SQLite에 저장합니다." in response.text
@@ -111,6 +113,45 @@ def test_settings_page_renders(client: TestClient) -> None:
         'data-settings-section="transcript-guard"'
     )
     assert len(re.findall(r'type="number"', response.text)) >= 3
+
+
+def test_settings_page_rss_poll_preview_uses_active_channel_count(
+    client: TestClient,
+) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        for idx in range(3):
+            channel_id = f"UCpreview{idx:03d}"
+            conn.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                (
+                    channel_id,
+                    f"Preview {idx}",
+                    f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+                ),
+            )
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 0)
+            """,
+            (
+                "UCpreviewinactive",
+                "Preview Inactive",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCpreviewinactive",
+            ),
+        )
+        conn.commit()
+
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert "300.0초마다 1개 채널 조회" in response.text
+    assert "약 210.0초 ~ 390.0초" in response.text
+    assert "15분 x 60 / 3개" in response.text
 
 
 def test_settings_page_masks_stored_telegram_values(client: TestClient) -> None:

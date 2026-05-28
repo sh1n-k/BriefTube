@@ -18,6 +18,7 @@ from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers import views_downloads
 from app.routers.helpers import (
+    build_rss_poll_preview,
     cleanup_thumbnail_files,
     htmx_trigger_header,
     parse_optional_int,
@@ -68,7 +69,10 @@ async def _resolve_channel_management_state(
     return channel_status, channels, channel_counts
 
 
-def _channel_management_ui_context(request: Request) -> dict[str, int | float]:
+def _channel_management_ui_context(
+    request: Request,
+    channel_counts: dict[str, int] | None = None,
+) -> dict[str, object]:
     probe_delay_seconds = min(
         0.5,
         max(0.0, float(request.app.state.runtime.config.rss_inter_channel_delay_seconds)),
@@ -80,6 +84,10 @@ def _channel_management_ui_context(request: Request) -> dict[str, int | float]:
             int(request.app.state.runtime.config.rss_timeout_seconds),
         ),
         "reactivate_probe_delay_seconds": probe_delay_seconds,
+        "rss_poll_preview": build_rss_poll_preview(
+            config=request.app.state.runtime.config,
+            channel_counts=channel_counts,
+        ),
     }
 
 
@@ -306,7 +314,7 @@ async def _render_category_sidebar(
             channel_status=refresh_status,
             channel_counts=channel_counts,
             categories=categories,
-            **_channel_management_ui_context(request),
+            **_channel_management_ui_context(request, channel_counts),
         )
 
     template_name = (
@@ -414,11 +422,11 @@ async def channel_list(
         channel_counts=channel_counts,
         categories=categories,
         selected_category_id=category_id,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/channel_list.html",
+        name="fragments/channel_list_result.html",
         context=context,
     )
 
@@ -484,7 +492,7 @@ async def add_channel(request: Request):
             selected_category_id=requested_category_id,
             add_status=channel_status,
             add_category_id=requested_category_id,
-            **_channel_management_ui_context(request),
+            **_channel_management_ui_context(request, channel_counts),
         )
         return request.app.state.templates.TemplateResponse(
             request=request,
@@ -572,7 +580,7 @@ async def add_channel(request: Request):
                 selected_category_id=requested_category_id,
                 add_status=channel_status,
                 add_category_id=requested_category_id,
-                **_channel_management_ui_context(request),
+                **_channel_management_ui_context(request, channel_counts),
             )
             return request.app.state.templates.TemplateResponse(
                 request=request,
@@ -640,11 +648,11 @@ async def delete_selected_channels(request: Request):
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/channel_list.html",
+        name="fragments/channel_list_result.html",
         context=context,
     )
 
@@ -693,11 +701,11 @@ async def retry_failed_channel_metadata(request: Request):
         channel_counts=channel_counts,
         categories=categories,
         selected_category_id=selected_category_id,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/channel_list.html",
+        name="fragments/channel_list_result.html",
         context=context,
         headers=_channel_metadata_toast_header(toast_message, toast_tone),
     )
@@ -730,11 +738,11 @@ async def delete_single_channel(
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/channel_list.html",
+        name="fragments/channel_list_result.html",
         context=context,
     )
 
@@ -865,11 +873,11 @@ async def reactivate_selected_channels(request: Request):
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/channel_list.html",
+        name="fragments/channel_list_result.html",
         context=context,
         headers=(
             _reactivate_toast_header(toast_message, toast_tone)
@@ -936,11 +944,11 @@ async def reactivate_single_channel(
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
-        name="fragments/channel_list.html",
+        name="fragments/channel_list_result.html",
         context=context,
         headers=_reactivate_toast_header(toast_message, toast_tone),
     )
@@ -1452,7 +1460,7 @@ async def bulk_commit(request: Request):
         channel_counts=channel_counts,
         categories=categories,
         selected_category_id=requested_category_id,
-        **_channel_management_ui_context(request),
+        **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
         request=request,

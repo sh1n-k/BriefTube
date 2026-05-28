@@ -30,6 +30,7 @@ from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier, configure_telegram_notifier
 from app.services.transcript import TranscriptService
 from app.services.transcript_headers import merge_with_default_headers
+from app.services.yt_dlp_feed import YtDlpFeedService
 from app.state import AppState
 from app.workers.channel_metadata_worker import run_channel_metadata_worker
 from app.workers.download_worker import run_download_worker
@@ -160,6 +161,11 @@ async def lifespan(app: FastAPI):
         db=db,
         http_client=http_client,
         rss_service=RSSService(http_client, timeout_seconds=config.rss_timeout_seconds),
+        yt_dlp_service=YtDlpFeedService(
+            playlist_limit=config.yt_dlp_playlist_limit,
+            timeout_seconds=config.yt_dlp_timeout_seconds,
+            longform_min_seconds=config.yt_dlp_longform_min_seconds,
+        ),
         transcript_service=TranscriptService(
             http_client,
             request_timeout_seconds=config.transcript_fetch_timeout_seconds,

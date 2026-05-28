@@ -14,6 +14,7 @@ from app.services.llm import UnifiedLlmClient
 from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier
 from app.services.transcript import TranscriptService
+from app.services.yt_dlp_feed import YtDlpFeedService
 
 
 @dataclass(slots=True)
@@ -22,6 +23,7 @@ class AppState:
     db: aiosqlite.Connection
     http_client: httpx.AsyncClient
     rss_service: RSSService
+    yt_dlp_service: YtDlpFeedService
     transcript_service: TranscriptService
     channel_resolver: ChannelResolverService
     llm_client: UnifiedLlmClient

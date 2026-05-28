@@ -29,6 +29,47 @@ def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient
     assert 'data-channel-list-refresh-url="/views/channel-list?status=active"' in html
 
 
+def test_channel_list_fragment_renders_rss_poll_preview(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        for idx in range(4):
+            channel_id = f"UCpreviewlist{idx:03d}"
+            conn.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                (
+                    channel_id,
+                    f"Preview List {idx}",
+                    f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+                ),
+            )
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 0)
+            """,
+            (
+                "UCpreviewlistinactive",
+                "Preview List Inactive",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCpreviewlistinactive",
+            ),
+        )
+        conn.commit()
+
+    response = client.get("/views/channel-list")
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'data-rss-poll-preview="channels"' in html
+    assert 'id="rss-poll-preview-wrap" hx-swap-oob="true"' in html
+    assert "활성 채널 4개" in html
+    assert "비활성 채널 1개" in html
+    assert "RSS 평균 225.0초/요청" in html
+    assert "약 157.5초 ~ 292.5초" in html
+
+
 def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: TestClient) -> None:
     response = client.get("/views/channel-list?status=inactive")
     assert response.status_code == 200
@@ -154,6 +195,13 @@ def test_channels_page_renders_add_and_bulk_forms(client: TestClient) -> None:
     assert 'hx-post="/views/channels/bulk-resolve"' in html
     assert 'data-submit-busy-label="해석 중..."' in html
     assert 'name="takeout_file"' in html
+    assert 'id="rss-poll-preview-wrap"' in html
+    assert 'id="rss-poll-preview-wrap" hx-swap-oob="true"' not in html
+    assert (
+        html.index("data-channel-compose")
+        < html.index('id="rss-poll-preview-wrap"')
+        < html.index('id="category-sidebar"')
+    )
 
 
 def test_add_channel_view_saves_resolved_channel(
@@ -177,6 +225,8 @@ def test_add_channel_view_saves_resolved_channel(
     response = client.post("/views/channels/add", data={"source": "@single"})
     assert response.status_code == 200
     assert "채널이 저장되었습니다." in response.text
+    assert 'id="rss-poll-preview-wrap" hx-swap-oob="true"' in response.text
+    assert "활성 채널 1개" in response.text
     assert 'id="channel-list-wrap" hx-swap-oob="true"' in response.text
     assert re.search(
         r'<div[^>]*id="category-sidebar"[^>]*hx-swap-oob="true"|<div[^>]*hx-swap-oob="true"[^>]*id="category-sidebar"',
@@ -250,6 +300,8 @@ def test_bulk_commit_refreshes_category_sidebar_oob(client: TestClient) -> None:
     )
     assert response.status_code == 200
     assert 'id="channel-list-wrap" hx-swap-oob="true"' in response.text
+    assert 'id="rss-poll-preview-wrap" hx-swap-oob="true"' in response.text
+    assert "활성 채널 1개" in response.text
     assert re.search(
         r'<div[^>]*id="category-sidebar"[^>]*hx-swap-oob="true"|<div[^>]*hx-swap-oob="true"[^>]*id="category-sidebar"',
         response.text,

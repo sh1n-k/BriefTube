@@ -16,9 +16,14 @@ from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.repositories.channels import is_newer_published
 from app.services.rss import RSSParseError
+from app.services.yt_dlp_feed import YtDlpFeedError
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
+
+RSS_FETCHER_MODE_RSS = "rss"
+RSS_FETCHER_MODE_RSS_THEN_YT_DLP = "rss_then_yt_dlp"
+RSS_FETCHER_MODE_YT_DLP = "yt_dlp"
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:
@@ -31,6 +36,18 @@ def _parse_iso_datetime(value: str) -> datetime | None:
         return None
 
 
+def _get_fetcher_mode(state: AppState) -> str:
+    config = getattr(state, "config", None)
+    mode = str(getattr(config, "rss_fetcher_mode", RSS_FETCHER_MODE_RSS)).strip().lower()
+    if mode not in {
+        RSS_FETCHER_MODE_RSS,
+        RSS_FETCHER_MODE_RSS_THEN_YT_DLP,
+        RSS_FETCHER_MODE_YT_DLP,
+    }:
+        return RSS_FETCHER_MODE_RSS
+    return mode
+
+
 async def run_rss_poller(state: AppState) -> None:
     polling_interval_sec = max(60, state.config.polling_interval_minutes * 60)
     deactivate_threshold = state.config.rss_channel_deactivate_after_fails
@@ -39,10 +56,11 @@ async def run_rss_poller(state: AppState) -> None:
     check_step_seconds = 5
 
     logger.info(
-        "event=rss.poller_started worker=rss interval=%sm deactivate_after=%s abort_after=%s",
+        "event=rss.poller_started worker=rss interval=%sm deactivate_after=%s abort_after=%s fetcher=%s",
         state.config.polling_interval_minutes,
         deactivate_threshold,
         abort_threshold,
+        _get_fetcher_mode(state),
         extra={"event": "rss.poller_started", "worker": "rss"},
     )
 
@@ -185,6 +203,19 @@ async def _poll_single_channel(
     """
     channel_id = channel["channel_id"]
     channel_name = channel.get("channel_name") or channel_id
+    fetcher_mode = _get_fetcher_mode(state)
+
+    if fetcher_mode == RSS_FETCHER_MODE_YT_DLP:
+        result = await _poll_channel_with_yt_dlp(
+            state,
+            channel=channel,
+            lower_bound=lower_bound,
+            reason="mode",
+        )
+        if result is not None:
+            return result
+        await channels_repo.touch_rss_last_polled_at(state.db, channel_id)
+        return False, 0
 
     cache = state.rss_cache.get(channel_id, {})
     if cache.get("feed_mode", "") != feed_mode:
@@ -203,6 +234,26 @@ async def _poll_single_channel(
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         if status_code == 404:
+            if fetcher_mode == RSS_FETCHER_MODE_RSS_THEN_YT_DLP:
+                result = await _poll_channel_with_yt_dlp(
+                    state,
+                    channel=channel,
+                    lower_bound=lower_bound,
+                    reason="rss_404",
+                )
+                if result is not None:
+                    return result
+                await channels_repo.touch_rss_last_polled_at(state.db, channel_id)
+                logger.warning(
+                    "event=rss.feed_not_found_suppressed worker=rss channel_id=%s reason=yt_dlp_fallback_failed",
+                    channel_id,
+                    extra={
+                        "event": "rss.feed_not_found_suppressed",
+                        "worker": "rss",
+                        "code": "404",
+                    },
+                )
+                return False, 0
             streak = await channels_repo.increment_rss_fail_streak(state.db, channel_id)
             if streak >= deactivate_threshold:
                 await channels_repo.deactivate_channel(state.db, channel_id)
@@ -236,6 +287,15 @@ async def _poll_single_channel(
                     extra={"event": "rss.feed_not_found", "worker": "rss", "code": "404"},
                 )
             return False, 0
+        if fetcher_mode == RSS_FETCHER_MODE_RSS_THEN_YT_DLP:
+            result = await _poll_channel_with_yt_dlp(
+                state,
+                channel=channel,
+                lower_bound=lower_bound,
+                reason=f"rss_http_{status_code or 'unknown'}",
+            )
+            if result is not None:
+                return result
         await channels_repo.touch_rss_last_polled_at(state.db, channel_id)
         logger.warning(
             "event=rss.fetch_failed worker=rss channel_id=%s status=%s",
@@ -245,6 +305,15 @@ async def _poll_single_channel(
         )
         return False, 0
     except RSSParseError:
+        if fetcher_mode == RSS_FETCHER_MODE_RSS_THEN_YT_DLP:
+            result = await _poll_channel_with_yt_dlp(
+                state,
+                channel=channel,
+                lower_bound=lower_bound,
+                reason="rss_parse_error",
+            )
+            if result is not None:
+                return result
         await channels_repo.touch_rss_last_polled_at(state.db, channel_id)
         logger.warning(
             "event=rss.parse_failed worker=rss channel_id=%s",
@@ -253,6 +322,15 @@ async def _poll_single_channel(
         )
         return False, 0
     except Exception:
+        if fetcher_mode == RSS_FETCHER_MODE_RSS_THEN_YT_DLP:
+            result = await _poll_channel_with_yt_dlp(
+                state,
+                channel=channel,
+                lower_bound=lower_bound,
+                reason="rss_exception",
+            )
+            if result is not None:
+                return result
         await channels_repo.touch_rss_last_polled_at(state.db, channel_id)
         logger.exception(
             "event=rss.fetch_exception worker=rss channel_id=%s",
@@ -269,6 +347,79 @@ async def _poll_single_channel(
         "feed_mode": feed_mode,
     }
 
+    channel_inserted = await _insert_feed_entries(
+        state,
+        channel=channel,
+        entries=entries,
+        lower_bound=lower_bound,
+    )
+    return True, channel_inserted
+
+
+async def _poll_channel_with_yt_dlp(
+    state: AppState,
+    *,
+    channel: dict[str, Any],
+    lower_bound: datetime,
+    reason: str,
+) -> tuple[bool, int] | None:
+    channel_id = channel["channel_id"]
+    yt_dlp_service = getattr(state, "yt_dlp_service", None)
+    if yt_dlp_service is None:
+        logger.warning(
+            "event=rss.yt_dlp_fallback_unavailable worker=rss channel_id=%s reason=%s",
+            channel_id,
+            reason,
+            extra={"event": "rss.yt_dlp_fallback_unavailable", "worker": "rss"},
+        )
+        return None
+
+    try:
+        entries = await yt_dlp_service.fetch_channel_feed(channel_id)
+    except (YtDlpFeedError, TimeoutError) as exc:
+        logger.warning(
+            "event=rss.yt_dlp_fallback_failed worker=rss channel_id=%s reason=%s error_type=%s",
+            channel_id,
+            reason,
+            type(exc).__name__,
+            extra={"event": "rss.yt_dlp_fallback_failed", "worker": "rss"},
+        )
+        return None
+    except Exception:
+        logger.exception(
+            "event=rss.yt_dlp_fallback_exception worker=rss channel_id=%s reason=%s",
+            channel_id,
+            reason,
+            extra={"event": "rss.yt_dlp_fallback_exception", "worker": "rss"},
+        )
+        return None
+
+    await channels_repo.mark_rss_poll_success(state.db, channel_id)
+    channel_inserted = await _insert_feed_entries(
+        state,
+        channel=channel,
+        entries=entries,
+        lower_bound=lower_bound,
+    )
+    logger.info(
+        "event=rss.yt_dlp_fallback_succeeded worker=rss channel_id=%s reason=%s entries=%d inserted=%d",
+        channel_id,
+        reason,
+        len(entries),
+        channel_inserted,
+        extra={"event": "rss.yt_dlp_fallback_succeeded", "worker": "rss"},
+    )
+    return True, channel_inserted
+
+
+async def _insert_feed_entries(
+    state: AppState,
+    *,
+    channel: dict[str, Any],
+    entries: list[dict[str, str]],
+    lower_bound: datetime,
+) -> int:
+    channel_id = channel["channel_id"]
     watermark = channel.get("last_seen_published_at")
     max_published = watermark
     channel_inserted = 0
@@ -300,7 +451,7 @@ async def _poll_single_channel(
     if max_published and max_published != watermark:
         await channels_repo.update_channel_watermark(state.db, channel_id, max_published)
 
-    return True, channel_inserted
+    return channel_inserted
 
 
 async def poll_once(state: AppState, *, inter_channel_delay: float = 0.0) -> int:

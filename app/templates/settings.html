@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}BriefTube - {{ txt.settings_title }}{% endblock %}
 {% block content %}
+{% set rss_preview = rss_poll_preview if rss_poll_preview is defined else none %}
 <section class="space-y-4">
   <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
     <h1 class="text-xl font-semibold text-slate-900">{{ txt.settings_title }}</h1>
@@ -212,6 +213,60 @@
           {{ txt.settings_policy_feed_mode_all }}
         </option>
       </select>
+      {% if rss_preview %}
+      <details class="mt-4 border-t border-slate-200 pt-4" data-rss-poll-preview="settings" open>
+        <summary class="cursor-pointer select-none text-sm font-semibold text-slate-700">
+          {{ txt.rss_poll_preview_title }}
+        </summary>
+        <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-500">{{ txt.rss_poll_preview_active_channels }}</dt>
+            <dd class="mt-1 font-medium text-slate-900">{{ rss_preview.active_count }}{{ txt.rss_poll_preview_channels_unit }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-500">{{ txt.rss_poll_preview_average_interval }}</dt>
+            <dd class="mt-1 font-medium text-slate-900">
+              {% if rss_preview.average_request_interval_seconds %}
+                {{ "%.1f"|format(rss_preview.average_request_interval_seconds) }}{{ txt.rss_poll_preview_seconds_per_channel }}
+              {% else %}
+                {{ txt.rss_poll_preview_status_idle }}
+              {% endif %}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-500">{{ txt.rss_poll_preview_actual_range }}</dt>
+            <dd class="mt-1 font-medium text-slate-900">
+              {% if rss_preview.min_request_interval_seconds and rss_preview.max_request_interval_seconds %}
+                {{ txt.rss_poll_preview_about }} {{ "%.1f"|format(rss_preview.min_request_interval_seconds) }}{{ txt.rss_poll_preview_seconds_unit }} ~ {{ "%.1f"|format(rss_preview.max_request_interval_seconds) }}{{ txt.rss_poll_preview_seconds_unit }}
+              {% else %}
+                {{ txt.rss_poll_preview_status_idle }}
+              {% endif %}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-500">{{ txt.rss_poll_preview_channel_revisit }}</dt>
+            <dd class="mt-1 font-medium text-slate-900">{{ "%.0f"|format(rss_preview.polling_interval_minutes) }}{{ txt.rss_poll_preview_minutes_unit }}</dd>
+          </div>
+        </dl>
+        <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          {% if rss_preview.average_request_interval_seconds %}
+          <span>{{ txt.rss_poll_preview_formula }}: {{ "%.0f"|format(rss_preview.polling_interval_minutes) }}{{ txt.rss_poll_preview_minutes_unit }} x 60 / {{ rss_preview.active_count }}{{ txt.rss_poll_preview_channels_unit }}</span>
+          {% endif %}
+          <span class="rounded-full px-2.5 py-1 font-medium {% if rss_preview.status == 'danger' %}bg-rose-100 text-rose-700{% elif rss_preview.status == 'warning' %}bg-amber-100 text-amber-700{% elif rss_preview.status == 'idle' %}bg-slate-100 text-slate-600{% else %}bg-emerald-100 text-emerald-700{% endif %}">
+            {{ txt.rss_poll_preview_status }}:
+            {% if rss_preview.status == 'danger' %}
+              {{ txt.rss_poll_preview_status_danger }}
+            {% elif rss_preview.status == 'warning' %}
+              {{ txt.rss_poll_preview_status_warning }}
+            {% elif rss_preview.status == 'idle' %}
+              {{ txt.rss_poll_preview_status_idle }}
+            {% else %}
+              {{ txt.rss_poll_preview_status_normal }}
+            {% endif %}
+          </span>
+        </div>
+      </details>
+      {% endif %}
     </form>
 
     <form

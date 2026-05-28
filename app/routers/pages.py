@@ -16,7 +16,7 @@ from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
 from app.routers import pages_downloads
-from app.routers.helpers import parse_optional_int
+from app.routers.helpers import build_rss_poll_preview, parse_optional_int
 from app.routers.template_context import build_template_context
 from app.services.article_render import render_fact_box_to_safe_html
 from app.services.downloads import is_ffmpeg_available
@@ -243,6 +243,10 @@ async def channel_page(
         channel_counts=channel_counts,
         categories=categories,
         selected_category_id=category_id,
+        rss_poll_preview=build_rss_poll_preview(
+            config=request.app.state.runtime.config,
+            channel_counts=channel_counts,
+        ),
         reactivate_batch_limit=REACTIVATE_BATCH_LIMIT,
         reactivate_probe_timeout_seconds=max(
             1,
@@ -262,6 +266,7 @@ async def channel_page(
 async def settings_page(request: Request):
     worker_settings = await settings_repo.get_worker_settings(request.app.state.runtime.db)
     videos_per_page = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
+    channel_counts = await channels_repo.count_channels_by_status(request.app.state.runtime.db)
     guard = await transcripts_repo.get_transcript_guard_state(request.app.state.runtime.db)
     transcript_header_overrides = await transcripts_repo.get_transcript_request_header_overrides(
         request.app.state.runtime.db
@@ -286,6 +291,10 @@ async def settings_page(request: Request):
         include_llm_runtime_status=True,
         worker_settings=worker_settings,
         videos_per_page=videos_per_page,
+        rss_poll_preview=build_rss_poll_preview(
+            config=request.app.state.runtime.config,
+            channel_counts=channel_counts,
+        ),
         transcript_guard=guard,
         transcript_request_headers={
             "profile": TRANSCRIPT_REQUEST_HEADER_PROFILE,

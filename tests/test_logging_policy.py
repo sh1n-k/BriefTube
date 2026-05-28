@@ -120,6 +120,32 @@ def test_load_config_reads_console_color_from_file_and_env(monkeypatch, tmp_path
     assert load_config().log_console_color == "ALWAYS"
 
 
+def test_load_config_reads_rss_fetcher_and_yt_dlp_limits(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'rss_fetcher_mode: "rss_then_yt_dlp"',
+                "yt_dlp_playlist_limit: 12",
+                "yt_dlp_timeout_seconds: 45",
+                "yt_dlp_longform_min_seconds: 240",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_FILE", str(config_path))
+    monkeypatch.delenv("RSS_FETCHER_MODE", raising=False)
+
+    cfg = load_config()
+    assert cfg.rss_fetcher_mode == "rss_then_yt_dlp"
+    assert cfg.yt_dlp_playlist_limit == 12
+    assert cfg.yt_dlp_timeout_seconds == 45
+    assert cfg.yt_dlp_longform_min_seconds == 240
+
+    monkeypatch.setenv("RSS_FETCHER_MODE", "invalid")
+    assert load_config().rss_fetcher_mode == "rss"
+
+
 def test_load_config_falls_back_to_auto_for_invalid_console_color(monkeypatch) -> None:
     monkeypatch.delenv("APP_CONFIG_FILE", raising=False)
     monkeypatch.setenv("LOG_CONSOLE_COLOR", "sometimes")

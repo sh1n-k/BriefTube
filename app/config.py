@@ -21,6 +21,10 @@ class AppConfig:
     db_path: str = "./data.db"
     rss_timeout_seconds: int = 20
     rss_inter_channel_delay_seconds: float = 2.0
+    rss_fetcher_mode: str = "rss"
+    yt_dlp_playlist_limit: int = 15
+    yt_dlp_timeout_seconds: int = 60
+    yt_dlp_longform_min_seconds: int = 180
     http_timeout_seconds: int = 30
     download_dir: str = "./downloads"
     download_max_concurrent: int = 2
@@ -131,6 +135,16 @@ def load_config() -> AppConfig:
                 "rss_inter_channel_delay_seconds", base.rss_inter_channel_delay_seconds
             ),
             base.rss_inter_channel_delay_seconds,
+        ),
+        rss_fetcher_mode=str(file_values.get("rss_fetcher_mode", base.rss_fetcher_mode)),
+        yt_dlp_playlist_limit=int(
+            file_values.get("yt_dlp_playlist_limit", base.yt_dlp_playlist_limit)
+        ),
+        yt_dlp_timeout_seconds=int(
+            file_values.get("yt_dlp_timeout_seconds", base.yt_dlp_timeout_seconds)
+        ),
+        yt_dlp_longform_min_seconds=int(
+            file_values.get("yt_dlp_longform_min_seconds", base.yt_dlp_longform_min_seconds)
         ),
         http_timeout_seconds=int(
             file_values.get("http_timeout_seconds", base.http_timeout_seconds)
@@ -294,6 +308,14 @@ def load_config() -> AppConfig:
     cfg.rss_inter_channel_delay_seconds = _parse_float(
         os.getenv("RSS_INTER_CHANNEL_DELAY_SECONDS", cfg.rss_inter_channel_delay_seconds),
         cfg.rss_inter_channel_delay_seconds,
+    )
+    cfg.rss_fetcher_mode = os.getenv("RSS_FETCHER_MODE", cfg.rss_fetcher_mode).strip().lower()
+    cfg.yt_dlp_playlist_limit = int(os.getenv("YT_DLP_PLAYLIST_LIMIT", cfg.yt_dlp_playlist_limit))
+    cfg.yt_dlp_timeout_seconds = int(
+        os.getenv("YT_DLP_TIMEOUT_SECONDS", cfg.yt_dlp_timeout_seconds)
+    )
+    cfg.yt_dlp_longform_min_seconds = int(
+        os.getenv("YT_DLP_LONGFORM_MIN_SECONDS", cfg.yt_dlp_longform_min_seconds)
     )
     cfg.http_timeout_seconds = int(os.getenv("HTTP_TIMEOUT_SECONDS", cfg.http_timeout_seconds))
     cfg.download_dir = os.getenv("DOWNLOAD_DIR", cfg.download_dir)
@@ -469,6 +491,11 @@ def load_config() -> AppConfig:
     )
     cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
     cfg.rss_inter_channel_delay_seconds = max(0.0, min(30.0, cfg.rss_inter_channel_delay_seconds))
+    if cfg.rss_fetcher_mode not in {"rss", "rss_then_yt_dlp", "yt_dlp"}:
+        cfg.rss_fetcher_mode = "rss"
+    cfg.yt_dlp_playlist_limit = max(1, min(50, cfg.yt_dlp_playlist_limit))
+    cfg.yt_dlp_timeout_seconds = max(5, min(600, cfg.yt_dlp_timeout_seconds))
+    cfg.yt_dlp_longform_min_seconds = max(0, min(3600, cfg.yt_dlp_longform_min_seconds))
     cfg.rss_channel_deactivate_after_fails = max(1, min(20, cfg.rss_channel_deactivate_after_fails))
     cfg.rss_consecutive_error_abort_threshold = max(
         2, min(50, cfg.rss_consecutive_error_abort_threshold)
