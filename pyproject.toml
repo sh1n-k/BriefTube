@@ -175,12 +175,6 @@ layers = [
   "app.repositories",
   "app.logging_setup",
   "app.time_utils",
-  "app.database | app.schemas | app.i18n | app.pagination | app.download_error_registry | app.timezone_policy | app.config",
+  "app.database | app.schemas | app.i18n | app.pagination | app.download_error_registry | app.download_policy | app.llm_policy | app.timezone_policy | app.config",
 ]
 exhaustive = false
-ignore_imports = [
-  # `_impl` reuses validators/constants that currently live in services.
-  # Follow-up: move shared symbols into domains or a dedicated constants module.
-  "app.repositories._impl -> app.services.downloads",
-  "app.repositories._impl -> app.services.llm",
-]

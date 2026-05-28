@@ -17,6 +17,7 @@ from app.services.llm_runtime import (
     runtime_reason_text,
     runtime_reason_text_key,
 )
+from app.state import ALERT_GROUPS_UI_CACHE_KEY, RETENTION_NOTICE_UI_CACHE_KEY_PREFIX
 from app.time_utils import format_upload_time
 from app.timezone_policy import DEFAULT_TIMEZONE, get_timezone_options, normalize_timezone
 
@@ -100,7 +101,7 @@ async def build_template_context(
 
     alert_groups = await _get_cached_ui_value(
         request,
-        key="alert_groups:5",
+        key=ALERT_GROUPS_UI_CACHE_KEY,
         ttl_seconds=ALERT_GROUPS_CACHE_TTL_SECONDS,
         loader=lambda: alerts_repo.list_unacknowledged_alert_groups(
             request.app.state.runtime.db,
@@ -111,7 +112,7 @@ async def build_template_context(
     retention_days = int(policy_settings["retention_days"])
     retention_expired_count = await _get_cached_ui_value(
         request,
-        key=f"retention_notice_count:{retention_days}",
+        key=f"{RETENTION_NOTICE_UI_CACHE_KEY_PREFIX}{retention_days}",
         ttl_seconds=RETENTION_NOTICE_CACHE_TTL_SECONDS,
         loader=lambda: alerts_repo.count_retention_expired_videos(
             request.app.state.runtime.db,

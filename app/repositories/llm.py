@@ -1,27 +1,29 @@
 """LLM pipeline repository accessors."""
 
-from app.repositories import _impl as legacy
+from app.repositories import _alerts_retention as alerts_repository
+from app.repositories import _llm as repository
+from app.repositories import _settings as settings_repository
 
-LLM_QUEUE_STATUSES = legacy.LLM_QUEUE_STATUSES
-ALERT_TYPE_LLM_CONFIG_MISSING = legacy.ALERT_TYPE_LLM_CONFIG_MISSING
-LLM_CONFIG_MISSING_ALERT_SENT_KEY = legacy.LLM_CONFIG_MISSING_ALERT_SENT_KEY
-ALERT_TYPE_LLM_SCHEMA_INVALID = legacy.ALERT_TYPE_LLM_SCHEMA_INVALID
-LLM_SCHEMA_INVALID_ALERT_SENT_KEY = legacy.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
+LLM_QUEUE_STATUSES = repository.LLM_QUEUE_STATUSES
+ALERT_TYPE_LLM_CONFIG_MISSING = alerts_repository.ALERT_TYPE_LLM_CONFIG_MISSING
+LLM_CONFIG_MISSING_ALERT_SENT_KEY = settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY
+ALERT_TYPE_LLM_SCHEMA_INVALID = alerts_repository.ALERT_TYPE_LLM_SCHEMA_INVALID
+LLM_SCHEMA_INVALID_ALERT_SENT_KEY = settings_repository.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
 
-repair_orphan_llm_candidates = legacy.repair_orphan_llm_candidates
-clear_llm_queue_items = legacy.clear_llm_queue_items
-pop_llm_candidate = legacy.pop_llm_candidate
-mark_restructure_processing = legacy.mark_restructure_processing
-save_article = legacy.save_article
-mark_restructure_failed = legacy.mark_restructure_failed
-requeue_llm_pending_without_retry = legacy.requeue_llm_pending_without_retry
+repair_orphan_llm_candidates = repository.repair_orphan_llm_candidates
+clear_llm_queue_items = repository.clear_llm_queue_items
+pop_llm_candidate = repository.pop_llm_candidate
+mark_restructure_processing = repository.mark_restructure_processing
+save_article = repository.save_article
+mark_restructure_failed = repository.mark_restructure_failed
+requeue_llm_pending_without_retry = repository.requeue_llm_pending_without_retry
 
-ensure_llm_config_missing_alert = legacy.ensure_llm_config_missing_alert
-clear_llm_config_missing_alert_flag = legacy.clear_llm_config_missing_alert_flag
-ensure_llm_schema_invalid_alert = legacy.ensure_llm_schema_invalid_alert
-clear_llm_schema_invalid_alert_flag = legacy.clear_llm_schema_invalid_alert_flag
-set_llm_runtime_issue = legacy.set_llm_runtime_issue
-clear_llm_runtime_issue = legacy.clear_llm_runtime_issue
-get_llm_runtime_issue = legacy.get_llm_runtime_issue
-count_llm_pending_videos = legacy.count_llm_pending_videos
-get_llm_settings = legacy.get_llm_settings
+ensure_llm_config_missing_alert = repository.ensure_llm_config_missing_alert
+clear_llm_config_missing_alert_flag = repository.clear_llm_config_missing_alert_flag
+ensure_llm_schema_invalid_alert = repository.ensure_llm_schema_invalid_alert
+clear_llm_schema_invalid_alert_flag = repository.clear_llm_schema_invalid_alert_flag
+set_llm_runtime_issue = repository.set_llm_runtime_issue
+clear_llm_runtime_issue = repository.clear_llm_runtime_issue
+get_llm_runtime_issue = repository.get_llm_runtime_issue
+count_llm_pending_videos = repository.count_llm_pending_videos
+get_llm_settings = settings_repository.get_llm_settings

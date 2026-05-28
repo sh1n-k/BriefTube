@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, Query
@@ -42,6 +45,42 @@ from app.workers.poller import run_rss_poller
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
+WorkerFactory = Callable[[AppState], Coroutine[Any, Any, None]]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerSpec:
+    worker_name: str
+    task_name: str
+    factory: WorkerFactory
+    order: int
+    test_allow_alias: str | None = None
+    insert_at: int | None = None
+
+
+WORKER_SPECS: tuple[WorkerSpec, ...] = (
+    WorkerSpec("rss", "rss_poller", run_rss_poller, order=10),
+    WorkerSpec("download", "download_worker", run_download_worker, order=20),
+    WorkerSpec("manual_article", "manual_article_worker", run_manual_article_worker, order=30),
+    WorkerSpec("llm", "llm_queue_worker", run_llm_queue_worker, order=40),
+    WorkerSpec("notifier", "telegram_notifier", run_telegram_notifier, order=50),
+    WorkerSpec(
+        "channel_metadata",
+        "channel_metadata_worker",
+        run_channel_metadata_worker,
+        order=60,
+        test_allow_alias="BRIEFTUBE_ENABLE_METADATA_WORKER_IN_TESTS",
+        insert_at=1,
+    ),
+    WorkerSpec("transcript", "transcript_fetcher", run_transcript_fetcher, order=70, insert_at=3),
+    WorkerSpec(
+        "manual_transcript",
+        "manual_transcript_worker",
+        run_manual_transcript_worker,
+        order=80,
+        insert_at=3,
+    ),
+)
 
 
 def _is_background_worker_enabled(worker_name: str, *, test_allow_alias: str | None = None) -> bool:
@@ -62,19 +101,49 @@ def _is_background_worker_enabled(worker_name: str, *, test_allow_alias: str | N
     return True
 
 
-def _is_channel_metadata_worker_enabled() -> bool:
+def _is_worker_spec_enabled(spec: WorkerSpec) -> bool:
     return _is_background_worker_enabled(
-        "channel_metadata",
-        test_allow_alias="BRIEFTUBE_ENABLE_METADATA_WORKER_IN_TESTS",
+        spec.worker_name,
+        test_allow_alias=spec.test_allow_alias,
     )
 
 
-def _is_transcript_worker_enabled() -> bool:
-    return _is_background_worker_enabled("transcript")
+def _enabled_worker_names() -> set[str]:
+    return {spec.worker_name for spec in WORKER_SPECS if _is_worker_spec_enabled(spec)}
 
 
-def _is_manual_transcript_worker_enabled() -> bool:
-    return _is_background_worker_enabled("manual_transcript")
+def _resolve_worker_start_specs(enabled_worker_names: set[str]) -> list[WorkerSpec]:
+    append_specs = sorted(
+        (
+            spec
+            for spec in WORKER_SPECS
+            if spec.insert_at is None and spec.worker_name in enabled_worker_names
+        ),
+        key=lambda spec: spec.order,
+    )
+    insert_specs = sorted(
+        (
+            spec
+            for spec in WORKER_SPECS
+            if spec.insert_at is not None and spec.worker_name in enabled_worker_names
+        ),
+        key=lambda spec: spec.order,
+    )
+    start_specs = list(append_specs)
+    for spec in insert_specs:
+        start_specs.insert(int(spec.insert_at or 0), spec)
+    return start_specs
+
+
+def _create_worker_tasks(
+    runtime: AppState,
+    *,
+    enabled_worker_names: set[str],
+) -> list[asyncio.Task[None]]:
+    return [
+        asyncio.create_task(spec.factory(runtime), name=spec.task_name)
+        for spec in _resolve_worker_start_specs(enabled_worker_names)
+    ]
 
 
 def _build_templates() -> Jinja2Templates:
@@ -135,7 +204,8 @@ async def lifespan(app: FastAPI):
     recovered_manual_transcript_jobs = (
         await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
     )
-    metadata_worker_enabled = _is_channel_metadata_worker_enabled()
+    enabled_worker_names = _enabled_worker_names()
+    metadata_worker_enabled = "channel_metadata" in enabled_worker_names
     recovered_metadata_running = 0
     scheduled_metadata_targets = 0
     if metadata_worker_enabled:
@@ -221,40 +291,7 @@ async def lifespan(app: FastAPI):
     app.state.templates = _build_templates()
     if metadata_worker_enabled and scheduled_metadata_targets > 0:
         runtime.channel_metadata_wake_event.set()
-    transcript_worker_enabled = _is_transcript_worker_enabled()
-    manual_transcript_worker_enabled = _is_manual_transcript_worker_enabled()
-
-    tasks = []
-    if _is_background_worker_enabled("rss"):
-        tasks.append(asyncio.create_task(run_rss_poller(runtime), name="rss_poller"))
-    if _is_background_worker_enabled("download"):
-        tasks.append(asyncio.create_task(run_download_worker(runtime), name="download_worker"))
-    if _is_background_worker_enabled("manual_article"):
-        tasks.append(
-            asyncio.create_task(run_manual_article_worker(runtime), name="manual_article_worker")
-        )
-    if _is_background_worker_enabled("llm"):
-        tasks.append(asyncio.create_task(run_llm_queue_worker(runtime), name="llm_queue_worker"))
-    if _is_background_worker_enabled("notifier"):
-        tasks.append(asyncio.create_task(run_telegram_notifier(runtime), name="telegram_notifier"))
-    if metadata_worker_enabled:
-        tasks.insert(
-            1,
-            asyncio.create_task(
-                run_channel_metadata_worker(runtime), name="channel_metadata_worker"
-            ),
-        )
-    if transcript_worker_enabled:
-        tasks.insert(
-            3, asyncio.create_task(run_transcript_fetcher(runtime), name="transcript_fetcher")
-        )
-    if manual_transcript_worker_enabled:
-        tasks.insert(
-            3,
-            asyncio.create_task(
-                run_manual_transcript_worker(runtime), name="manual_transcript_worker"
-            ),
-        )
+    tasks = _create_worker_tasks(runtime, enabled_worker_names=enabled_worker_names)
 
     try:
         yield

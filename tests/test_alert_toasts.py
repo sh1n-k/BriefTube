@@ -95,6 +95,10 @@ def test_alert_group_acknowledge_marks_all_same_type(client: TestClient) -> None
         message="LLM configuration missing.",
     )
 
+    before = client.get("/")
+    assert before.status_code == 200
+    assert "RSS 404로 채널이 자동 비활성화되었습니다" in before.text
+
     response = client.post(
         "/views/alerts/ack-group",
         data={"alert_type": "rss_channel_not_found", "confirmed": "on"},
@@ -114,6 +118,10 @@ def test_alert_group_acknowledge_marks_all_same_type(client: TestClient) -> None
     assert all(row[1] is not None for row in rss_rows)
     assert llm_row is not None
     assert llm_row[0] is None
+
+    after = client.get("/")
+    assert after.status_code == 200
+    assert "RSS 404로 채널이 자동 비활성화되었습니다" not in after.text
 
 
 def test_alert_group_acknowledge_returns_404_when_already_acknowledged(client: TestClient) -> None:
@@ -137,6 +145,10 @@ def test_alert_acknowledge_marks_single_alert_via_legacy_endpoint(client: TestCl
     db_path = os.environ["DB_PATH"]
     alert_id = _insert_alert(db_path, channel_name="기존 경로 채널")
 
+    before = client.get("/")
+    assert before.status_code == 200
+    assert "RSS 404로 채널이 자동 비활성화되었습니다" in before.text
+
     response = client.post(f"/views/alerts/{alert_id}/ack", data={"confirmed": "on"})
     assert response.status_code == 200
 
@@ -147,3 +159,7 @@ def test_alert_acknowledge_marks_single_alert_via_legacy_endpoint(client: TestCl
         ).fetchone()
     assert row is not None
     assert row[0] is not None
+
+    after = client.get("/")
+    assert after.status_code == 200
+    assert "RSS 404로 채널이 자동 비활성화되었습니다" not in after.text

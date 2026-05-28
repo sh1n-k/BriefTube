@@ -7,7 +7,7 @@ import httpx
 
 from app.repositories import alerts_retention as alerts_repo
 from app.repositories import settings as settings_repo
-from app.state import AppState
+from app.state import AppState, invalidate_alert_groups_cache
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +243,7 @@ async def run_telegram_notifier(state: AppState) -> None:
                             f"(batch_size={len(batch)}): {reason}"
                         )[:500],
                     )
+                    invalidate_alert_groups_cache(state)
                 except Exception:
                     logger.exception(
                         "event=notifier.alert_record_failed worker=notifier",

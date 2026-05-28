@@ -1,0 +1,681 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any, cast
+
+import aiosqlite
+
+from app.repositories import _settings as settings_repository
+
+TRANSCRIPT_GUARD_DEFAULTS: dict[str, str] = {
+    "transcript_guard_adaptive_factor": "1.0",
+    "transcript_guard_cooldown_until": "",
+    "transcript_guard_consecutive_hard_errors": "0",
+    "transcript_guard_consecutive_successes": "0",
+    "transcript_guard_breaker_state": "closed",
+    "transcript_guard_half_open_probe_remaining": "1",
+    "transcript_guard_last_channel_id": "",
+    "transcript_guard_last_channel_attempt_at": "",
+}
+TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
+TRANSCRIPT_WORKER_LEASE_OWNER_KEY = "transcript_worker_lease_owner"
+TRANSCRIPT_WORKER_LEASE_UNTIL_KEY = "transcript_worker_lease_until"
+TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY = "transcript_request_headers_overrides_json"
+PIPELINE_STATUS_KEYS: tuple[str, ...] = (
+    "auto_paused",
+    "transcript_pending",
+    "transcript_processing",
+    "transcript_done",
+    "transcript_failed",
+    "no_subtitle",
+    "llm_pending",
+    "llm_processing",
+    "llm_failed",
+    "manual_review",
+    "done",
+)
+TRANSCRIPT_QUEUE_STATUSES = (
+    "transcript_pending",
+    "transcript_processing",
+    "transcript_failed",
+    "no_subtitle",
+)
+
+_parse_int_setting = settings_repository.parse_int_setting
+_parse_float_setting = settings_repository.parse_float_setting
+get_settings_map = settings_repository.get_settings_map
+get_setting = settings_repository.get_setting
+set_setting = settings_repository.set_setting
+
+
+def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
+    return [{k: row[k] for k in row.keys()} for row in rows]
+
+
+def _thumbnail_url(path: str | None, video_id: str | None = None) -> str | None:
+    if not path:
+        safe_video_id = str(video_id or "").strip()
+        if not safe_video_id:
+            return None
+        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
+    filename = Path(path).name
+    if not filename:
+        safe_video_id = str(video_id or "").strip()
+        if not safe_video_id:
+            return None
+        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
+    return f"/thumbnails/{filename}"
+
+
+def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
+    item["thumbnail_url"] = _thumbnail_url(
+        item.get("thumbnail_path"),
+        item.get("video_id"),
+    )
+    return item
+
+
+def _parse_datetime_setting(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _normalize_error_message(value: str | None) -> str:
+    if not value:
+        return ""
+    trimmed = str(value).strip()
+    if len(trimmed) <= TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH:
+        return trimmed
+    return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
+
+
+async def list_queue_items(
+    db: aiosqlite.Connection,
+    statuses: tuple[str, ...],
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if not statuses:
+        return []
+    safe_limit = max(1, min(500, int(limit)))
+    placeholders = ", ".join("?" for _ in statuses)
+    cursor = await db.execute(
+        f"""
+        SELECT
+            v.video_id,
+            v.channel_id,
+            c.channel_name,
+            v.title,
+            v.upload_time,
+            v.thumbnail_path,
+            v.pipeline_status,
+            v.retry_count,
+            v.transcript_retry_count,
+            v.created_at
+        FROM videos v
+        LEFT JOIN channels c ON c.channel_id = v.channel_id
+        WHERE v.pipeline_status IN ({placeholders})
+        ORDER BY
+            CASE v.pipeline_status
+                WHEN 'transcript_processing' THEN 0
+                WHEN 'llm_processing' THEN 0
+                WHEN 'transcript_pending' THEN 1
+                WHEN 'llm_pending' THEN 1
+                ELSE 2
+            END,
+            v.created_at ASC
+        LIMIT ?
+        """,
+        (*statuses, safe_limit),
+    )
+    rows = await cursor.fetchall()
+    return [_with_thumbnail_url(item) for item in _rows_to_dicts(rows)]
+
+
+async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
+    cursor = await db.execute(
+        """
+        SELECT
+            pipeline_status,
+            COUNT(1) AS cnt
+        FROM videos
+        GROUP BY pipeline_status
+        """
+    )
+    rows = await cursor.fetchall()
+    payload = {status: 0 for status in PIPELINE_STATUS_KEYS}
+    payload["unknown_count"] = 0
+    for row in rows:
+        status = str(row["pipeline_status"] or "").strip()
+        count = int(row["cnt"] or 0)
+        if status in payload:
+            payload[status] = count
+        else:
+            payload["unknown_count"] += count
+    return payload
+
+
+async def clear_transcript_queue_items(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'auto_paused',
+            transcript_next_attempt_at = NULL
+        WHERE pipeline_status IN ('transcript_pending', 'transcript_failed', 'no_subtitle')
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def pop_pending_transcript_videos(
+    db: aiosqlite.Connection,
+    limit: int = 3,
+    *,
+    lookahead: int | None = None,
+    avoid_channel_id: str | None = None,
+) -> list[dict[str, Any]]:
+    safe_limit = max(1, int(limit))
+    safe_lookahead = max(safe_limit, int(lookahead or safe_limit))
+    blocked_channel = str(avoid_channel_id or "").strip()
+    cursor = await db.execute(
+        """
+        SELECT
+            video_id,
+            channel_id,
+            title,
+            upload_time,
+            transcript_retry_count,
+            transcript_next_attempt_at,
+            transcript_target_language
+        FROM videos
+        WHERE pipeline_status = 'transcript_pending'
+          AND (
+              transcript_next_attempt_at IS NULL
+              OR transcript_next_attempt_at <= datetime('now')
+          )
+        ORDER BY upload_time DESC, created_at DESC
+        LIMIT ?
+        """,
+        (safe_lookahead,),
+    )
+    rows = await cursor.fetchall()
+    candidates = _rows_to_dicts(rows)
+    if not blocked_channel:
+        return candidates[:safe_limit]
+
+    preferred = [row for row in candidates if str(row.get("channel_id") or "") != blocked_channel]
+    if len(preferred) >= safe_limit:
+        return preferred[:safe_limit]
+
+    return (preferred + candidates)[:safe_limit]
+
+
+async def mark_transcript_processing(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_processing'
+        WHERE video_id = ?
+          AND pipeline_status = 'transcript_pending'
+        """,
+        (video_id,),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def recover_stuck_transcript_jobs(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_pending'
+        WHERE pipeline_status = 'transcript_processing'
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
+async def save_transcript(
+    db: aiosqlite.Connection,
+    video_id: str,
+    raw_text: str,
+    language: str | None,
+    source_type: str,
+    thumbnail_path: str | None,
+    *,
+    force_llm_pending: bool = False,
+) -> None:
+    await db.execute(
+        """
+        INSERT INTO transcripts(video_id, raw_text, language, source_type)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(video_id) DO UPDATE SET
+            raw_text=excluded.raw_text,
+            language=excluded.language,
+            source_type=excluded.source_type
+        """,
+        (video_id, raw_text, language, source_type),
+    )
+    await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = CASE
+                WHEN ? = 1 THEN 'llm_pending'
+                WHEN processing_stage_snapshot = 'full' THEN 'llm_pending'
+                ELSE 'transcript_done'
+            END,
+            processing_stage_snapshot = CASE lower(trim(coalesce(processing_stage_snapshot, '')))
+                WHEN 'off' THEN 'off'
+                WHEN 'transcript_only' THEN 'transcript_only'
+                WHEN 'full' THEN 'full'
+                ELSE 'full'
+            END,
+            transcript_retry_count = 0,
+            transcript_next_attempt_at = NULL,
+            transcript_target_language = COALESCE(?, transcript_target_language),
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL,
+            thumbnail_path = COALESCE(?, thumbnail_path)
+        WHERE video_id = ?
+        """,
+        (1 if force_llm_pending else 0, language, thumbnail_path, video_id),
+    )
+    await db.commit()
+
+
+async def mark_no_subtitle(db: aiosqlite.Connection, video_id: str) -> None:
+    await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'no_subtitle',
+            transcript_retry_count = 0,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL
+        WHERE video_id = ?
+        """,
+        (video_id,),
+    )
+    await db.commit()
+
+
+async def schedule_transcript_retry(
+    db: aiosqlite.Connection,
+    video_id: str,
+    delay_seconds: int,
+    error_message: str | None = None,
+) -> int:
+    safe_delay = max(1, int(delay_seconds))
+    safe_error = _normalize_error_message(error_message)
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_pending',
+            transcript_retry_count = transcript_retry_count + 1,
+            transcript_next_attempt_at = datetime('now', ?),
+            transcript_last_error = ?,
+            transcript_last_error_at = datetime('now')
+        WHERE video_id = ?
+          AND pipeline_status IN ('transcript_pending', 'transcript_processing', 'transcript_failed')
+        """,
+        (f"+{safe_delay} seconds", safe_error, video_id),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def defer_channel_transcript_retries(
+    db: aiosqlite.Connection,
+    channel_id: str,
+    delay_seconds: int,
+    exclude_video_id: str | None = None,
+) -> int:
+    safe_channel = str(channel_id).strip()
+    if not safe_channel:
+        return 0
+    safe_delay = max(1, int(delay_seconds))
+    safe_excluded = str(exclude_video_id or "").strip()
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET transcript_next_attempt_at = CASE
+            WHEN transcript_next_attempt_at IS NULL
+                 OR transcript_next_attempt_at < datetime('now', ?)
+            THEN datetime('now', ?)
+            ELSE transcript_next_attempt_at
+        END
+        WHERE pipeline_status IN ('transcript_pending', 'transcript_processing')
+          AND channel_id = ?
+          AND (? = '' OR video_id != ?)
+        """,
+        (
+            f"+{safe_delay} seconds",
+            f"+{safe_delay} seconds",
+            safe_channel,
+            safe_excluded,
+            safe_excluded,
+        ),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def mark_transcript_failed(
+    db: aiosqlite.Connection,
+    video_id: str,
+    retry_count: int,
+    error_message: str | None = None,
+) -> int:
+    safe_retry = max(0, int(retry_count))
+    safe_error = _normalize_error_message(error_message)
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_failed',
+            transcript_retry_count = ?,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = ?,
+            transcript_last_error_at = datetime('now')
+        WHERE video_id = ?
+          AND pipeline_status IN ('transcript_pending', 'transcript_processing', 'transcript_failed', 'no_subtitle')
+        """,
+        (safe_retry, safe_error, video_id),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_pending',
+            transcript_retry_count = 0,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL
+        WHERE video_id = ?
+          AND pipeline_status IN ('transcript_failed', 'no_subtitle')
+        """,
+        (video_id,),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def get_transcript_request_header_overrides(db: aiosqlite.Connection) -> dict[str, str]:
+    raw = await get_setting(
+        db,
+        key=TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY,
+        default="{}",
+    )
+    text = str(raw or "").strip() or "{}"
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    parsed_dict = cast(dict[Any, Any], parsed)
+    overrides: dict[str, str] = {}
+    for key, value in parsed_dict.items():
+        overrides[str(key).strip()] = str(value).strip()
+    return overrides
+
+
+async def save_transcript_request_header_overrides(
+    db: aiosqlite.Connection,
+    overrides: dict[str, str],
+) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for key, value in overrides.items():
+        normalized[str(key).strip()] = str(value).strip()
+    payload = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
+    await set_setting(
+        db,
+        key=TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY,
+        value=payload,
+    )
+    return await get_transcript_request_header_overrides(db)
+
+
+async def acquire_transcript_worker_lease(
+    db: aiosqlite.Connection,
+    owner_id: str,
+    ttl_seconds: int,
+) -> bool:
+    safe_owner = str(owner_id).strip()
+    if not safe_owner:
+        return False
+    ttl = max(5, int(ttl_seconds))
+    now = datetime.now(UTC)
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        owner_cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
+        )
+        owner_row = await owner_cursor.fetchone()
+        until_cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY,),
+        )
+        until_row = await until_cursor.fetchone()
+        current_owner = str(owner_row["value"] if owner_row is not None else "").strip()
+        current_until = _parse_datetime_setting(
+            str(until_row["value"] if until_row is not None else "")
+        )
+
+        if current_owner and current_owner != safe_owner and current_until and current_until > now:
+            await db.rollback()
+            return False
+
+        lease_until = now + timedelta(seconds=ttl)
+        await db.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY, safe_owner),
+        )
+        await db.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY, lease_until.isoformat()),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def renew_transcript_worker_lease(
+    db: aiosqlite.Connection,
+    owner_id: str,
+    ttl_seconds: int,
+) -> bool:
+    safe_owner = str(owner_id).strip()
+    if not safe_owner:
+        return False
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
+        )
+        row = await cursor.fetchone()
+        current_owner = str(row["value"] if row is not None else "").strip()
+        if current_owner != safe_owner:
+            await db.rollback()
+            return False
+        ttl = max(5, int(ttl_seconds))
+        lease_until = datetime.now(UTC) + timedelta(seconds=ttl)
+        await db.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY, lease_until.isoformat()),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def release_transcript_worker_lease(db: aiosqlite.Connection, owner_id: str) -> bool:
+    safe_owner = str(owner_id).strip()
+    if not safe_owner:
+        return False
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
+        )
+        row = await cursor.fetchone()
+        current_owner = str(row["value"] if row is not None else "").strip()
+        if current_owner != safe_owner:
+            await db.rollback()
+            return False
+        await db.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, '')
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
+        )
+        await db.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, '')
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY,),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def get_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, Any]:
+    settings = await get_settings_map(db, TRANSCRIPT_GUARD_DEFAULTS)
+    adaptive_raw = settings["transcript_guard_adaptive_factor"]
+    cooldown_raw = settings["transcript_guard_cooldown_until"]
+    hard_raw = settings["transcript_guard_consecutive_hard_errors"]
+    success_raw = settings["transcript_guard_consecutive_successes"]
+    breaker_state_raw = settings["transcript_guard_breaker_state"]
+    probe_raw = settings["transcript_guard_half_open_probe_remaining"]
+    last_channel_raw = settings["transcript_guard_last_channel_id"]
+    last_channel_attempt_raw = settings["transcript_guard_last_channel_attempt_at"]
+
+    cooldown_until = str(cooldown_raw or "").strip() or None
+    breaker_state = str(breaker_state_raw or "closed").strip().lower() or "closed"
+    if breaker_state not in {"closed", "open", "half_open"}:
+        breaker_state = "closed"
+    last_channel_attempt = _parse_datetime_setting(str(last_channel_attempt_raw or ""))
+    return {
+        "adaptive_factor": _parse_float_setting(
+            adaptive_raw, default=1.0, min_value=1.0, max_value=64.0
+        ),
+        "cooldown_until": cooldown_until,
+        "consecutive_hard_errors": _parse_int_setting(
+            hard_raw, default=0, min_value=0, max_value=100000
+        ),
+        "consecutive_successes": _parse_int_setting(
+            success_raw, default=0, min_value=0, max_value=100000
+        ),
+        "breaker_state": breaker_state,
+        "half_open_probe_remaining": _parse_int_setting(
+            probe_raw, default=1, min_value=1, max_value=1000
+        ),
+        "last_channel_id": str(last_channel_raw or "").strip() or None,
+        "last_channel_attempt_at": last_channel_attempt.isoformat()
+        if last_channel_attempt
+        else None,
+    }
+
+
+async def save_transcript_guard_state(
+    db: aiosqlite.Connection,
+    adaptive_factor: float,
+    cooldown_until: str | None,
+    consecutive_hard_errors: int,
+    consecutive_successes: int,
+    breaker_state: str = "closed",
+    half_open_probe_remaining: int = 1,
+    last_channel_id: str | None = None,
+    last_channel_attempt_at: str | None = None,
+) -> dict[str, Any]:
+    safe_breaker_state = str(breaker_state).strip().lower()
+    if safe_breaker_state not in {"closed", "open", "half_open"}:
+        safe_breaker_state = "closed"
+    entries = {
+        "transcript_guard_adaptive_factor": str(max(1.0, float(adaptive_factor))),
+        "transcript_guard_cooldown_until": str(cooldown_until or ""),
+        "transcript_guard_consecutive_hard_errors": str(max(0, int(consecutive_hard_errors))),
+        "transcript_guard_consecutive_successes": str(max(0, int(consecutive_successes))),
+        "transcript_guard_breaker_state": safe_breaker_state,
+        "transcript_guard_half_open_probe_remaining": str(max(1, int(half_open_probe_remaining))),
+        "transcript_guard_last_channel_id": str(last_channel_id or "").strip(),
+        "transcript_guard_last_channel_attempt_at": str(last_channel_attempt_at or "").strip(),
+    }
+    for key, value in entries.items():
+        await db.execute(
+            """
+            INSERT INTO app_settings(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (key, value),
+        )
+    await db.commit()
+    return await get_transcript_guard_state(db)
+
+
+async def reset_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, Any]:
+    return await save_transcript_guard_state(
+        db,
+        adaptive_factor=1.0,
+        cooldown_until=None,
+        consecutive_hard_errors=0,
+        consecutive_successes=0,
+        breaker_state="closed",
+        half_open_probe_remaining=1,
+        last_channel_id=None,
+        last_channel_attempt_at=None,
+    )

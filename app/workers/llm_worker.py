@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.services.llm_runtime import resolve_llm_runtime_status
-from app.state import AppState
+from app.state import AppState, invalidate_alert_groups_cache
+from app.workers.wake_sleep import sleep_with_wake_event
 
 logger = logging.getLogger(__name__)
 LLM_RETRYABLE_FAILURE_DELAY_SECONDS = 5.0
@@ -18,21 +18,7 @@ def _is_schema_invalid_issue(code: str) -> bool:
 
 
 async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
-    safe_timeout = max(0.0, float(timeout_seconds))
-    wake_event = getattr(state, "llm_wake_event", None)
-    if not isinstance(wake_event, asyncio.Event):
-        await asyncio.sleep(safe_timeout)
-        return
-    if wake_event.is_set():
-        wake_event.clear()
-        return
-    try:
-        await asyncio.wait_for(wake_event.wait(), timeout=safe_timeout)
-    except TimeoutError:
-        return
-    finally:
-        if wake_event.is_set():
-            wake_event.clear()
+    await sleep_with_wake_event(state, "llm_wake_event", timeout_seconds)
 
 
 async def run_llm_queue_worker(state: AppState) -> None:
@@ -79,6 +65,8 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     alert_created = await llm_repo.ensure_llm_schema_invalid_alert(state.db)
                 else:
                     alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
+                if alert_created:
+                    invalidate_alert_groups_cache(state)
                 await llm_repo.set_llm_runtime_issue(
                     state.db,
                     code=runtime_reason,
@@ -172,6 +160,8 @@ async def run_llm_queue_worker(state: AppState) -> None:
                         alert_created = await llm_repo.ensure_llm_schema_invalid_alert(state.db)
                     else:
                         alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
+                    if alert_created:
+                        invalidate_alert_groups_cache(state)
                     await llm_repo.set_llm_runtime_issue(
                         state.db,
                         code=error_code,

@@ -428,6 +428,8 @@ async def delete_channel(channel_id: str, request: Request):
         [channel_id],
     )
     request.app.state.runtime.rss_cache.pop(channel_id, None)
+    if int(result.get("deleted_videos", 0) or 0) > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
     if result["deleted_channels"] == 0:
         raise HTTPException(status_code=404, detail="Channel not found")
     return {
@@ -975,7 +977,9 @@ async def set_llm_settings(request: Request):
             code=runtime_reason,
             message="LLM output schema is incompatible",
         )
-        await llm_repo.ensure_llm_schema_invalid_alert(request.app.state.runtime.db)
+        alert_created = await llm_repo.ensure_llm_schema_invalid_alert(request.app.state.runtime.db)
+        if alert_created:
+            request.app.state.runtime.invalidate_alert_groups_cache()
         language = normalize_language(
             await settings_repo.get_setting(
                 request.app.state.runtime.db,
@@ -1270,4 +1274,6 @@ async def set_policy(request: Request):
         retention_days=retention_value,
         rss_feed_mode=feed_mode_value,
     )
+    if retention_value is not None:
+        request.app.state.runtime.invalidate_retention_notice_cache()
     return {"ok": True, "policy": saved}

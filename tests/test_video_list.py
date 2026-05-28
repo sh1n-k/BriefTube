@@ -102,6 +102,51 @@ def test_video_delete_selected(client: TestClient) -> None:
     assert "vid-b-000" in html
 
 
+def test_video_delete_selected_invalidates_retention_notice_cache(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UC_RET_VIDEO",
+                "Retention Video Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UC_RET_VIDEO",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
+            """,
+            ("vid-ret-delete", "UC_RET_VIDEO", "old", "2000-01-01T00:00:00+00:00"),
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
+            """,
+            ("vid-ret-keep", "UC_RET_VIDEO", "new", "2999-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    before = client.get("/")
+    assert before.status_code == 200
+    assert "data-retention-notice" in before.text
+
+    response = client.post(
+        "/views/videos/delete-selected",
+        data={"video_id": ["vid-ret-delete"], "_page": "1", "_limit": "20"},
+    )
+    assert response.status_code == 200
+
+    after = client.get("/")
+    assert after.status_code == 200
+    assert "data-retention-notice" not in after.text
+
+
 def test_video_delete_empty_selection(client: TestClient) -> None:
     """선택 없이 삭제 -> 목록 그대로 반환, 에러 없음"""
     _seed_channels_and_videos()

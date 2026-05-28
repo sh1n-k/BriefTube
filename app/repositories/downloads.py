@@ -1,32 +1,32 @@
 """Download domain repository accessors."""
 
-from app.repositories import _impl as legacy
+from app.repositories import _downloads as repository
 
-DOWNLOAD_QUALITY_OPTIONS = legacy.DOWNLOAD_QUALITY_OPTIONS
-DOWNLOAD_QUALITY_DEFAULT = legacy.DOWNLOAD_QUALITY_DEFAULT
-DOWNLOAD_STATUS_PENDING = legacy.DOWNLOAD_STATUS_PENDING
-DOWNLOAD_STATUS_RUNNING = legacy.DOWNLOAD_STATUS_RUNNING
-DOWNLOAD_STATUS_SUCCEEDED = legacy.DOWNLOAD_STATUS_SUCCEEDED
-DOWNLOAD_STATUS_FAILED = legacy.DOWNLOAD_STATUS_FAILED
+DOWNLOAD_QUALITY_OPTIONS = repository.DOWNLOAD_QUALITY_OPTIONS
+DOWNLOAD_QUALITY_DEFAULT = repository.DOWNLOAD_QUALITY_DEFAULT
+DOWNLOAD_STATUS_PENDING = repository.DOWNLOAD_STATUS_PENDING
+DOWNLOAD_STATUS_RUNNING = repository.DOWNLOAD_STATUS_RUNNING
+DOWNLOAD_STATUS_SUCCEEDED = repository.DOWNLOAD_STATUS_SUCCEEDED
+DOWNLOAD_STATUS_FAILED = repository.DOWNLOAD_STATUS_FAILED
 
-normalize_download_quality = legacy.normalize_download_quality
-normalize_download_status_filter = legacy.normalize_download_status_filter
+normalize_download_quality = repository.normalize_download_quality
+normalize_download_status_filter = repository.normalize_download_status_filter
 
-get_download_default_settings = legacy.get_download_default_settings
-set_download_default_settings = legacy.set_download_default_settings
+get_download_default_settings = repository.get_download_default_settings
+set_download_default_settings = repository.set_download_default_settings
 
-get_download_job = legacy.get_download_job
-get_active_download_job_for_video = legacy.get_active_download_job_for_video
-create_download_job = legacy.create_download_job
-claim_next_download_job = legacy.claim_next_download_job
-mark_download_job_succeeded = legacy.mark_download_job_succeeded
-mark_download_job_failed = legacy.mark_download_job_failed
-retry_download_job = legacy.retry_download_job
-recover_stuck_download_jobs = legacy.recover_stuck_download_jobs
-count_download_jobs_by_status = legacy.count_download_jobs_by_status
-list_download_jobs = legacy.list_download_jobs
-count_download_jobs = legacy.count_download_jobs
-clear_download_jobs = legacy.clear_download_jobs
-latest_download_event_id = legacy.latest_download_event_id
-list_download_events_after = legacy.list_download_events_after
-get_download_progress = legacy.get_download_progress
+get_download_job = repository.get_download_job
+get_active_download_job_for_video = repository.get_active_download_job_for_video
+create_download_job = repository.create_download_job
+claim_next_download_job = repository.claim_next_download_job
+mark_download_job_succeeded = repository.mark_download_job_succeeded
+mark_download_job_failed = repository.mark_download_job_failed
+retry_download_job = repository.retry_download_job
+recover_stuck_download_jobs = repository.recover_stuck_download_jobs
+count_download_jobs_by_status = repository.count_download_jobs_by_status
+list_download_jobs = repository.list_download_jobs
+count_download_jobs = repository.count_download_jobs
+clear_download_jobs = repository.clear_download_jobs
+latest_download_event_id = repository.latest_download_event_id
+list_download_events_after = repository.list_download_events_after
+get_download_progress = repository.get_download_progress

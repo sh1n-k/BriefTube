@@ -17,7 +17,7 @@ from app.repositories import videos as videos_repo
 from app.repositories.channels import is_newer_published
 from app.services.rss import RSSParseError
 from app.services.yt_dlp_feed import YtDlpFeedError
-from app.state import AppState
+from app.state import AppState, invalidate_alert_groups_cache, invalidate_retention_notice_cache
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +264,7 @@ async def _poll_single_channel(
                     channel_name=channel_name,
                     message=f"RSS feed returned 404 Not Found ({streak} consecutive failures). Channel deactivated.",
                 )
+                invalidate_alert_groups_cache(state)
                 state.rss_cache.pop(channel_id, None)
                 logger.warning(
                     "event=rss.channel_deactivated worker=rss channel_id=%s channel_name=%s streak=%d threshold=%d",
@@ -450,6 +451,9 @@ async def _insert_feed_entries(
 
     if max_published and max_published != watermark:
         await channels_repo.update_channel_watermark(state.db, channel_id, max_published)
+
+    if channel_inserted > 0:
+        invalidate_retention_notice_cache(state)
 
     return channel_inserted
 

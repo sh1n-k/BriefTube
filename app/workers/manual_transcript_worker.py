@@ -20,26 +20,18 @@ from app.services.transcript_guard import (
     _save_guard_state,
 )
 from app.state import AppState
+from app.workers.wake_sleep import sleep_with_wake_event
 
 logger = logging.getLogger(__name__)
 
 
 async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
-    safe_timeout = max(0.1, float(timeout_seconds))
-    wake_event = getattr(state, "manual_transcript_wake_event", None)
-    if not isinstance(wake_event, asyncio.Event):
-        await asyncio.sleep(safe_timeout)
-        return
-    if wake_event.is_set():
-        wake_event.clear()
-        return
-    try:
-        await asyncio.wait_for(wake_event.wait(), timeout=safe_timeout)
-    except TimeoutError:
-        pass
-    finally:
-        if wake_event.is_set():
-            wake_event.clear()
+    await sleep_with_wake_event(
+        state,
+        "manual_transcript_wake_event",
+        timeout_seconds,
+        min_timeout_seconds=0.1,
+    )
 
 
 async def _wait_until(monotonic_deadline: float) -> None:

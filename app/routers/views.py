@@ -632,6 +632,8 @@ async def delete_selected_channels(request: Request):
         request.app.state.runtime.db,
         channel_ids,
     )
+    if int(result.get("deleted_videos", 0) or 0) > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
     cleanup_thumbnail_files(
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
@@ -723,6 +725,8 @@ async def delete_single_channel(
         request.app.state.runtime.db,
         [normalized],
     )
+    if int(result.get("deleted_videos", 0) or 0) > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
     cleanup_thumbnail_files(
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
@@ -769,6 +773,8 @@ async def reactivate_selected_channels(request: Request):
             request.app.state.runtime.db,
             channel_ids,
         )
+        if int(result.get("deleted_videos", 0) or 0) > 0:
+            request.app.state.runtime.invalidate_retention_notice_cache()
         cleanup_thumbnail_files(
             result["thumbnail_paths"],
             request.app.state.runtime.config.thumbnail_dir,
@@ -1070,6 +1076,8 @@ async def delete_selected_videos(request: Request):
             request.app.state.runtime.db,
             video_ids,
         )
+        if int(result.get("deleted", 0) or 0) > 0:
+            request.app.state.runtime.invalidate_retention_notice_cache()
         cleanup_thumbnail_files(
             result["thumbnail_paths"],
             request.app.state.runtime.config.thumbnail_dir,
@@ -1543,6 +1551,7 @@ async def acknowledge_alert(
     )
     if affected == 0:
         return Response(status_code=404)
+    request.app.state.runtime.invalidate_alert_groups_cache()
     return Response(status_code=200)
 
 
@@ -1565,4 +1574,5 @@ async def acknowledge_alert_group(
     )
     if affected == 0:
         return Response(status_code=404)
+    request.app.state.runtime.invalidate_alert_groups_cache()
     return Response(status_code=200)

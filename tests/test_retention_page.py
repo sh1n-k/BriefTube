@@ -88,6 +88,10 @@ def test_retention_delete_all_with_confirmation(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)
 
+    before = client.get("/")
+    assert before.status_code == 200
+    assert "data-retention-notice" in before.text
+
     # confirm_delete_all=on POST → 만료 영상 삭제됨
     response = client.post(
         "/retention/delete-all",
@@ -102,6 +106,10 @@ def test_retention_delete_all_with_confirmation(client: TestClient) -> None:
         new_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-new-001'").fetchone()
     assert old_row is None
     assert new_row is not None
+
+    after = client.get("/")
+    assert after.status_code == 200
+    assert "data-retention-notice" not in after.text
 
 
 def test_retention_delete_selected(client: TestClient) -> None:

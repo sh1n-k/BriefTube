@@ -1,18 +1,20 @@
 """Manual article job repository accessors."""
 
-from app.repositories import _impl as legacy
+from app.repositories import _manual_articles as repository
 
-MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = legacy.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES
+MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = (
+    repository.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES
+)
 
-get_manual_article_job = legacy.get_manual_article_job
-get_active_manual_article_job_for_video = legacy.get_active_manual_article_job_for_video
-enqueue_manual_article_jobs = legacy.enqueue_manual_article_jobs
-claim_next_manual_article_job = legacy.claim_next_manual_article_job
-mark_manual_article_job_succeeded = legacy.mark_manual_article_job_succeeded
-mark_manual_article_job_failed = legacy.mark_manual_article_job_failed
-mark_manual_article_job_skipped = legacy.mark_manual_article_job_skipped
-recover_stuck_manual_article_jobs = legacy.recover_stuck_manual_article_jobs
-ensure_video_llm_pending_for_manual_article = legacy.ensure_video_llm_pending_for_manual_article
+get_manual_article_job = repository.get_manual_article_job
+get_active_manual_article_job_for_video = repository.get_active_manual_article_job_for_video
+enqueue_manual_article_jobs = repository.enqueue_manual_article_jobs
+claim_next_manual_article_job = repository.claim_next_manual_article_job
+mark_manual_article_job_succeeded = repository.mark_manual_article_job_succeeded
+mark_manual_article_job_failed = repository.mark_manual_article_job_failed
+mark_manual_article_job_skipped = repository.mark_manual_article_job_skipped
+recover_stuck_manual_article_jobs = repository.recover_stuck_manual_article_jobs
+ensure_video_llm_pending_for_manual_article = repository.ensure_video_llm_pending_for_manual_article
 force_mark_video_transcript_failed_for_manual_article = (
-    legacy.force_mark_video_transcript_failed_for_manual_article
+    repository.force_mark_video_transcript_failed_for_manual_article
 )

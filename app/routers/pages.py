@@ -426,6 +426,8 @@ async def delete_retention_selected(request: Request):
     targets = [video_id for video_id in selected if video_id in expired_ids]
 
     result = await videos_repo.delete_videos_by_ids(request.app.state.runtime.db, targets)
+    if int(result.get("deleted", 0) or 0) > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
     _cleanup_thumbnail_files(
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
@@ -445,6 +447,8 @@ async def delete_retention_all(request: Request):
         retention_days=int(policy["retention_days"]),
     )
     result = await videos_repo.delete_videos_by_ids(request.app.state.runtime.db, expired_ids)
+    if int(result.get("deleted", 0) or 0) > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
     _cleanup_thumbnail_files(
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
