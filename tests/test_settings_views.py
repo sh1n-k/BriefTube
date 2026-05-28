@@ -4,12 +4,55 @@ import json
 import os
 import re
 import sqlite3
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.services.llm_capabilities import LlmCapabilityProbe
+
+
+class _FailingCapabilityProbe(LlmCapabilityProbe):
+    async def get_codex_capabilities(self, *, refresh: bool = False) -> Any:
+        raise AssertionError("Codex capability probe should not run for this page")
+
+
+def test_non_llm_pages_do_not_probe_codex_capabilities(client: TestClient) -> None:
+    client.app.state.runtime.llm_capability_probe = _FailingCapabilityProbe()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+
 
 def test_settings_page_renders(client: TestClient) -> None:
+    async def fake_runner(args: list[str], timeout: int) -> tuple[int, str, str]:
+        return (
+            0,
+            json.dumps(
+                {
+                    "models": [
+                        {
+                            "slug": "gpt-5.4",
+                            "display_name": "GPT-5.4",
+                            "supported_reasoning_levels": [
+                                {"effort": "low"},
+                                {"effort": "medium"},
+                                {"effort": "high"},
+                                {"effort": "xhigh"},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            "",
+        )
+
+    client.app.state.runtime.llm_capability_probe = LlmCapabilityProbe(
+        command_exists=lambda name: name == "codex",
+        runner=fake_runner,
+    )
+
     response = client.get("/settings")
     assert response.status_code == 200
     assert "설정" in response.text
@@ -41,6 +84,7 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'name="llm_provider_fallback"' in response.text
     assert 'name="llm_model_codex"' in response.text
     assert 'value="gpt-5.4"' in response.text
+    assert "Codex 모델 새로고침" in response.text
     assert 'name="llm_model_claude"' in response.text
     assert 'name="llm_model_gemini"' in response.text
     assert 'name="llm_reasoning_effort_codex"' in response.text
@@ -50,7 +94,8 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert response.text.count('name="llm_prompt_template"') == 1
     assert 'hx-put="/api/settings/llm"' in response.text
     assert "Provider별 모델/사고 수준" in response.text
-    assert "Codex 모델은 GPT-5.3 Codex 또는 GPT-5.4를 선택할 수 있습니다." in response.text
+    assert "Codex 모델 목록은 설치된 Codex CLI에서 확인" in response.text
+    assert 'value="xhigh"' in response.text
     assert "Google Gemini CLI" in response.text
     assert "기본 화질 상한" in response.text
     assert "다운로드 저장 경로" in response.text
@@ -113,6 +158,46 @@ def test_settings_page_renders(client: TestClient) -> None:
         'data-settings-section="transcript-guard"'
     )
     assert len(re.findall(r'type="number"', response.text)) >= 3
+
+
+def test_settings_page_preserves_saved_codex_model_outside_probe_options(
+    client: TestClient,
+) -> None:
+    async def fake_runner(args: list[str], timeout: int) -> tuple[int, str, str]:
+        return (
+            0,
+            json.dumps(
+                {
+                    "models": [
+                        {
+                            "slug": "gpt-5.4",
+                            "display_name": "GPT-5.4",
+                            "supported_reasoning_levels": [{"effort": "low"}],
+                        }
+                    ]
+                }
+            ),
+            "",
+        )
+
+    save = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_model": {
+                "codex": "gpt-custom-codex",
+            }
+        },
+    )
+    assert save.status_code == 200
+    client.app.state.runtime.llm_capability_probe = LlmCapabilityProbe(
+        command_exists=lambda name: name == "codex",
+        runner=fake_runner,
+    )
+
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert '<option value="gpt-custom-codex" selected>gpt-custom-codex</option>' in response.text
 
 
 def test_settings_page_rss_poll_preview_uses_active_channel_count(

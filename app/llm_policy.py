@@ -17,6 +17,8 @@ LLM_CODEX_MODEL_OPTIONS: tuple[tuple[str, str], ...] = (
 )
 LLM_CODEX_MODEL_VALUES = {value for value, _label in LLM_CODEX_MODEL_OPTIONS}
 LLM_GEMINI_MODEL_DEFAULT = "gemini-3.1-pro-preview"
+LLM_CODEX_MODEL_MAX_LENGTH = 200
+LLM_CODEX_REASONING_EFFORT_OPTIONS = {"low", "medium", "high", "xhigh"}
 LLM_REASONING_EFFORT_OPTIONS = {"low", "medium", "high"}
 LLM_REASONING_EFFORT_GEMINI_OPTIONS = {"none", "low", "medium", "high"}
 
@@ -31,6 +33,6 @@ def normalize_llm_provider(value: str | None, *, allow_none: bool = False) -> st
 
 def normalize_codex_model(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in LLM_CODEX_MODEL_VALUES:
-        return normalized
+    if normalized:
+        return normalized[:LLM_CODEX_MODEL_MAX_LENGTH]
     return LLM_CODEX_MODEL_DEFAULT

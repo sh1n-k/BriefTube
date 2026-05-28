@@ -12,6 +12,7 @@ from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.services.channel_handle import format_channel_handle_display
 from app.services.llm import LLM_CODEX_MODEL_OPTIONS
+from app.services.llm_capabilities import LlmCapabilityProbe
 from app.services.llm_runtime import (
     resolve_llm_runtime_status,
     runtime_reason_text,
@@ -80,6 +81,34 @@ async def _build_llm_runtime_context(
     }
 
 
+async def _build_llm_capability_context(
+    request: Request,
+    *,
+    current_model: str,
+    current_reasoning_effort: str,
+    refresh: bool = False,
+) -> dict[str, object]:
+    runtime = request.app.state.runtime
+    probe = getattr(runtime, "llm_capability_probe", None)
+    if not isinstance(probe, LlmCapabilityProbe):
+        probe = LlmCapabilityProbe(command_exists=lambda _name: False)
+
+    codex = await probe.get_codex_capabilities(refresh=refresh)
+    model_options = [(model.value, model.label) for model in codex.models]
+    if current_model and current_model not in {value for value, _label in model_options}:
+        model_options.append((current_model, current_model))
+
+    effort_options = list(codex.reasoning_efforts)
+    if current_reasoning_effort and current_reasoning_effort not in effort_options:
+        effort_options.append(current_reasoning_effort)
+
+    return {
+        "codex": codex.as_payload(),
+        "codex_model_options": tuple(model_options) or LLM_CODEX_MODEL_OPTIONS,
+        "codex_reasoning_effort_options": tuple(effort_options),
+    }
+
+
 async def build_template_context(
     request: Request,
     **extra: object,
@@ -127,6 +156,24 @@ async def build_template_context(
         }
 
     txt = get_texts(language)
+    llm_settings = extra.get("llm_settings")
+    if isinstance(llm_settings, dict):
+        llm_model = llm_settings.get("llm_model", {})
+        llm_reasoning_effort = llm_settings.get("llm_reasoning_effort", {})
+        llm_capabilities = await _build_llm_capability_context(
+            request,
+            current_model=str(llm_model.get("codex", "")) if isinstance(llm_model, dict) else "",
+            current_reasoning_effort=str(llm_reasoning_effort.get("codex", ""))
+            if isinstance(llm_reasoning_effort, dict)
+            else "",
+            refresh=request.query_params.get("llm_capabilities_refresh") == "1",
+        )
+    else:
+        llm_capabilities = {
+            "codex": {},
+            "codex_model_options": LLM_CODEX_MODEL_OPTIONS,
+            "codex_reasoning_effort_options": (),
+        }
     context: dict[str, object] = {
         "language": language,
         "timezone": timezone_name,
@@ -136,7 +183,9 @@ async def build_template_context(
         "alert_groups": alert_groups,
         "policy_settings": policy_settings,
         "retention_notice": retention_notice,
-        "codex_model_options": LLM_CODEX_MODEL_OPTIONS,
+        "llm_capabilities": llm_capabilities,
+        "codex_model_options": llm_capabilities["codex_model_options"],
+        "codex_reasoning_effort_options": llm_capabilities["codex_reasoning_effort_options"],
         "format_upload_time": format_upload_time,
         "format_channel_handle_display": format_channel_handle_display,
     }

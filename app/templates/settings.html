@@ -300,7 +300,15 @@
           </select>
 
           <div class="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-            <p class="text-sm font-medium text-slate-700">{{ txt.settings_llm_model_effort_title }}</p>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-sm font-medium text-slate-700">{{ txt.settings_llm_model_effort_title }}</p>
+              <a
+                href="/settings?llm_capabilities_refresh=1"
+                class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              >
+                {{ txt.settings_llm_capabilities_refresh_button }}
+              </a>
+            </div>
             <div class="mt-3 space-y-3">
               <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
                 <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
@@ -317,9 +325,11 @@
                   class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 >
                   <option value="" {% if not llm_settings.llm_reasoning_effort.codex %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
-                  <option value="low" {% if llm_settings.llm_reasoning_effort.codex == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
-                  <option value="medium" {% if llm_settings.llm_reasoning_effort.codex == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
-                  <option value="high" {% if llm_settings.llm_reasoning_effort.codex == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
+                  {% for effort_value in codex_reasoning_effort_options %}
+                  <option value="{{ effort_value }}" {% if llm_settings.llm_reasoning_effort.codex == effort_value %}selected{% endif %}>
+                    {% if effort_value == 'low' %}{{ txt.settings_llm_reasoning_effort_low }}{% elif effort_value == 'medium' %}{{ txt.settings_llm_reasoning_effort_medium }}{% elif effort_value == 'high' %}{{ txt.settings_llm_reasoning_effort_high }}{% elif effort_value == 'xhigh' %}{{ txt.settings_llm_reasoning_effort_xhigh }}{% else %}{{ effort_value }}{% endif %}
+                  </option>
+                  {% endfor %}
                 </select>
               </div>
 

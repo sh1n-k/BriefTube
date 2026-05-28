@@ -7,7 +7,8 @@ import aiosqlite
 
 from app.llm_policy import (
     LLM_CODEX_MODEL_DEFAULT,
-    LLM_CODEX_MODEL_VALUES,
+    LLM_CODEX_MODEL_MAX_LENGTH,
+    LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_GEMINI_MODEL_DEFAULT,
     LLM_PROMPT_TEMPLATE_MAX_LENGTH,
     LLM_PROVIDER_CLAUDE,
@@ -183,9 +184,8 @@ def _validate_telegram_setting(
 def _validate_llm_model_settings(value: Mapping[str, Any]) -> dict[str, str]:
     codex_model = normalize_codex_model(value.get("codex"))
     raw_codex = str(value.get("codex") or "").strip().lower()
-    if raw_codex and raw_codex not in LLM_CODEX_MODEL_VALUES:
-        allowed = ", ".join(sorted(LLM_CODEX_MODEL_VALUES))
-        raise ValueError(f"llm_model.codex must be one of: {allowed}")
+    if len(raw_codex) > LLM_CODEX_MODEL_MAX_LENGTH:
+        raise ValueError(f"llm_model.codex is too long (max {LLM_CODEX_MODEL_MAX_LENGTH})")
     raw_claude = value.get("claude")
     raw_gemini = value.get("gemini")
     claude_model = str(raw_claude or "").strip()
@@ -208,6 +208,8 @@ def _normalize_reasoning_effort(value: Any, *, provider: str) -> str:
     options = (
         LLM_REASONING_EFFORT_GEMINI_OPTIONS
         if provider == LLM_PROVIDER_GEMINI
+        else LLM_CODEX_REASONING_EFFORT_OPTIONS
+        if provider == LLM_PROVIDER_CODEX
         else LLM_REASONING_EFFORT_OPTIONS
     )
     default_value = "none" if provider == LLM_PROVIDER_GEMINI else ""

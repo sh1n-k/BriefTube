@@ -29,6 +29,7 @@ from app.repositories import transcripts as transcripts_repo
 from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
+from app.services.llm_capabilities import LlmCapabilityProbe
 from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier, configure_telegram_notifier
 from app.services.transcript import TranscriptService
@@ -246,6 +247,7 @@ async def lifespan(app: FastAPI):
             response_capture_dir=_resolve_llm_response_capture_dir(config.env),
             capture_full_response_content=_should_capture_llm_response_content(),
         ),
+        llm_capability_probe=LlmCapabilityProbe(),
         telegram_notifier=TelegramNotifier(
             token="",
             chat_id="",
