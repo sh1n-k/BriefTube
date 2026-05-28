@@ -146,6 +146,25 @@ def test_load_config_reads_rss_fetcher_and_yt_dlp_limits(monkeypatch, tmp_path: 
     assert load_config().rss_fetcher_mode == "rss"
 
 
+def test_project_configs_enable_rss_then_yt_dlp_with_default_limits(monkeypatch) -> None:
+    root_dir = Path(__file__).resolve().parents[1]
+    for env_name in (
+        "RSS_FETCHER_MODE",
+        "YT_DLP_PLAYLIST_LIMIT",
+        "YT_DLP_TIMEOUT_SECONDS",
+        "YT_DLP_LONGFORM_MIN_SECONDS",
+    ):
+        monkeypatch.delenv(env_name, raising=False)
+
+    for filename in ("config.dev.yaml", "config.prod.yaml"):
+        monkeypatch.setenv("APP_CONFIG_FILE", str(root_dir / filename))
+        cfg = load_config()
+        assert cfg.rss_fetcher_mode == "rss_then_yt_dlp"
+        assert cfg.yt_dlp_playlist_limit == 15
+        assert cfg.yt_dlp_timeout_seconds == 60
+        assert cfg.yt_dlp_longform_min_seconds == 180
+
+
 def test_load_config_falls_back_to_auto_for_invalid_console_color(monkeypatch) -> None:
     monkeypatch.delenv("APP_CONFIG_FILE", raising=False)
     monkeypatch.setenv("LOG_CONSOLE_COLOR", "sometimes")

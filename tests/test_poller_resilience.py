@@ -447,6 +447,21 @@ def test_yt_dlp_feed_service_filters_shorts_and_short_videos() -> None:
     assert "7" in captured_command
 
 
+def test_yt_dlp_feed_service_raises_when_error_output_has_no_entries() -> None:
+    async def fake_runner(command: list[str], timeout_seconds: float):
+        return 0, "", "ERROR: extractor failed"
+
+    async def _run() -> str:
+        service = YtDlpFeedService(runner=fake_runner)
+        try:
+            await service.fetch_channel_feed("UCytfail001")
+        except YtDlpFeedError as exc:
+            return str(exc)
+        return ""
+
+    assert asyncio.run(_run()) == "ERROR: extractor failed"
+
+
 def test_poll_once_applies_bootstrap_lookback_for_new_channels(client) -> None:
     db_path = os.environ["DB_PATH"]
     started_at = datetime(2026, 2, 25, 0, 0, 0, tzinfo=UTC)

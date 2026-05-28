@@ -53,7 +53,7 @@ class YtDlpFeedService:
             channel_url,
         ]
         return_code, stdout, stderr = await self._runner(command, float(self.timeout_seconds))
-        if return_code != 0 and not stdout.strip():
+        if not stdout.strip() and (return_code != 0 or stderr.strip()):
             raise YtDlpFeedError((stderr or f"yt-dlp exited with code {return_code}").strip())
 
         entries = _parse_yt_dlp_json_lines(
