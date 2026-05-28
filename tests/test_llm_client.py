@@ -417,6 +417,53 @@ def test_restructure_rejects_claude_result_string_with_embedded_article_json() -
         assert exc.code == "llm_schema_invalid"
 
 
+def test_restructure_allows_refusal_word_inside_valid_article_json() -> None:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
+        assert args[0] == "codex"
+        output_path = Path(args[args.index("--output-last-message") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "title": "Article title",
+                    "lead": "음주 측정 거부 사례를 다룬 기사입니다.",
+                    "body": "본문에도 거부라는 단어가 자연어 맥락으로 등장할 수 있습니다.",
+                    "fact_box": "{}",
+                    "timestamps": "[]",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "codex",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+            },
+        )
+    )
+
+    assert article["lead"] == "음주 측정 거부 사례를 다룬 기사입니다."
+
+
+def test_parse_non_json_refusal_text_still_reports_provider_refusal() -> None:
+    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
+    try:
+        client._parse_provider_output("codex", "요청을 거부합니다.")
+        assert False, "expected LlmClientError"
+    except LlmClientError as exc:
+        assert exc.code == "llm_provider_refused"
+        assert exc.retryable is False
+
+
 def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
     calls: list[str] = []
 

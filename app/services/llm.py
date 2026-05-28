@@ -51,7 +51,9 @@ REFUSAL_KEYWORDS = (
     "unable to comply",
     "refuse",
     "refusal",
-    "거부",
+    "요청을 거부",
+    "답변할 수 없습니다",
+    "응답할 수 없습니다",
 )
 AUTH_KEYWORDS = (
     "not logged in",
@@ -709,6 +711,11 @@ class UnifiedLlmClient:
                 provider=provider,
                 retryable=True,
             )
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
         if self._looks_like_auth(stripped):
             raise LlmClientError(
                 "llm_provider_auth_required",
@@ -723,11 +730,6 @@ class UnifiedLlmClient:
                 provider=provider,
                 retryable=False,
             )
-
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError:
-            pass
 
         raise LlmClientError(
             "llm_schema_invalid",
