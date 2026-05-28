@@ -45,13 +45,14 @@ uv run lint-imports                     # 계층 import 계약
 | `routers/pages_downloads.py` | `/downloads` | 전체 HTML |
 | `routers/template_context.py` | — | `build_template_context()` 공통 |
 
-### Workers (7개, `workers/`)
+### Workers (8개, `workers/`)
 
 | 워커 | wake event | 역할 |
 |------|-----------|------|
 | `poller.py` | `poll_now_event` | RSS 피드 폴링 |
 | `download_worker.py` | `download_wake_event` | yt-dlp 다운로드 |
 | `transcript_worker.py` | — | 자막 수집 (adaptive backoff, lease 잠금) |
+| `manual_transcript_worker.py` | `manual_transcript_wake_event` | 수동 자막 재시도 요청 |
 | `llm_worker.py` | `llm_wake_event` | LLM 기사화 |
 | `manual_article_worker.py` | `manual_article_wake_event` | 수동 기사화 요청 |
 | `channel_metadata_worker.py` | `channel_metadata_wake_event` | 채널 메타데이터 크롤링 |

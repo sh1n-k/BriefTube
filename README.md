@@ -185,6 +185,3 @@ uv run lint-imports
 
 - [AGENTS.md](./AGENTS.md)
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
-- [기획서](./01_기획서.md)
-- [개발 스펙](./02_개발스펙.md)
-- [워커 아키텍처](./03_워커_아키텍처.md)
