@@ -10,11 +10,32 @@ LOG_DIR="${ROOT_DIR}/logs/launchd"
 STDOUT_PATH="${LOG_DIR}/brieftube-prod.stdout.log"
 STDERR_PATH="${LOG_DIR}/brieftube-prod.stderr.log"
 APP_CONFIG_FILE_PATH="${APP_CONFIG_FILE:-${ROOT_DIR}/config.prod.yaml}"
-HOST_VALUE="${HOST:-0.0.0.0}"
-PORT_VALUE="${PORT:-48000}"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
 LAUNCHER_PATH="${ROOT_DIR}/run-prod.sh"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
+
+read_config_value() {
+  local key="$1"
+  local default_value="$2"
+  if [[ ! -f "${APP_CONFIG_FILE_PATH}" ]]; then
+    printf "%s\n" "${default_value}"
+    return
+  fi
+  local value
+  value="$(awk -F: -v key="${key}" '
+    $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+      sub(/^[[:space:]]*/, "", $2)
+      sub(/[[:space:]]*(#.*)?$/, "", $2)
+      gsub(/^["'\''"]|["'\''"]$/, "", $2)
+      print $2
+      exit
+    }
+  ' "${APP_CONFIG_FILE_PATH}")"
+  printf "%s\n" "${value:-${default_value}}"
+}
+
+SERVER_HOST_VALUE="$(read_config_value "server_host" "0.0.0.0")"
+SERVER_PORT_VALUE="$(read_config_value "server_port" "48080")"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   cat <<EOF
@@ -25,8 +46,8 @@ LaunchAgent dry run:
   launcher: ${LAUNCHER_PATH}
   working_directory: ${ROOT_DIR}
   app_config_file: ${APP_CONFIG_FILE_PATH}
-  host: ${HOST_VALUE}
-  port: ${PORT_VALUE}
+  server_host: ${SERVER_HOST_VALUE}
+  server_port: ${SERVER_PORT_VALUE}
   stdout: ${STDOUT_PATH}
   stderr: ${STDERR_PATH}
   service_target: gui/$(id -u)/${LABEL}
@@ -71,12 +92,8 @@ cat >"${PLIST_PATH}" <<PLIST
       <string>${APP_CONFIG_FILE_PATH}</string>
       <key>HOME</key>
       <string>${HOME}</string>
-      <key>HOST</key>
-      <string>${HOST_VALUE}</string>
       <key>PATH</key>
       <string>${PATH_VALUE}</string>
-      <key>PORT</key>
-      <string>${PORT_VALUE}</string>
     </dict>
 
     <key>KeepAlive</key>
@@ -102,7 +119,7 @@ cat <<EOF
 Installed LaunchAgent:
   label: ${LABEL}
   plist: ${PLIST_PATH}
-  app: http://${HOST_VALUE}:${PORT_VALUE}
+  app: http://${SERVER_HOST_VALUE}:${SERVER_PORT_VALUE}
 
 Status:
   launchctl print gui/$(id -u)/${LABEL}

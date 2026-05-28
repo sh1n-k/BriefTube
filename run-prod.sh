@@ -10,7 +10,5 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 export APP_CONFIG_FILE="${APP_CONFIG_FILE:-config.prod.yaml}"
-HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
 
-exec uv run python -m uvicorn app.main:app --host "$HOST" --port "$PORT"
+exec uv run brieftube
