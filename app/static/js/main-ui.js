@@ -1528,6 +1528,7 @@
 
       let downloadProgressInFlight = false;
       let downloadProgressPollingStarted = false;
+      let downloadProgressIntervalId = null;
 
       async function pollDownloadProgress() {
         if (downloadProgressInFlight) return;
@@ -1582,9 +1583,22 @@
         if (downloadProgressPollingStarted) return;
         downloadProgressPollingStarted = true;
         void pollDownloadProgress();
-        window.setInterval(() => {
+        downloadProgressIntervalId = window.setInterval(() => {
           void pollDownloadProgress();
         }, DOWNLOAD_PROGRESS_POLL_INTERVAL_MS);
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            if (downloadProgressIntervalId) {
+              clearInterval(downloadProgressIntervalId);
+              downloadProgressIntervalId = null;
+            }
+          } else if (!downloadProgressIntervalId) {
+            void pollDownloadProgress();
+            downloadProgressIntervalId = window.setInterval(() => {
+              void pollDownloadProgress();
+            }, DOWNLOAD_PROGRESS_POLL_INTERVAL_MS);
+          }
+        });
       }
 
       // ── Queue polling ──────────────────────────────────────────
