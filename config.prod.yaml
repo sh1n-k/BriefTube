@@ -44,8 +44,6 @@ transcript_channel_min_interval_seconds: 180
 transcript_channel_pick_lookahead: 20
 transcript_channel_hard_cooldown_seconds: 900
 transcript_breaker_half_open_probe_count: 1
-transcript_worker_lease_enabled: true
-transcript_worker_lease_ttl_seconds: 45
 
 # 로그 출력, 위치와 보관량
 log_level: "AUTO"

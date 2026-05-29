@@ -71,6 +71,7 @@ class AppState:
     manual_article_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
     manual_transcript_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
     channel_metadata_wake_event: asyncio.Event = field(default_factory=asyncio.Event)
+    transcript_worker_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     notification_queue: asyncio.Queue[dict[str, str]] = field(
         default_factory=lambda: asyncio.Queue()
     )

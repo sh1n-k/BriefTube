@@ -12,6 +12,33 @@ from typing import Any
 from uuid import uuid4
 
 from app import llm_policy as _llm_policy
+from app.services.llm_errors import AUTH_KEYWORDS as AUTH_KEYWORDS
+from app.services.llm_errors import REFUSAL_KEYWORDS as REFUSAL_KEYWORDS
+from app.services.llm_errors import (
+    LlmClientError,
+    looks_like_auth,
+    looks_like_refusal,
+    looks_like_schema_mismatch,
+    schema_error_code,
+    trim_error_message,
+)
+from app.services.llm_payload import (
+    coerce_article,
+    extract_article_payload,
+    is_article_payload,
+    load_json,
+    parse_provider_output,
+)
+from app.services.llm_schema import ARTICLE_CORE_KEYS as ARTICLE_CORE_KEYS
+from app.services.llm_schema import ARTICLE_FIELD_KEYS as ARTICLE_FIELD_KEYS
+from app.services.llm_schema import ARTICLE_JSON_SCHEMA as ARTICLE_JSON_SCHEMA
+from app.services.llm_schema import ARTICLE_JSON_SCHEMA_COMPACT as ARTICLE_JSON_SCHEMA_COMPACT
+from app.services.llm_schema import (
+    build_provider_schema,
+)
+from app.services.llm_schema import (
+    validate_provider_schema as _validate_provider_schema,
+)
 
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
 LLM_CODEX_MODEL_MAX_LENGTH = _llm_policy.LLM_CODEX_MODEL_MAX_LENGTH
@@ -30,40 +57,6 @@ LLM_REASONING_EFFORT_GEMINI_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_GEMINI_OP
 LLM_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
 normalize_llm_provider = _llm_policy.normalize_llm_provider
-
-ARTICLE_FIELD_KEYS: tuple[str, ...] = ("title", "lead", "body", "fact_box", "timestamps")
-ARTICLE_CORE_KEYS: tuple[str, ...] = ("title", "lead", "body")
-
-ARTICLE_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {key: {"type": "string"} for key in ARTICLE_FIELD_KEYS},
-    "required": list(ARTICLE_FIELD_KEYS),
-    "additionalProperties": False,
-}
-ARTICLE_JSON_SCHEMA_COMPACT = json.dumps(
-    ARTICLE_JSON_SCHEMA, ensure_ascii=True, separators=(",", ":")
-)
-
-REFUSAL_KEYWORDS = (
-    "prompt injection",
-    "프롬프트 인젝션",
-    "cannot comply",
-    "unable to comply",
-    "refuse",
-    "refusal",
-    "요청을 거부",
-    "답변할 수 없습니다",
-    "응답할 수 없습니다",
-)
-AUTH_KEYWORDS = (
-    "not logged in",
-    "login required",
-    "authentication required",
-    "permission denied",
-    "unauthorized",
-    "forbidden",
-    "auth failed",
-)
 
 
 @dataclass(slots=True)
@@ -87,21 +80,6 @@ class CommandExecutionResult:
     exit_code: int
     stdout: str
     stderr: str
-
-
-class LlmClientError(RuntimeError):
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        provider: str | None = None,
-        retryable: bool = True,
-    ):
-        super().__init__(message)
-        self.code = code
-        self.provider = provider
-        self.retryable = retryable
 
 
 CommandRunner = Callable[[list[str], int, str | None], Awaitable[CommandExecutionResult]]
@@ -698,220 +676,41 @@ class UnifiedLlmClient:
         )
 
     def _parse_provider_output(self, provider: str, stdout: str) -> dict[str, str]:
-        parsed = self._load_json(stdout, provider)
-        payload = self._extract_article_payload(parsed, provider)
-        return self._coerce_article(payload, provider=provider)
+        return parse_provider_output(provider, stdout)
 
     def _load_json(self, raw: str, provider: str) -> Any:
-        stripped = raw.strip()
-        if not stripped:
-            raise LlmClientError(
-                "llm_schema_invalid",
-                "LLM output is empty",
-                provider=provider,
-                retryable=True,
-            )
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError:
-            pass
-
-        if self._looks_like_auth(stripped):
-            raise LlmClientError(
-                "llm_provider_auth_required",
-                self._trim_error_message(stripped),
-                provider=provider,
-                retryable=False,
-            )
-        if self._looks_like_refusal(stripped):
-            raise LlmClientError(
-                "llm_provider_refused",
-                self._trim_error_message(stripped),
-                provider=provider,
-                retryable=False,
-            )
-
-        raise LlmClientError(
-            "llm_schema_invalid",
-            "LLM output is not valid JSON",
-            provider=provider,
-            retryable=True,
-        )
+        return load_json(raw, provider)
 
     def _extract_article_payload(self, data: Any, provider: str) -> Mapping[str, Any]:
-        if isinstance(data, dict):
-            if bool(data.get("is_error")):
-                subtype = str(data.get("subtype") or "").strip().lower()
-                message = str(data.get("error") or data.get("result") or "provider error").strip()
-                message = self._trim_error_message(message)
-                if "refus" in subtype or self._looks_like_refusal(message):
-                    raise LlmClientError(
-                        "llm_provider_refused",
-                        message,
-                        provider=provider,
-                        retryable=False,
-                    )
-                if self._looks_like_auth(message):
-                    raise LlmClientError(
-                        "llm_provider_auth_required",
-                        message,
-                        provider=provider,
-                        retryable=False,
-                    )
-                raise LlmClientError(
-                    "llm_provider_command_failed",
-                    message,
-                    provider=provider,
-                    retryable=True,
-                )
-
-            if self._is_article_payload(data):
-                return data
-
-            structured = data.get("structured_output")
-            if isinstance(structured, dict) and self._is_article_payload(structured):
-                return structured
-
-            nested_result = data.get("result")
-            if isinstance(nested_result, dict) and self._is_article_payload(nested_result):
-                return nested_result
-            if isinstance(nested_result, str):
-                if self._looks_like_auth(nested_result):
-                    raise LlmClientError(
-                        "llm_provider_auth_required",
-                        self._trim_error_message(nested_result),
-                        provider=provider,
-                        retryable=False,
-                    )
-                if self._looks_like_refusal(nested_result):
-                    raise LlmClientError(
-                        "llm_provider_refused",
-                        self._trim_error_message(nested_result),
-                        provider=provider,
-                        retryable=False,
-                    )
-
-        if isinstance(data, list):
-            for item in data:
-                if isinstance(item, dict) and self._is_article_payload(item):
-                    return item
-
-        raise LlmClientError(
-            "llm_schema_invalid",
-            "LLM response does not match required article schema",
-            provider=provider,
-            retryable=True,
-        )
+        return extract_article_payload(data, provider)
 
     def _is_article_payload(self, payload: Mapping[str, Any]) -> bool:
-        required = set(ARTICLE_FIELD_KEYS)
-        return required.issubset(set(payload.keys()))
+        return is_article_payload(payload)
 
     def _coerce_article(self, payload: Mapping[str, Any], *, provider: str) -> dict[str, str]:
-        title = str(payload.get("title") or "").strip()
-        lead = str(payload.get("lead") or "").strip()
-        body = str(payload.get("body") or "").strip()
-        if not title or not lead or not body:
-            raise LlmClientError(
-                "llm_schema_invalid",
-                "LLM response has empty required fields",
-                provider=provider,
-                retryable=True,
-            )
-        return {
-            "title": title,
-            "lead": lead,
-            "body": body,
-            "fact_box": str(payload.get("fact_box") or "{}"),
-            "timestamps": str(payload.get("timestamps") or "[]"),
-        }
+        return coerce_article(payload, provider=provider)
 
     def _looks_like_refusal(self, text: str) -> bool:
-        lowered = text.lower()
-        return any(keyword in lowered for keyword in REFUSAL_KEYWORDS)
+        return looks_like_refusal(text)
 
     def _looks_like_auth(self, text: str) -> bool:
-        lowered = text.lower()
-        return any(keyword in lowered for keyword in AUTH_KEYWORDS)
+        return looks_like_auth(text)
 
     def _looks_like_schema_mismatch(self, text: str) -> bool:
-        lowered = text.lower()
-        return (
-            "invalid_json_schema" in lowered
-            or ("response_format" in lowered and "schema" in lowered)
-            or "text.format.schema" in lowered
-        )
+        return looks_like_schema_mismatch(text)
 
     def _schema_error_code(self, provider: str) -> str:
-        normalized = normalize_llm_provider(provider, allow_none=False)
-        return f"llm_provider_schema_invalid_{normalized}"
+        return schema_error_code(provider)
 
     def _provider_schema_compact(self, provider: str) -> str:
         schema = self._provider_schema(provider)
         return json.dumps(schema, ensure_ascii=True, separators=(",", ":"))
 
     def _provider_schema(self, provider: str) -> dict[str, Any]:
-        del provider  # schema is currently provider-agnostic; signature kept for future divergence
-        required = list(ARTICLE_FIELD_KEYS)
-        return {
-            "type": "object",
-            "properties": {key: {"type": "string"} for key in ARTICLE_FIELD_KEYS},
-            "required": required,
-            "additionalProperties": False,
-        }
+        return build_provider_schema(provider)
 
     def validate_provider_schema(self, provider: str) -> None:
-        normalized = normalize_llm_provider(provider, allow_none=False)
-        if normalized == LLM_PROVIDER_GEMINI:
-            raise LlmClientError(
-                self._schema_error_code(normalized),
-                "Gemini CLI does not support strict output schema enforcement",
-                provider=normalized,
-                retryable=False,
-            )
-        schema = self._provider_schema(normalized)
-        properties = schema.get("properties")
-        required = schema.get("required")
-        if not isinstance(properties, dict):
-            raise LlmClientError(
-                self._schema_error_code(normalized),
-                "LLM output schema is invalid: properties must be object",
-                provider=normalized,
-                retryable=False,
-            )
-        property_keys = {str(key) for key in properties.keys()}
-        required_keys = {str(item) for item in required} if isinstance(required, list) else set()
-        missing_core = set(ARTICLE_CORE_KEYS) - property_keys
-        if missing_core:
-            raise LlmClientError(
-                self._schema_error_code(normalized),
-                f"LLM output schema is invalid: missing core properties={sorted(missing_core)}",
-                provider=normalized,
-                retryable=False,
-            )
-        if normalized == LLM_PROVIDER_CODEX:
-            missing_required = property_keys - required_keys
-            if missing_required:
-                raise LlmClientError(
-                    self._schema_error_code(normalized),
-                    (
-                        "LLM output schema is invalid for codex: "
-                        f"required must include all properties, missing={sorted(missing_required)}"
-                    ),
-                    provider=normalized,
-                    retryable=False,
-                )
-        missing_field_keys = set(ARTICLE_FIELD_KEYS) - property_keys
-        if missing_field_keys:
-            raise LlmClientError(
-                self._schema_error_code(normalized),
-                f"LLM output schema is invalid: missing properties={sorted(missing_field_keys)}",
-                provider=normalized,
-                retryable=False,
-            )
+        _validate_provider_schema(provider, schema_builder=self._provider_schema)
 
     def _trim_error_message(self, text: str, limit: int = 600) -> str:
-        trimmed = str(text or "").strip()
-        if len(trimmed) <= limit:
-            return trimmed
-        return trimmed[:limit]
+        return trim_error_message(text, limit)

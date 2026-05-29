@@ -12,7 +12,7 @@ from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.services.channel_handle import format_channel_handle_display
 from app.services.llm import LLM_CODEX_MODEL_OPTIONS
-from app.services.llm_capabilities import LlmCapabilityProbe
+from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
     resolve_llm_runtime_status,
     runtime_reason_text,
@@ -88,12 +88,7 @@ async def _build_llm_capability_context(
     current_reasoning_effort: str,
     refresh: bool = False,
 ) -> dict[str, object]:
-    runtime = request.app.state.runtime
-    probe = getattr(runtime, "llm_capability_probe", None)
-    if not isinstance(probe, LlmCapabilityProbe):
-        probe = LlmCapabilityProbe(command_exists=lambda _name: False)
-
-    codex = await probe.get_codex_capabilities(refresh=refresh)
+    codex = await resolve_codex_capabilities(request.app.state.runtime, refresh=refresh)
     model_options = [(model.value, model.label) for model in codex.models]
     if current_model and current_model not in {value for value, _label in model_options}:
         model_options.append((current_model, current_model))

@@ -50,8 +50,6 @@ class AppConfig:
     transcript_channel_pick_lookahead: int = 20
     transcript_channel_hard_cooldown_seconds: int = 900
     transcript_breaker_half_open_probe_count: int = 1
-    transcript_worker_lease_enabled: bool = True
-    transcript_worker_lease_ttl_seconds: int = 45
     log_level: str = "AUTO"
     log_to_file: bool = True
     log_dir: str = "./logs"
@@ -266,18 +264,6 @@ def load_config() -> AppConfig:
                 base.transcript_breaker_half_open_probe_count,
             )
         ),
-        transcript_worker_lease_enabled=_parse_env_bool(
-            file_values.get(
-                "transcript_worker_lease_enabled",
-                base.transcript_worker_lease_enabled,
-            )
-        ),
-        transcript_worker_lease_ttl_seconds=int(
-            file_values.get(
-                "transcript_worker_lease_ttl_seconds",
-                base.transcript_worker_lease_ttl_seconds,
-            )
-        ),
         rss_channel_deactivate_after_fails=int(
             file_values.get(
                 "rss_channel_deactivate_after_fails", base.rss_channel_deactivate_after_fails
@@ -440,15 +426,6 @@ def load_config() -> AppConfig:
             cfg.transcript_breaker_half_open_probe_count,
         )
     )
-    cfg.transcript_worker_lease_enabled = _parse_env_bool(
-        os.getenv("TRANSCRIPT_WORKER_LEASE_ENABLED", str(cfg.transcript_worker_lease_enabled))
-    )
-    cfg.transcript_worker_lease_ttl_seconds = int(
-        os.getenv(
-            "TRANSCRIPT_WORKER_LEASE_TTL_SECONDS",
-            cfg.transcript_worker_lease_ttl_seconds,
-        )
-    )
     cfg.rss_channel_deactivate_after_fails = int(
         os.getenv("RSS_CHANNEL_DEACTIVATE_AFTER_FAILS", cfg.rss_channel_deactivate_after_fails)
     )
@@ -508,7 +485,6 @@ def load_config() -> AppConfig:
     cfg.transcript_breaker_half_open_probe_count = max(
         1, cfg.transcript_breaker_half_open_probe_count
     )
-    cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
     if not cfg.server_host:
         cfg.server_host = "0.0.0.0"
     cfg.server_port = max(1, min(65535, cfg.server_port))

@@ -31,9 +31,6 @@ repository = SimpleNamespace(
     repair_orphan_llm_candidates=llm_repo.repair_orphan_llm_candidates,
     ensure_llm_config_missing_alert=llm_repo.ensure_llm_config_missing_alert,
     get_setting=settings_repo.get_setting,
-    acquire_transcript_worker_lease=transcripts_repo.acquire_transcript_worker_lease,
-    renew_transcript_worker_lease=transcripts_repo.renew_transcript_worker_lease,
-    release_transcript_worker_lease=transcripts_repo.release_transcript_worker_lease,
 )
 
 
@@ -257,8 +254,8 @@ def test_recover_stuck_transcript_jobs_requeues_processing_rows(tmp_path) -> Non
     assert transcript_status == "transcript_pending"
 
 
-def test_transcript_fetcher_recovers_processing_rows_when_lease_disabled(tmp_path) -> None:
-    db_path = tmp_path / "recover-processing-lease-disabled.db"
+def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
+    db_path = tmp_path / "recover-processing.db"
 
     class _FakeTranscriptService:
         def __init__(self) -> None:
@@ -297,9 +294,9 @@ def test_transcript_fetcher_recovers_processing_rows_when_lease_disabled(tmp_pat
                 VALUES (?, ?, ?, ?, 'transcript_processing', 'transcript_only')
                 """,
                 (
-                    "vid-recover-lease-disabled",
+                    "vid-recover-processing",
                     "UCrecover003",
-                    "recover lease disabled",
+                    "recover processing",
                     "2026-02-10T00:00:00+00:00",
                 ),
             )
@@ -325,11 +322,10 @@ def test_transcript_fetcher_recovers_processing_rows_when_lease_disabled(tmp_pat
                     transcript_channel_pick_lookahead=1,
                     transcript_channel_hard_cooldown_seconds=5,
                     transcript_breaker_half_open_probe_count=1,
-                    transcript_worker_lease_enabled=False,
-                    transcript_worker_lease_ttl_seconds=5,
                 ),
                 db=db,
                 transcript_service=fake_service,
+                transcript_worker_lock=asyncio.Lock(),
             )
             task = asyncio.create_task(run_transcript_fetcher(state))
             try:
@@ -341,7 +337,7 @@ def test_transcript_fetcher_recovers_processing_rows_when_lease_disabled(tmp_pat
                         LEFT JOIN transcripts t ON t.video_id = v.video_id
                         WHERE v.video_id = ?
                         """,
-                        ("vid-recover-lease-disabled",),
+                        ("vid-recover-processing",),
                     )
                     row = await cursor.fetchone()
                     if row is not None and row["raw_text"] == "recovered transcript":
@@ -357,7 +353,7 @@ def test_transcript_fetcher_recovers_processing_rows_when_lease_disabled(tmp_pat
     status, raw_text, calls = asyncio.run(_run())
     assert status == "transcript_done"
     assert raw_text == "recovered transcript"
-    assert calls == ["vid-recover-lease-disabled"]
+    assert calls == ["vid-recover-processing"]
 
 
 def test_schedule_transcript_retry_persists_last_error(client) -> None:
@@ -945,124 +941,16 @@ def test_ensure_llm_config_missing_alert_is_deduplicated_and_reset(client) -> No
     assert sent_key == "0"
 
 
-def test_transcript_worker_lease_allows_single_owner(tmp_path) -> None:
-    db_path = tmp_path / "lease.db"
-
-    async def _run() -> tuple[bool, bool, bool, bool, bool, bool]:
-        db = await open_database(str(db_path))
+def test_transcript_worker_skips_when_lock_already_held(tmp_path) -> None:
+    async def _run() -> None:
+        lock = asyncio.Lock()
+        await lock.acquire()
         try:
-            await init_database(db)
-            acquired_a = await repository.acquire_transcript_worker_lease(
-                db,
-                owner_id="owner-a",
-                ttl_seconds=60,
-            )
-            acquired_b = await repository.acquire_transcript_worker_lease(
-                db,
-                owner_id="owner-b",
-                ttl_seconds=60,
-            )
-            renewed_a = await repository.renew_transcript_worker_lease(
-                db,
-                owner_id="owner-a",
-                ttl_seconds=60,
-            )
-            released_b = await repository.release_transcript_worker_lease(db, owner_id="owner-b")
-            released_a = await repository.release_transcript_worker_lease(db, owner_id="owner-a")
-            acquired_b_after_release = await repository.acquire_transcript_worker_lease(
-                db,
-                owner_id="owner-b",
-                ttl_seconds=60,
-            )
-            return (
-                acquired_a,
-                acquired_b,
-                renewed_a,
-                released_b,
-                released_a,
-                acquired_b_after_release,
-            )
+            state = SimpleNamespace(transcript_worker_lock=lock)
+            # A second invocation must return immediately while the in-process
+            # lock is held, instead of blocking or running a duplicate loop.
+            await asyncio.wait_for(run_transcript_fetcher(state), timeout=2.0)
         finally:
-            await db.close()
+            lock.release()
 
-    acquired_a, acquired_b, renewed_a, released_b, released_a, acquired_b_after_release = (
-        asyncio.run(_run())
-    )
-    assert acquired_a is True
-    assert acquired_b is False
-    assert renewed_a is True
-    assert released_b is False
-    assert released_a is True
-    assert acquired_b_after_release is True
-
-
-def test_transcript_worker_lease_succeeds_with_dedicated_connection_while_shared_connection_has_transaction(
-    tmp_path,
-) -> None:
-    db_path = tmp_path / "lease-dedicated.db"
-
-    async def _run() -> bool:
-        shared_db = await open_database(str(db_path))
-        worker_db = await open_database(str(db_path))
-        try:
-            await init_database(shared_db)
-            await shared_db.execute("BEGIN")
-            await shared_db.execute("SELECT 1")
-            acquired = await repository.acquire_transcript_worker_lease(
-                worker_db,
-                owner_id="owner-dedicated",
-                ttl_seconds=60,
-            )
-            await shared_db.rollback()
-            return acquired
-        finally:
-            await worker_db.close()
-            await shared_db.close()
-
-    acquired = asyncio.run(_run())
-    assert acquired is True
-
-
-def test_lease_heartbeat_loop_renews_before_stop(tmp_path, monkeypatch) -> None:
-    from app.workers import transcript_worker
-
-    db_path = tmp_path / "lease-heartbeat.db"
-
-    async def _run() -> int:
-        db = await open_database(str(db_path))
-        try:
-            await init_database(db)
-            await repository.acquire_transcript_worker_lease(
-                db,
-                owner_id="owner-heartbeat",
-                ttl_seconds=60,
-            )
-            stop_event = asyncio.Event()
-            lost_event = asyncio.Event()
-            renew_calls = {"count": 0}
-            original = repository.renew_transcript_worker_lease
-
-            async def _wrapped_renew(*args, **kwargs):
-                renew_calls["count"] += 1
-                stop_event.set()
-                return await original(*args, **kwargs)
-
-            monkeypatch.setattr(
-                transcript_worker.transcripts_repo, "renew_transcript_worker_lease", _wrapped_renew
-            )
-
-            await transcript_worker._lease_heartbeat_loop(
-                db=db,
-                owner_id="owner-heartbeat",
-                ttl_seconds=60,
-                renew_interval_seconds=0.01,
-                stop_event=stop_event,
-                lost_event=lost_event,
-            )
-            assert lost_event.is_set() is False
-            return renew_calls["count"]
-        finally:
-            await db.close()
-
-    renew_count = asyncio.run(_run())
-    assert renew_count >= 1
+    asyncio.run(_run())

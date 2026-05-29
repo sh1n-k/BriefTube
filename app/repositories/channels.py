@@ -1,6 +1,8 @@
 """Channel-related repository accessors."""
 
 from app.repositories import _channels as repository
+from app.repositories import _channels_metadata as metadata_repository
+from app.repositories import _channels_polling as polling_repository
 
 CHANNEL_MANAGEMENT_STATUS_ACTIVE = repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE
 CHANNEL_MANAGEMENT_STATUS_INACTIVE = repository.CHANNEL_MANAGEMENT_STATUS_INACTIVE
@@ -23,13 +25,13 @@ count_channels_by_status = repository.count_channels_by_status
 add_channel = repository.add_channel
 get_channel_by_id = repository.get_channel_by_id
 
-enqueue_channel_metadata_refresh = repository.enqueue_channel_metadata_refresh
-schedule_channel_metadata_backfill = repository.schedule_channel_metadata_backfill
-claim_next_channel_metadata_target = repository.claim_next_channel_metadata_target
-mark_channel_metadata_succeeded = repository.mark_channel_metadata_succeeded
-mark_channel_metadata_failed = repository.mark_channel_metadata_failed
-enqueue_failed_channel_metadata = repository.enqueue_failed_channel_metadata
-recover_stuck_channel_metadata_running = repository.recover_stuck_channel_metadata_running
+enqueue_channel_metadata_refresh = metadata_repository.enqueue_channel_metadata_refresh
+schedule_channel_metadata_backfill = metadata_repository.schedule_channel_metadata_backfill
+claim_next_channel_metadata_target = metadata_repository.claim_next_channel_metadata_target
+mark_channel_metadata_succeeded = metadata_repository.mark_channel_metadata_succeeded
+mark_channel_metadata_failed = metadata_repository.mark_channel_metadata_failed
+enqueue_failed_channel_metadata = metadata_repository.enqueue_failed_channel_metadata
+recover_stuck_channel_metadata_running = metadata_repository.recover_stuck_channel_metadata_running
 
 deactivate_channel = repository.deactivate_channel
 reactivate_channel = repository.reactivate_channel
@@ -39,9 +41,9 @@ update_channel_watermark = repository.update_channel_watermark
 
 delete_channels_with_related_data = repository.delete_channels_with_related_data
 
-pick_next_rss_channel = repository.pick_next_rss_channel
-mark_rss_poll_success = repository.mark_rss_poll_success
-increment_rss_fail_streak = repository.increment_rss_fail_streak
-touch_rss_last_polled_at = repository.touch_rss_last_polled_at
-count_active_channels = repository.count_active_channels
-is_newer_published = repository.is_newer_published
+pick_next_rss_channel = polling_repository.pick_next_rss_channel
+mark_rss_poll_success = polling_repository.mark_rss_poll_success
+increment_rss_fail_streak = polling_repository.increment_rss_fail_streak
+touch_rss_last_polled_at = polling_repository.touch_rss_last_polled_at
+count_active_channels = polling_repository.count_active_channels
+is_newer_published = polling_repository.is_newer_published
