@@ -121,7 +121,6 @@ exclude = [
 strict = [
   "app/config.py",
   "app/state.py",
-  "app/schemas.py",
   "app/repositories",
   "app/domains",
 ]
@@ -170,6 +169,6 @@ layers = [
   "app.repositories",
   "app.logging_setup",
   "app.time_utils",
-  "app.database | app.schemas | app.i18n | app.pagination | app.download_error_registry | app.download_policy | app.llm_policy | app.timezone_policy | app.config",
+  "app.database | app.i18n | app.download_error_registry | app.download_policy | app.llm_policy | app.timezone_policy | app.config",
 ]
 exhaustive = false

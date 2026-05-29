@@ -66,7 +66,7 @@ uv run ruff check . --fix && uv run ruff format .
 - **새 위반 발생 시**: 수정이 원칙. 코드 동작을 변경해야 하는 fix는 별도 PR로.
 - **의도된 패턴 보호**: 사유를 코멘트로 남기고 인라인 `# noqa: <RULE>` 또는 `# pyright: ignore[<rule>]` 사용. 사유 없는 무시 금지.
 - **전역 ignore 추가**: 다수 위반이 동일 패턴일 때만 검토하고 `pyproject.toml`에 사유 코멘트 동반.
-- **Pyright strict 영역**: `app/config.py`, `app/state.py`, `app/schemas.py`, `app/repositories/`, `app/domains/`
+- **Pyright strict 영역**: `app/config.py`, `app/state.py`, `app/repositories/`, `app/domains/`
 - **import-linter ignore 추가**: baseline 위반 추적용이므로 후속 정리 계획과 함께 명시
 
 계층 import 방향:
