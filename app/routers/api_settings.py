@@ -17,7 +17,7 @@ from app.repositories import transcripts as transcripts_repo
 from app.routers.helpers import htmx_trigger_header, parse_bool_input
 from app.routers.template_context import build_template_context
 from app.services.downloads import is_ffmpeg_available
-from app.services.llm_capabilities import LlmCapabilityProbe
+from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
     LlmRuntimeStatus,
     is_runtime_ready_for_resume,
@@ -102,10 +102,7 @@ async def _resolve_llm_runtime_status(request: Request) -> dict[str, Any]:
 
 
 async def _resolve_llm_capabilities(request: Request, *, refresh: bool = False) -> dict[str, Any]:
-    probe = getattr(request.app.state.runtime, "llm_capability_probe", None)
-    if not isinstance(probe, LlmCapabilityProbe):
-        probe = LlmCapabilityProbe(command_exists=lambda _name: False)
-    codex = await probe.get_codex_capabilities(refresh=refresh)
+    codex = await resolve_codex_capabilities(request.app.state.runtime, refresh=refresh)
     return {
         "codex": codex.as_payload(),
     }
