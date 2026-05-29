@@ -198,7 +198,24 @@
               <div class="truncate text-xs font-mono text-slate-400" title="{{ video.video_id }}">{{ video.video_id }}</div>
             </td>
             <td class="p-3 align-middle text-slate-600">
-              <div class="truncate font-medium" title="{{ video.channel_name or video.channel_id }}">{{ video.channel_name or video.channel_id }}</div>
+              {% if video.channel_id %}
+                {% set channel_filter_q = "page=1&limit=" ~ (pager.limit|string|urlencode) ~ "&sort=" ~ (pager.sort|string|urlencode) ~ "&order=" ~ (pager.order|string|urlencode) ~ "&channel_id=" ~ (video.channel_id|string|urlencode) %}
+                {% if pager.category_id is defined and pager.category_id %}{% set channel_filter_q = channel_filter_q ~ "&category_id=" ~ (pager.category_id|string|urlencode) %}{% endif %}
+                {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set channel_filter_q = channel_filter_q ~ "&pipeline_status=" ~ (pager.pipeline_status|string|urlencode) %}{% endif %}
+                <a
+                  href="/?{{ channel_filter_q }}"
+                  hx-get="/views/video-list?{{ channel_filter_q }}"
+                  hx-target="#video-list-wrap"
+                  hx-swap="outerHTML"
+                  hx-push-url="?{{ channel_filter_q }}"
+                  class="block truncate font-medium text-slate-600 hover:text-indigo-700"
+                  title="{{ video.channel_name or video.channel_id }}"
+                >
+                  {{ video.channel_name or video.channel_id }}
+                </a>
+              {% else %}
+                <div class="truncate font-medium" title="{{ video.channel_name or video.channel_id }}">{{ video.channel_name or video.channel_id }}</div>
+              {% endif %}
               <div class="truncate text-xs font-mono text-slate-400" title="{{ video.channel_id }}">{{ video.channel_id }}</div>
             </td>
             <td class="whitespace-nowrap p-3 align-middle text-slate-600" style="font-variant-numeric: tabular-nums;">{{ format_upload_time(video.upload_time, timezone) }}</td>

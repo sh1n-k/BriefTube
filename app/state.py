@@ -12,6 +12,7 @@ import httpx
 from app.config import AppConfig
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
+from app.services.llm_capabilities import LlmCapabilityProbe
 from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier
 from app.services.transcript import TranscriptService
@@ -61,6 +62,7 @@ class AppState:
     transcript_service: TranscriptService
     channel_resolver: ChannelResolverService
     llm_client: UnifiedLlmClient
+    llm_capability_probe: LlmCapabilityProbe
     telegram_notifier: TelegramNotifier
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     poll_now_event: asyncio.Event = field(default_factory=asyncio.Event)

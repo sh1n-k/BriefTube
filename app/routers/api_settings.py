@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.i18n import SUPPORTED_LANGUAGES, get_texts, normalize_language
@@ -17,6 +17,7 @@ from app.repositories import transcripts as transcripts_repo
 from app.routers.helpers import htmx_trigger_header, parse_bool_input
 from app.routers.template_context import build_template_context
 from app.services.downloads import is_ffmpeg_available
+from app.services.llm_capabilities import LlmCapabilityProbe
 from app.services.llm_runtime import (
     LlmRuntimeStatus,
     is_runtime_ready_for_resume,
@@ -100,6 +101,16 @@ async def _resolve_llm_runtime_status(request: Request) -> dict[str, Any]:
     }
 
 
+async def _resolve_llm_capabilities(request: Request, *, refresh: bool = False) -> dict[str, Any]:
+    probe = getattr(request.app.state.runtime, "llm_capability_probe", None)
+    if not isinstance(probe, LlmCapabilityProbe):
+        probe = LlmCapabilityProbe(command_exists=lambda _name: False)
+    codex = await probe.get_codex_capabilities(refresh=refresh)
+    return {
+        "codex": codex.as_payload(),
+    }
+
+
 @router.get("/settings")
 async def get_settings(request: Request):
     language = await settings_repo.get_setting(
@@ -130,6 +141,7 @@ async def get_settings(request: Request):
     )
     llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
     llm_runtime_status = await _resolve_llm_runtime_status(request)
+    llm_capabilities = await _resolve_llm_capabilities(request)
     telegram_settings = await _build_telegram_settings_payload_for_request(request)
     return {
         "language": normalize_language(language),
@@ -142,6 +154,7 @@ async def get_settings(request: Request):
         "download_defaults": download_defaults,
         "llm_settings": llm_settings,
         "llm_runtime_status": llm_runtime_status,
+        "llm_capabilities": llm_capabilities,
         "telegram_settings": telegram_settings,
         "ffmpeg_available": is_ffmpeg_available(),
     }
@@ -425,6 +438,11 @@ async def set_telegram_settings(request: Request):
 @router.get("/settings/llm/runtime-status")
 async def get_llm_runtime_status(request: Request):
     return await _resolve_llm_runtime_status(request)
+
+
+@router.get("/settings/llm/capabilities")
+async def get_llm_capabilities(request: Request, refresh: bool = Query(False)):
+    return await _resolve_llm_capabilities(request, refresh=refresh)
 
 
 @router.post("/settings/llm/resume")

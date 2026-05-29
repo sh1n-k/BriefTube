@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
+from html import unescape
 
 from fastapi.testclient import TestClient
 
@@ -171,6 +173,29 @@ def test_video_list_channel_filter(client: TestClient) -> None:
     assert "vid-b-000" in html
     assert "vid-b-001" in html
     assert "vid-a-000" not in html
+
+
+def test_video_list_channel_name_links_to_channel_filter(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        conn.commit()
+
+    response = client.get(
+        "/views/video-list",
+        params={"limit": "20", "pipeline_status": "done"},
+    )
+
+    assert response.status_code == 200
+    html = unescape(response.text)
+    expected_query = (
+        "page=1&limit=20&sort=upload_time&order=desc&channel_id=UC_BBB&pipeline_status=done"
+    )
+    assert re.search(r">\s*Channel B\s*</a>", html)
+    assert f'href="/?{expected_query}"' in html
+    assert f'hx-get="/views/video-list?{expected_query}"' in html
+    assert f'hx-push-url="?{expected_query}"' in html
 
 
 def test_video_list_pipeline_status_filter(client: TestClient) -> None:

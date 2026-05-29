@@ -37,9 +37,10 @@ logs/
 # Environment / local config
 .env
 .env.*
-!.env.example
 config.local.yml
 config.local.yaml
+config.*.local.yml
+config.*.local.yaml
 
 # Build outputs
 build/

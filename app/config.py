@@ -12,6 +12,9 @@ _logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class AppConfig:
     env: str = "prod"
+    server_host: str = "0.0.0.0"
+    server_port: int = 48080
+    server_reload: bool = False
     polling_interval_minutes: int = 15
     max_retry_count: int = 3
     llm_timeout_seconds: int = 120
@@ -72,11 +75,19 @@ def _parse_scalar(value: str) -> str | int | bool:
     return raw
 
 
-def _parse_env_bool(value: str | bool) -> bool:
+def _parse_env_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
     normalized = str(value).strip().lower()
     return normalized in {"1", "true", "yes", "on"}
+
+
+def _env_value(names: tuple[str, ...], default: object) -> object:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None:
+            return value
+    return default
 
 
 def _parse_float(value: object, default: float) -> float:
@@ -120,6 +131,9 @@ def load_config() -> AppConfig:
 
     cfg = AppConfig(
         env=str(file_values.get("env", base.env)),
+        server_host=str(file_values.get("server_host", base.server_host)),
+        server_port=int(file_values.get("server_port", base.server_port)),
+        server_reload=_parse_env_bool(file_values.get("server_reload", base.server_reload)),
         polling_interval_minutes=int(
             file_values.get("polling_interval_minutes", base.polling_interval_minutes)
         ),
@@ -295,6 +309,11 @@ def load_config() -> AppConfig:
     )
 
     cfg.env = os.getenv("ENV", cfg.env).strip().lower() or "prod"
+    cfg.server_host = str(_env_value(("SERVER_HOST", "HOST"), cfg.server_host)).strip()
+    cfg.server_port = int(str(_env_value(("SERVER_PORT", "PORT"), cfg.server_port)))
+    cfg.server_reload = _parse_env_bool(
+        _env_value(("SERVER_RELOAD", "UVICORN_RELOAD"), cfg.server_reload)
+    )
     cfg.polling_interval_minutes = int(
         os.getenv("POLLING_INTERVAL_MINUTES", cfg.polling_interval_minutes)
     )
@@ -490,6 +509,9 @@ def load_config() -> AppConfig:
         1, cfg.transcript_breaker_half_open_probe_count
     )
     cfg.transcript_worker_lease_ttl_seconds = max(5, cfg.transcript_worker_lease_ttl_seconds)
+    if not cfg.server_host:
+        cfg.server_host = "0.0.0.0"
+    cfg.server_port = max(1, min(65535, cfg.server_port))
     cfg.rss_inter_channel_delay_seconds = max(0.0, min(30.0, cfg.rss_inter_channel_delay_seconds))
     if cfg.rss_fetcher_mode not in {"rss", "rss_then_yt_dlp", "yt_dlp"}:
         cfg.rss_fetcher_mode = "rss"

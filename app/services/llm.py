@@ -41,8 +41,10 @@ from app.services.llm_schema import (
 )
 
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
+LLM_CODEX_MODEL_MAX_LENGTH = _llm_policy.LLM_CODEX_MODEL_MAX_LENGTH
 LLM_CODEX_MODEL_OPTIONS = _llm_policy.LLM_CODEX_MODEL_OPTIONS
 LLM_CODEX_MODEL_VALUES = _llm_policy.LLM_CODEX_MODEL_VALUES
+LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
 LLM_GEMINI_MODEL_DEFAULT = _llm_policy.LLM_GEMINI_MODEL_DEFAULT
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = _llm_policy.LLM_PROMPT_TEMPLATE_MAX_LENGTH
 LLM_PROVIDER_CLAUDE = _llm_policy.LLM_PROVIDER_CLAUDE
@@ -144,6 +146,8 @@ def _normalize_reasoning_effort(value: Any, *, provider: str) -> str:
         return default
     if provider == LLM_PROVIDER_GEMINI:
         options = LLM_REASONING_EFFORT_GEMINI_OPTIONS
+    elif provider == LLM_PROVIDER_CODEX:
+        options = LLM_CODEX_REASONING_EFFORT_OPTIONS
     else:
         options = LLM_REASONING_EFFORT_OPTIONS
     if normalized in options:
@@ -212,19 +216,20 @@ class UnifiedLlmClient:
                 warnings=[],
             )
 
-        primary_command = self._provider_command(normalized.provider_primary)
-        if not self._command_exists(primary_command):
-            return LlmRuntimePlan(
-                providers_to_try=[],
-                blocking_reason=f"llm_provider_unavailable_{normalized.provider_primary}",
-                warnings=[],
-            )
         try:
             self.validate_provider_schema(normalized.provider_primary)
         except LlmClientError as exc:
             return LlmRuntimePlan(
                 providers_to_try=[],
                 blocking_reason=str(exc.code),
+                warnings=[],
+            )
+
+        primary_command = self._provider_command(normalized.provider_primary)
+        if not self._command_exists(primary_command):
+            return LlmRuntimePlan(
+                providers_to_try=[],
+                blocking_reason=f"llm_provider_unavailable_{normalized.provider_primary}",
                 warnings=[],
             )
 

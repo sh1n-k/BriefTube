@@ -43,7 +43,7 @@ uv run python .\scripts\init_db.py
 
 ## 실행
 
-개발 모드는 `config.dev.yaml`, 운영 모드는 `config.prod.yaml`을 기본 설정 파일로 사용합니다. 기본값을 바꾸려면 실행 전에 `APP_CONFIG_FILE`, `HOST`, `PORT`를 지정합니다.
+개발 모드는 `config.dev.yaml`, 운영 모드는 `config.prod.yaml`을 기본 설정 파일로 사용합니다. 서버 바인딩도 YAML의 `server_host`, `server_port`, `server_reload`에서 읽습니다.
 
 ```bash
 ./run-dev.sh
@@ -65,7 +65,7 @@ macOS LaunchAgent 운영:
 ./scripts/uninstall-launchd-prod.sh
 ```
 
-LaunchAgent 기본 라벨은 `BriefTube.prod`, 기본 포트는 `48000`입니다. 실제 시스템 변경 없이 검토하려면 `BRIEFTUBE_LAUNCHD_DRY_RUN=1`을 붙여 실행합니다.
+LaunchAgent 기본 라벨은 `BriefTube.prod`이고, 앱 주소는 `config.prod.yaml`의 `server_host`/`server_port`를 따릅니다. 실제 시스템 변경 없이 검토하려면 `BRIEFTUBE_LAUNCHD_DRY_RUN=1`을 붙여 실행합니다.
 
 ## 구조
 
@@ -79,7 +79,11 @@ LaunchAgent 기본 라벨은 `BriefTube.prod`, 기본 포트는 `48000`입니다
 | `app/templates/`, `app/static/` | Jinja2 + HTMX UI |
 | `scripts/`, `run-*` | DB 초기화, 로컬 실행, macOS LaunchAgent 관리 |
 
-설정은 `환경변수 > APP_CONFIG_FILE yaml > 코드 기본값` 순서로 적용됩니다. 전체 키와 기본값은 `app/config.py`의 `AppConfig`를 기준으로 확인합니다.
+설정은 `환경변수 override > APP_CONFIG_FILE yaml > 코드 기본값` 순서로 적용됩니다. 이 프로젝트는 `.env` 파일을 자동 로드하지 않으며, 기본 설정은 YAML에서 관리합니다. 전체 키와 기본값은 `app/config.py`의 `AppConfig`를 기준으로 확인합니다.
+
+실행할 설정 파일을 바꾸려면 `APP_CONFIG_FILE`을 지정합니다. 서버 주소를 일회성으로만 바꾸려면 `SERVER_HOST`/`SERVER_PORT` 또는 기존 호환용 `HOST`/`PORT` 환경변수를 사용할 수 있습니다.
+
+설정 화면에서 사용자가 바꾸는 값은 SQLite의 `app_settings`에 저장됩니다. 예를 들어 LLM provider/model, 워커 on/off, Telegram 저장값, 다운로드 기본 옵션, 보관 기간, 페이지 크기는 YAML 기본값과 별개로 앱 내부에서 지속됩니다.
 
 ## 테스트
 

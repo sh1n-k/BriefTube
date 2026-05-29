@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.services.llm import LlmRuntimePlan
+from app.services.llm_capabilities import LlmCapabilityProbe
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
     TRANSCRIPT_REQUEST_HEADER_KEYS,
@@ -47,6 +48,7 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
             "gemini": "none",
         },
     }
+    assert "codex" in initial.json()["llm_capabilities"]
     assert initial.json()["telegram_settings"] == {
         "configured": False,
         "override_active": False,
@@ -477,7 +479,7 @@ def test_settings_llm_rejects_non_object_llm_model(client: TestClient) -> None:
     assert response.json()["detail"] == "llm_model must be object"
 
 
-def test_settings_llm_rejects_invalid_codex_model(client: TestClient) -> None:
+def test_settings_llm_accepts_custom_codex_model(client: TestClient) -> None:
     response = client.put(
         "/api/settings/llm",
         json={
@@ -486,8 +488,21 @@ def test_settings_llm_rejects_invalid_codex_model(client: TestClient) -> None:
             }
         },
     )
+    assert response.status_code == 200
+    assert response.json()["llm_settings"]["llm_model"]["codex"] == "custom-codex-model"
+
+
+def test_settings_llm_rejects_too_long_codex_model(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_model": {
+                "codex": "x" * 201,
+            }
+        },
+    )
     assert response.status_code == 400
-    assert response.json()["detail"] == "llm_model.codex must be one of: gpt-5.3-codex, gpt-5.4"
+    assert response.json()["detail"] == "llm_model.codex is too long (max 200)"
 
 
 def test_settings_llm_rejects_invalid_reasoning_effort_value(client: TestClient) -> None:
@@ -501,6 +516,66 @@ def test_settings_llm_rejects_invalid_reasoning_effort_value(client: TestClient)
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "reasoning_effort must be one of: high, low, medium"
+
+
+def test_settings_llm_accepts_codex_xhigh_reasoning_effort(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_reasoning_effort": {
+                "codex": "xhigh",
+            }
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["llm_settings"]["llm_reasoning_effort"]["codex"] == "xhigh"
+
+
+def test_settings_llm_capabilities_reports_codex_models(client: TestClient) -> None:
+    calls = 0
+
+    async def fake_runner(args: list[str], timeout: int) -> tuple[int, str, str]:
+        nonlocal calls
+        calls += 1
+        return (
+            0,
+            json.dumps(
+                {
+                    "models": [
+                        {
+                            "slug": "gpt-test-codex",
+                            "display_name": "GPT Test Codex",
+                            "supported_reasoning_levels": [
+                                {"effort": "low"},
+                                {"effort": "xhigh"},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            "",
+        )
+
+    client.app.state.runtime.llm_capability_probe = LlmCapabilityProbe(
+        command_exists=lambda name: name == "codex",
+        runner=fake_runner,
+    )
+
+    response = client.get("/api/settings/llm/capabilities")
+    refreshed = client.get("/api/settings/llm/capabilities?refresh=1")
+
+    assert response.status_code == 200
+    assert refreshed.status_code == 200
+    assert response.json()["codex"]["models"] == [
+        {
+            "value": "gpt-test-codex",
+            "label": "GPT Test Codex",
+            "default_reasoning_effort": "",
+            "reasoning_efforts": ["low", "xhigh"],
+        }
+    ]
+    assert refreshed.json()["codex"]["reasoning_efforts"] == ["low", "xhigh"]
+    assert calls == 2
 
 
 def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(
