@@ -68,3 +68,41 @@ def trim_error_message(text: str, limit: int = 600) -> str:
     if len(trimmed) <= limit:
         return trimmed
     return trimmed[:limit]
+
+
+def classify_command_failure(
+    *,
+    provider: str,
+    stderr: str,
+    stdout: str,
+    exit_code: int,
+) -> LlmClientError:
+    combined = f"{stderr}\n{stdout}".strip()
+    message = trim_error_message(combined or f"provider exit code={exit_code}")
+    if looks_like_schema_mismatch(message):
+        return LlmClientError(
+            schema_error_code(provider),
+            message,
+            provider=provider,
+            retryable=False,
+        )
+    if looks_like_auth(message):
+        return LlmClientError(
+            "llm_provider_auth_required",
+            message,
+            provider=provider,
+            retryable=False,
+        )
+    if looks_like_refusal(message):
+        return LlmClientError(
+            "llm_provider_refused",
+            message,
+            provider=provider,
+            retryable=False,
+        )
+    return LlmClientError(
+        "llm_provider_command_failed",
+        message,
+        provider=provider,
+        retryable=True,
+    )

@@ -229,6 +229,101 @@ def _close_breaker(guard: TranscriptGuardState, *, half_open_probe_count: int) -
     guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
 
 
+def record_transcript_guard_success(
+    guard: TranscriptGuardState,
+    *,
+    adaptive_enabled: bool,
+    recovery_success_window: int,
+    adaptive_max_factor: float,
+    half_open_probe_count: int,
+) -> None:
+    guard.consecutive_successes += 1
+    guard.consecutive_hard_errors = 0
+    if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+        _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+    if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
+        guard.consecutive_successes = 0
+        decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
+        guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
+
+
+def mark_transcript_guard_half_open(
+    guard: TranscriptGuardState,
+    *,
+    half_open_probe_count: int,
+) -> None:
+    guard.breaker_state = TranscriptBreakerState.HALF_OPEN
+    guard.cooldown_until = None
+    guard.half_open_probe_remaining = max(1, int(half_open_probe_count))
+
+
+def record_transcript_guard_hard_throttle(
+    guard: TranscriptGuardState,
+    *,
+    adaptive_max_factor: float,
+    hard_cooldown_base_seconds: int,
+    hard_cooldown_max_seconds: int,
+    half_open_probe_count: int,
+) -> int:
+    guard.consecutive_hard_errors += 1
+    guard.consecutive_successes = 0
+    guard.adaptive_factor = min(adaptive_max_factor, guard.adaptive_factor * 2.0)
+    cooldown_seconds = _compute_hard_cooldown_seconds(
+        hard_cooldown_base_seconds,
+        hard_cooldown_max_seconds,
+        guard.consecutive_hard_errors,
+    )
+    _open_breaker(
+        guard,
+        cooldown_seconds=cooldown_seconds,
+        half_open_probe_count=half_open_probe_count,
+    )
+    return cooldown_seconds
+
+
+def record_transcript_guard_half_open_retryable_failure(
+    guard: TranscriptGuardState,
+    *,
+    adaptive_enabled: bool,
+    adaptive_max_factor: float,
+    general_error_slowdown_multiplier: float,
+    hard_cooldown_base_seconds: int,
+    hard_cooldown_max_seconds: int,
+    half_open_probe_count: int,
+) -> int:
+    guard.consecutive_successes = 0
+    if adaptive_enabled:
+        guard.adaptive_factor = min(
+            adaptive_max_factor,
+            guard.adaptive_factor * general_error_slowdown_multiplier,
+        )
+    return _reopen_breaker_after_half_open_retryable_failure(
+        guard,
+        hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+        hard_cooldown_max_seconds=hard_cooldown_max_seconds,
+        half_open_probe_count=half_open_probe_count,
+    )
+
+
+def record_transcript_guard_general_failure(
+    guard: TranscriptGuardState,
+    *,
+    adaptive_enabled: bool,
+    adaptive_max_factor: float,
+    general_error_slowdown_multiplier: float,
+    half_open_probe_count: int,
+) -> None:
+    guard.consecutive_successes = 0
+    guard.consecutive_hard_errors = 0
+    if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+        _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+    if adaptive_enabled:
+        guard.adaptive_factor = min(
+            adaptive_max_factor,
+            guard.adaptive_factor * general_error_slowdown_multiplier,
+        )
+
+
 def _reopen_breaker_after_half_open_retryable_failure(
     guard: TranscriptGuardState,
     *,

@@ -12,18 +12,19 @@ from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
     TranscriptGuardState,
-    _adaptive_decay_rate,
     _classify_transcript_error,
-    _close_breaker,
-    _compute_hard_cooldown_seconds,
     _compute_jittered_interval_seconds,
     _compute_retry_delay_seconds,
-    _open_breaker,
-    _reopen_breaker_after_half_open_retryable_failure,
     _save_guard_state,
     _wait_until,
+    mark_transcript_guard_half_open,
+    record_transcript_guard_general_failure,
+    record_transcript_guard_half_open_retryable_failure,
+    record_transcript_guard_hard_throttle,
+    record_transcript_guard_success,
 )
 from app.state import AppState
+from app.workers.transcript_worker_outcomes import record_no_subtitle_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +126,10 @@ async def run_transcript_fetcher(state: AppState) -> None:
             if guard.breaker_state == TranscriptBreakerState.OPEN and (
                 guard.cooldown_until is None or now_utc >= guard.cooldown_until
             ):
-                guard.breaker_state = TranscriptBreakerState.HALF_OPEN
-                guard.cooldown_until = None
-                guard.half_open_probe_remaining = max(1, half_open_probe_count)
+                mark_transcript_guard_half_open(
+                    guard,
+                    half_open_probe_count=half_open_probe_count,
+                )
                 await _save_guard_state(db, guard)
                 logger.info(
                     "event=transcript.breaker_half_open worker=transcript probes=%s",
@@ -248,17 +250,13 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             source_type,
                             extra={"event": "transcript.fetch_succeeded", "worker": "transcript"},
                         )
-                        guard.consecutive_successes += 1
-                        guard.consecutive_hard_errors = 0
-                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                            _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                        if (
-                            adaptive_enabled
-                            and guard.consecutive_successes >= recovery_success_window
-                        ):
-                            guard.consecutive_successes = 0
-                            decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
-                            guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
+                        record_transcript_guard_success(
+                            guard,
+                            adaptive_enabled=adaptive_enabled,
+                            recovery_success_window=recovery_success_window,
+                            adaptive_max_factor=adaptive_max_factor,
+                            half_open_probe_count=half_open_probe_count,
+                        )
                         await _save_guard_state(db, guard)
 
                     except asyncio.CancelledError:
@@ -277,21 +275,15 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         next_retry_count = current_retry_count + 1
 
                         if error_category == TranscriptErrorCategory.NO_SUBTITLE:
-                            await transcripts_repo.mark_no_subtitle(db, video_id)
-                            guard.consecutive_successes += 1
-                            guard.consecutive_hard_errors = 0
-                            if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                                _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                            if (
-                                adaptive_enabled
-                                and guard.consecutive_successes >= recovery_success_window
-                            ):
-                                guard.consecutive_successes = 0
-                                decay = _adaptive_decay_rate(
-                                    guard.adaptive_factor, adaptive_max_factor
-                                )
-                                guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
-                            await _save_guard_state(db, guard)
+                            await record_no_subtitle_outcome(
+                                db,
+                                guard,
+                                video_id=video_id,
+                                adaptive_enabled=adaptive_enabled,
+                                recovery_success_window=recovery_success_window,
+                                adaptive_max_factor=adaptive_max_factor,
+                                half_open_probe_count=half_open_probe_count,
+                            )
                             logger.info(
                                 "event=transcript.no_subtitle worker=transcript video_id=%s",
                                 video_id,
@@ -306,19 +298,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 current_retry_count,
                             )
 
-                            guard.consecutive_hard_errors += 1
-                            guard.consecutive_successes = 0
-                            guard.adaptive_factor = min(
-                                adaptive_max_factor, guard.adaptive_factor * 2.0
-                            )
-                            breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
-                                hard_cooldown_base_seconds,
-                                hard_cooldown_max_seconds,
-                                guard.consecutive_hard_errors,
-                            )
-                            _open_breaker(
+                            breaker_cooldown_seconds = record_transcript_guard_hard_throttle(
                                 guard,
-                                cooldown_seconds=breaker_cooldown_seconds,
+                                adaptive_max_factor=adaptive_max_factor,
+                                hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+                                hard_cooldown_max_seconds=hard_cooldown_max_seconds,
                                 half_open_probe_count=half_open_probe_count,
                             )
                             next_delay_seconds = max(
@@ -385,19 +369,14 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.breaker_state == TranscriptBreakerState.HALF_OPEN
                             and error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT
                         ):
-                            guard.consecutive_successes = 0
-                            if adaptive_enabled:
-                                guard.adaptive_factor = min(
-                                    adaptive_max_factor,
-                                    guard.adaptive_factor * general_error_slowdown_multiplier,
-                                )
-                            probe_cooldown_seconds = (
-                                _reopen_breaker_after_half_open_retryable_failure(
-                                    guard,
-                                    hard_cooldown_base_seconds=hard_cooldown_base_seconds,
-                                    hard_cooldown_max_seconds=hard_cooldown_max_seconds,
-                                    half_open_probe_count=half_open_probe_count,
-                                )
+                            probe_cooldown_seconds = record_transcript_guard_half_open_retryable_failure(
+                                guard,
+                                adaptive_enabled=adaptive_enabled,
+                                adaptive_max_factor=adaptive_max_factor,
+                                general_error_slowdown_multiplier=general_error_slowdown_multiplier,
+                                hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+                                hard_cooldown_max_seconds=hard_cooldown_max_seconds,
+                                half_open_probe_count=half_open_probe_count,
                             )
                             await _save_guard_state(db, guard)
                             next_delay_seconds = max(
@@ -440,15 +419,13 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             )
                             continue
 
-                        guard.consecutive_successes = 0
-                        guard.consecutive_hard_errors = 0
-                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                            _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                        if adaptive_enabled:
-                            guard.adaptive_factor = min(
-                                adaptive_max_factor,
-                                guard.adaptive_factor * general_error_slowdown_multiplier,
-                            )
+                        record_transcript_guard_general_failure(
+                            guard,
+                            adaptive_enabled=adaptive_enabled,
+                            adaptive_max_factor=adaptive_max_factor,
+                            general_error_slowdown_multiplier=general_error_slowdown_multiplier,
+                            half_open_probe_count=half_open_probe_count,
+                        )
                         await _save_guard_state(db, guard)
 
                         if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:

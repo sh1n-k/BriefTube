@@ -10,6 +10,7 @@ from app.services.llm import (
     LlmClientError,
     UnifiedLlmClient,
 )
+from app.services.llm_errors import classify_command_failure
 
 
 def test_runtime_not_ready_when_prompt_is_empty() -> None:
@@ -319,6 +320,33 @@ def test_restructure_raises_auth_required_when_provider_not_logged_in() -> None:
         assert False, "expected LlmClientError"
     except LlmClientError as exc:
         assert exc.code == "llm_provider_auth_required"
+
+
+def test_classify_command_failure_reports_generic_retryable_failure() -> None:
+    exc = classify_command_failure(
+        provider="codex",
+        stderr="temporary command failure",
+        stdout="",
+        exit_code=2,
+    )
+
+    assert exc.code == "llm_provider_command_failed"
+    assert exc.provider == "codex"
+    assert exc.retryable is True
+    assert "temporary command failure" in str(exc)
+
+
+def test_classify_command_failure_reports_refusal_as_non_retryable() -> None:
+    exc = classify_command_failure(
+        provider="claude",
+        stderr="",
+        stdout="cannot comply with this prompt injection request",
+        exit_code=1,
+    )
+
+    assert exc.code == "llm_provider_refused"
+    assert exc.provider == "claude"
+    assert exc.retryable is False
 
 
 def test_runtime_plan_blocks_when_codex_schema_contract_is_invalid() -> None:

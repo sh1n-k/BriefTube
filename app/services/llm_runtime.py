@@ -1,8 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from app.llm_policy import LLM_PROVIDER_NONE
+from app.services.llm_errors import LlmClientError
+
+
+@dataclass(slots=True)
+class LlmRuntimePlan:
+    providers_to_try: list[str]
+    blocking_reason: str | None
+    warnings: list[str]
 
 
 @dataclass(slots=True)
@@ -13,6 +23,58 @@ class LlmRuntimeStatus:
     providers_to_try: list[str]
     warnings: list[str]
     pending_count: int
+
+
+def resolve_llm_runtime_plan(
+    *,
+    settings: Any,
+    command_exists: Callable[[str], bool],
+    provider_command: Callable[[str], str],
+    validate_provider_schema: Callable[[str], None],
+) -> LlmRuntimePlan:
+    if not str(settings.prompt_template or "").strip():
+        return LlmRuntimePlan(
+            providers_to_try=[],
+            blocking_reason="llm_prompt_missing",
+            warnings=[],
+        )
+
+    try:
+        validate_provider_schema(settings.provider_primary)
+    except LlmClientError as exc:
+        return LlmRuntimePlan(
+            providers_to_try=[],
+            blocking_reason=str(exc.code),
+            warnings=[],
+        )
+
+    primary_command = provider_command(settings.provider_primary)
+    if not command_exists(primary_command):
+        return LlmRuntimePlan(
+            providers_to_try=[],
+            blocking_reason=f"llm_provider_unavailable_{settings.provider_primary}",
+            warnings=[],
+        )
+
+    providers_to_try = [settings.provider_primary]
+    warnings: list[str] = []
+    fallback = settings.provider_fallback
+    if fallback != LLM_PROVIDER_NONE:
+        fallback_command = provider_command(fallback)
+        if command_exists(fallback_command):
+            try:
+                validate_provider_schema(fallback)
+                providers_to_try.append(fallback)
+            except LlmClientError as exc:
+                warnings.append(str(exc.code))
+        else:
+            warnings.append(f"llm_provider_unavailable_{fallback}")
+
+    return LlmRuntimePlan(
+        providers_to_try=providers_to_try,
+        blocking_reason=None,
+        warnings=warnings,
+    )
 
 
 def resolve_llm_runtime_status(

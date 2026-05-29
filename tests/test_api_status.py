@@ -167,4 +167,5 @@ def test_queue_page_renders_section_clear_controls(client: TestClient) -> None:
     assert response.status_code == 200
     assert 'data-queue-clear-section="transcript"' in response.text
     assert 'data-queue-clear-section="llm"' in response.text
+    assert "/static/js/ui/queue-status.js" in response.text
     assert "진행 중인 Transcript 작업은 유지" in response.text

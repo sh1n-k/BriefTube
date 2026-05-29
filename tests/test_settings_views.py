@@ -112,7 +112,15 @@ def test_settings_page_renders(client: TestClient) -> None:
     )
     assert 'data-save-toast="' in response.text
     assert "data-digits-only" in response.text
+    assert "/static/js/ui/download-controls.js" in response.text
+    assert "/static/js/ui/auto-refresh.js" in response.text
     assert "/static/js/main-ui.js" in response.text
+    assert response.text.index("/static/js/ui/download-controls.js") < response.text.index(
+        "/static/js/main-ui.js"
+    )
+    assert response.text.index("/static/js/ui/auto-refresh.js") < response.text.index(
+        "/static/js/main-ui.js"
+    )
     assert "window.BRIEFTUBE_UI_BOOTSTRAP" in response.text
     assert "data-theme-toggle" in response.text
     assert "data-theme-mode-select" in response.text
