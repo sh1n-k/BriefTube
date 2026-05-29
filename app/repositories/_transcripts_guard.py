@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import aiosqlite
@@ -20,8 +20,6 @@ TRANSCRIPT_GUARD_DEFAULTS: dict[str, str] = {
     "transcript_guard_last_channel_id": "",
     "transcript_guard_last_channel_attempt_at": "",
 }
-TRANSCRIPT_WORKER_LEASE_OWNER_KEY = "transcript_worker_lease_owner"
-TRANSCRIPT_WORKER_LEASE_UNTIL_KEY = "transcript_worker_lease_until"
 
 _parse_int_setting = settings_repository.parse_int_setting
 _parse_float_setting = settings_repository.parse_float_setting
@@ -38,145 +36,6 @@ def _parse_datetime_setting(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
-
-
-async def acquire_transcript_worker_lease(
-    db: aiosqlite.Connection,
-    owner_id: str,
-    ttl_seconds: int,
-) -> bool:
-    safe_owner = str(owner_id).strip()
-    if not safe_owner:
-        return False
-    ttl = max(5, int(ttl_seconds))
-    now = datetime.now(UTC)
-    await db.execute("BEGIN IMMEDIATE")
-    try:
-        owner_cursor = await db.execute(
-            "SELECT value FROM app_settings WHERE key = ?",
-            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
-        )
-        owner_row = await owner_cursor.fetchone()
-        until_cursor = await db.execute(
-            "SELECT value FROM app_settings WHERE key = ?",
-            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY,),
-        )
-        until_row = await until_cursor.fetchone()
-        current_owner = str(owner_row["value"] if owner_row is not None else "").strip()
-        current_until = _parse_datetime_setting(
-            str(until_row["value"] if until_row is not None else "")
-        )
-
-        if current_owner and current_owner != safe_owner and current_until and current_until > now:
-            await db.rollback()
-            return False
-
-        lease_until = now + timedelta(seconds=ttl)
-        await db.execute(
-            """
-            INSERT INTO app_settings(key, value)
-            VALUES(?, ?)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = datetime('now')
-            """,
-            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY, safe_owner),
-        )
-        await db.execute(
-            """
-            INSERT INTO app_settings(key, value)
-            VALUES(?, ?)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = datetime('now')
-            """,
-            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY, lease_until.isoformat()),
-        )
-        await db.commit()
-        return True
-    except Exception:
-        await db.rollback()
-        raise
-
-
-async def renew_transcript_worker_lease(
-    db: aiosqlite.Connection,
-    owner_id: str,
-    ttl_seconds: int,
-) -> bool:
-    safe_owner = str(owner_id).strip()
-    if not safe_owner:
-        return False
-    await db.execute("BEGIN IMMEDIATE")
-    try:
-        cursor = await db.execute(
-            "SELECT value FROM app_settings WHERE key = ?",
-            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
-        )
-        row = await cursor.fetchone()
-        current_owner = str(row["value"] if row is not None else "").strip()
-        if current_owner != safe_owner:
-            await db.rollback()
-            return False
-        ttl = max(5, int(ttl_seconds))
-        lease_until = datetime.now(UTC) + timedelta(seconds=ttl)
-        await db.execute(
-            """
-            INSERT INTO app_settings(key, value)
-            VALUES(?, ?)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = datetime('now')
-            """,
-            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY, lease_until.isoformat()),
-        )
-        await db.commit()
-        return True
-    except Exception:
-        await db.rollback()
-        raise
-
-
-async def release_transcript_worker_lease(db: aiosqlite.Connection, owner_id: str) -> bool:
-    safe_owner = str(owner_id).strip()
-    if not safe_owner:
-        return False
-    await db.execute("BEGIN IMMEDIATE")
-    try:
-        cursor = await db.execute(
-            "SELECT value FROM app_settings WHERE key = ?",
-            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
-        )
-        row = await cursor.fetchone()
-        current_owner = str(row["value"] if row is not None else "").strip()
-        if current_owner != safe_owner:
-            await db.rollback()
-            return False
-        await db.execute(
-            """
-            INSERT INTO app_settings(key, value)
-            VALUES(?, '')
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = datetime('now')
-            """,
-            (TRANSCRIPT_WORKER_LEASE_OWNER_KEY,),
-        )
-        await db.execute(
-            """
-            INSERT INTO app_settings(key, value)
-            VALUES(?, '')
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = datetime('now')
-            """,
-            (TRANSCRIPT_WORKER_LEASE_UNTIL_KEY,),
-        )
-        await db.commit()
-        return True
-    except Exception:
-        await db.rollback()
-        raise
 
 
 async def get_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, Any]:

@@ -43,7 +43,6 @@ uv run pytest -q -m e2e tests/e2e
 
 pytest 환경 기본값:
 
-- `tests/conftest.py`가 `TRANSCRIPT_WORKER_LEASE_ENABLED=0`을 설정
 - background worker는 기본 비활성. 필요한 테스트만 `BRIEFTUBE_ENABLE_<NAME>_WORKER_IN_TESTS=1` 또는 전용 alias로 활성화
 
 ## 정적 검사
