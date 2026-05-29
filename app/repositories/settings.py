@@ -1,6 +1,7 @@
 """Settings and worker-policy repository accessors."""
 
 from app.repositories import _settings as repository
+from app.repositories import _settings_llm as llm_repository
 
 WORKER_SETTING_DEFAULTS = repository.WORKER_SETTING_DEFAULTS
 RSS_FEED_MODE_DEFAULT = repository.RSS_FEED_MODE_DEFAULT
@@ -21,5 +22,5 @@ set_videos_per_page_setting = repository.set_videos_per_page_setting
 get_telegram_settings = repository.get_telegram_settings
 set_telegram_settings = repository.set_telegram_settings
 
-get_llm_settings = repository.get_llm_settings
-set_llm_settings = repository.set_llm_settings
+get_llm_settings = llm_repository.get_llm_settings
+set_llm_settings = llm_repository.set_llm_settings

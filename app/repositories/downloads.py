@@ -1,6 +1,7 @@
 """Download domain repository accessors."""
 
 from app.repositories import _downloads as repository
+from app.repositories import _downloads_queries as queries_repository
 
 DOWNLOAD_QUALITY_OPTIONS = repository.DOWNLOAD_QUALITY_OPTIONS
 DOWNLOAD_QUALITY_DEFAULT = repository.DOWNLOAD_QUALITY_DEFAULT
@@ -23,10 +24,10 @@ mark_download_job_succeeded = repository.mark_download_job_succeeded
 mark_download_job_failed = repository.mark_download_job_failed
 retry_download_job = repository.retry_download_job
 recover_stuck_download_jobs = repository.recover_stuck_download_jobs
-count_download_jobs_by_status = repository.count_download_jobs_by_status
-list_download_jobs = repository.list_download_jobs
-count_download_jobs = repository.count_download_jobs
+count_download_jobs_by_status = queries_repository.count_download_jobs_by_status
+list_download_jobs = queries_repository.list_download_jobs
+count_download_jobs = queries_repository.count_download_jobs
 clear_download_jobs = repository.clear_download_jobs
-latest_download_event_id = repository.latest_download_event_id
-list_download_events_after = repository.list_download_events_after
-get_download_progress = repository.get_download_progress
+latest_download_event_id = queries_repository.latest_download_event_id
+list_download_events_after = queries_repository.list_download_events_after
+get_download_progress = queries_repository.get_download_progress

@@ -1,6 +1,7 @@
 """Transcript pipeline repository accessors."""
 
 from app.repositories import _transcripts as repository
+from app.repositories import _transcripts_lease as lease_repository
 
 TRANSCRIPT_QUEUE_STATUSES = repository.TRANSCRIPT_QUEUE_STATUSES
 
@@ -17,12 +18,12 @@ defer_channel_transcript_retries = repository.defer_channel_transcript_retries
 mark_transcript_failed = repository.mark_transcript_failed
 reset_transcript_for_retry = repository.reset_transcript_for_retry
 
-acquire_transcript_worker_lease = repository.acquire_transcript_worker_lease
-renew_transcript_worker_lease = repository.renew_transcript_worker_lease
-release_transcript_worker_lease = repository.release_transcript_worker_lease
-get_transcript_guard_state = repository.get_transcript_guard_state
-save_transcript_guard_state = repository.save_transcript_guard_state
-reset_transcript_guard_state = repository.reset_transcript_guard_state
+acquire_transcript_worker_lease = lease_repository.acquire_transcript_worker_lease
+renew_transcript_worker_lease = lease_repository.renew_transcript_worker_lease
+release_transcript_worker_lease = lease_repository.release_transcript_worker_lease
+get_transcript_guard_state = lease_repository.get_transcript_guard_state
+save_transcript_guard_state = lease_repository.save_transcript_guard_state
+reset_transcript_guard_state = lease_repository.reset_transcript_guard_state
 
 get_transcript_request_header_overrides = repository.get_transcript_request_header_overrides
 save_transcript_request_header_overrides = repository.save_transcript_request_header_overrides
