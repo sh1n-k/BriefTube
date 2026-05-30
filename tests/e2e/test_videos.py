@@ -554,8 +554,8 @@ def test_video_list_empty_state(e2e_page: Page, seeded_server: dict) -> None:
     page.goto(f"{seeded_server['base_url']}/?channel_id=UC_NONEXISTENT_CHANNEL")
     page.wait_for_selector("#video-list-wrap")
 
-    # The empty state has colspan="6" cell with the empty message
-    empty_cell = page.locator("#video-list-wrap td[colspan='6']")
+    # The empty state spans the full video table, including the actions column.
+    empty_cell = page.locator("#video-list-wrap td[colspan='7']")
     expect(empty_cell).to_be_visible()
     # Check for the empty title text (ko or en)
     expect(empty_cell).to_contain_text(re.compile(r"(영상이 없습니다|No videos yet)"))

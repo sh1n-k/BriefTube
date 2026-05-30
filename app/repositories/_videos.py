@@ -143,7 +143,17 @@ async def list_videos(
             v.pipeline_status,
             v.retry_count,
             v.created_at,
-            v.viewed_at
+            v.viewed_at,
+            EXISTS(
+                SELECT 1
+                FROM transcripts t
+                WHERE t.video_id = v.video_id
+            ) AS has_transcript,
+            EXISTS(
+                SELECT 1
+                FROM articles a
+                WHERE a.video_id = v.video_id
+            ) AS has_article
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         {where_clause}

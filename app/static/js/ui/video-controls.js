@@ -94,6 +94,21 @@
     modal.dataset.modalOpen = "1";
   }
 
+  function setupArticlePreviewModal(modal) {
+    if (!(modal instanceof HTMLElement) || modal.dataset.articlePreviewModalBound === "1") return;
+    modal.dataset.articlePreviewModalBound = "1";
+    modal.addEventListener("click", (event) => {
+      const target = event.target;
+      if (
+        target === modal
+        || (target instanceof Element && target.hasAttribute("data-article-preview-backdrop"))
+        || (target instanceof Element && target.hasAttribute("data-article-preview-close"))
+      ) {
+        closeArticlePreviewModal(modal);
+      }
+    });
+  }
+
   function ensureArticlePreviewEscapeHandler() {
     const root = document.body;
     if (!root || root.dataset.articlePreviewEscapeBound === "1") return;
@@ -117,24 +132,12 @@
     if (!(modal instanceof HTMLElement)) return;
     button.dataset.articlePreviewBound = "1";
     ensureArticlePreviewEscapeHandler();
+    setupArticlePreviewModal(modal);
 
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       openArticlePreviewModal(modal);
-    });
-
-    if (modal.dataset.articlePreviewModalBound === "1") return;
-    modal.dataset.articlePreviewModalBound = "1";
-    modal.addEventListener("click", (event) => {
-      const target = event.target;
-      if (
-        target === modal
-        || (target instanceof Element && target.hasAttribute("data-article-preview-backdrop"))
-        || (target instanceof Element && target.hasAttribute("data-article-preview-close"))
-      ) {
-        closeArticlePreviewModal(modal);
-      }
     });
   }
 
@@ -156,15 +159,100 @@
       const target = document.getElementById(targetId);
       if (!target) return;
       const text = target.textContent || "";
-      navigator.clipboard.writeText(text.trim()).then(() => {
-        showToast(toastMsg, "success");
-      });
+      const failedMsg = btn.dataset.copyFailed || "Copy failed";
+      if (!navigator.clipboard?.writeText) {
+        showToast(failedMsg, "error");
+        return;
+      }
+      navigator.clipboard.writeText(text.trim())
+        .then(() => showToast(toastMsg, "success"))
+        .catch(() => showToast(failedMsg, "error"));
     });
   }
 
   function bindCopyButtons(scope) {
     const root = scope instanceof Element ? scope : document;
     root.querySelectorAll("[data-copy-target]").forEach(initCopyButton);
+  }
+
+  function initVideoTranscriptCopyButton(button) {
+    if (button.dataset.videoTranscriptCopyBound === "1") return;
+    button.dataset.videoTranscriptCopyBound = "1";
+
+    button.addEventListener("click", async () => {
+      if (button.dataset.videoTranscriptCopyInFlight === "1") return;
+      button.dataset.videoTranscriptCopyInFlight = "1";
+      button.disabled = true;
+      try {
+        const response = await fetch(button.dataset.transcriptUrl || "", {
+          headers: { "Accept": "application/json" },
+        });
+        if (!response.ok) throw new Error("transcript copy failed");
+        const payload = await response.json();
+        const rawText = typeof payload.raw_text === "string" ? payload.raw_text.trim() : "";
+        if (!rawText) throw new Error("transcript copy failed");
+        await navigator.clipboard.writeText(rawText);
+        showToast(button.dataset.copyToast || "Copied", "success");
+      } catch (_err) {
+        showToast(button.dataset.copyFailed || "Copy failed", "error");
+      } finally {
+        delete button.dataset.videoTranscriptCopyInFlight;
+        button.disabled = false;
+      }
+    });
+  }
+
+  function bindVideoTranscriptCopyButtons(scope) {
+    const root = scope instanceof Element ? scope : document;
+    root.querySelectorAll("[data-video-transcript-copy]").forEach((button) => {
+      if (button instanceof HTMLButtonElement) {
+        initVideoTranscriptCopyButton(button);
+      }
+    });
+  }
+
+  function initVideoArticlePreviewLoadButton(button) {
+    if (button.dataset.videoArticlePreviewLoadBound === "1") return;
+    button.dataset.videoArticlePreviewLoadBound = "1";
+
+    button.addEventListener("click", async () => {
+      if (button.dataset.videoArticlePreviewLoadInFlight === "1") return;
+      button.dataset.videoArticlePreviewLoadInFlight = "1";
+      button.disabled = true;
+      try {
+        const response = await fetch(button.dataset.articlePreviewUrl || "", {
+          headers: { "Accept": "text/html" },
+        });
+        if (!response.ok) throw new Error("article preview load failed");
+        const html = await response.text();
+        document.querySelectorAll("[data-video-list-article-modal]").forEach((node) => {
+          node.remove();
+        });
+        const container = document.createElement("div");
+        container.innerHTML = html.trim();
+        const modal = container.querySelector("[data-article-preview-modal]");
+        if (!(modal instanceof HTMLElement)) throw new Error("article preview modal missing");
+        document.body.appendChild(modal);
+        ensureArticlePreviewEscapeHandler();
+        setupArticlePreviewModal(modal);
+        bindCopyButtons(modal);
+        openArticlePreviewModal(modal);
+      } catch (_err) {
+        showToast(button.dataset.loadFailed || "Could not load article.", "error");
+      } finally {
+        delete button.dataset.videoArticlePreviewLoadInFlight;
+        button.disabled = false;
+      }
+    });
+  }
+
+  function bindVideoArticlePreviewLoadButtons(scope) {
+    const root = scope instanceof Element ? scope : document;
+    root.querySelectorAll("[data-video-article-preview-load]").forEach((button) => {
+      if (button instanceof HTMLButtonElement) {
+        initVideoArticlePreviewLoadButton(button);
+      }
+    });
   }
 
   function initCollapsible(section) {
@@ -374,6 +462,8 @@
     bindVideoTranscriptRequestButtons,
     bindArticlePreviewModals,
     bindCopyButtons,
+    bindVideoTranscriptCopyButtons,
+    bindVideoArticlePreviewLoadButtons,
     bindCollapsibles,
     bindThumbPreviews,
   };

@@ -503,6 +503,8 @@
         bindVideoDownloadButtons(scope);
         bindVideoArticleRequestButtons(scope);
         bindVideoTranscriptRequestButtons(scope);
+        bindVideoTranscriptCopyButtons(scope);
+        bindVideoArticlePreviewLoadButtons(scope);
         bindArticlePreviewModals(scope);
         bindDownloadDetailButtons(scope);
         bindDownloadRetryButtons(scope);
@@ -577,6 +579,14 @@
 
       function bindVideoTranscriptRequestButtons(scope) {
         videoControls?.bindVideoTranscriptRequestButtons(scope);
+      }
+
+      function bindVideoTranscriptCopyButtons(scope) {
+        videoControls?.bindVideoTranscriptCopyButtons(scope);
+      }
+
+      function bindVideoArticlePreviewLoadButtons(scope) {
+        videoControls?.bindVideoArticlePreviewLoadButtons(scope);
       }
 
       function bindArticlePreviewModals(scope) {

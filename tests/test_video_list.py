@@ -88,6 +88,49 @@ def _seed_pending_download_job(video_id: str, *, target_dir: str) -> None:
         conn.commit()
 
 
+def _seed_video_outputs(video_id: str, *, transcript: bool = True, article: bool = True) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        if transcript:
+            conn.execute(
+                """
+                INSERT INTO transcripts(video_id, raw_text, language, source_type)
+                VALUES (?, ?, ?, ?)
+                """,
+                (video_id, f"Transcript for {video_id}", "ko", "auto"),
+            )
+        if article:
+            conn.execute(
+                """
+                INSERT INTO articles(
+                    video_id,
+                    title,
+                    lead,
+                    body,
+                    fact_box,
+                    timestamps,
+                    llm_provider,
+                    llm_model,
+                    llm_reasoning_effort,
+                    llm_generated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    video_id,
+                    f"Article for {video_id}",
+                    "Lead paragraph",
+                    "Body text",
+                    "{}",
+                    "[]",
+                    "unknown",
+                    "",
+                    "",
+                    "2026-02-10T00:00:00+00:00",
+                ),
+            )
+        conn.commit()
+
+
 def test_video_delete_selected(client: TestClient) -> None:
     """체크박스 선택 삭제 -> 해당 영상 목록에서 제거"""
     _seed_channels_and_videos()
@@ -478,6 +521,47 @@ def test_video_list_renders_article_selected_button(client: TestClient) -> None:
     assert "data-video-article-request-selected" in html
     assert "/views/videos/article-request-selected" in html
     assert "data-busy-label=" in html
+
+
+def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _seed_video_outputs("vid-a-000", transcript=True, article=True)
+    _seed_video_outputs("vid-a-001", transcript=True, article=False)
+
+    response = client.get("/views/video-list", params={"limit": "20"})
+
+    assert response.status_code == 200
+    html = response.text
+    assert "data-video-row-actions" in html
+    assert "data-video-transcript-copy" in html
+    assert 'data-transcript-url="/api/videos/vid-a-000/transcript"' in html
+    assert "data-video-article-preview-load" in html
+    assert 'data-article-preview-url="/views/videos/vid-a-000/article-preview-modal"' in html
+    assert html.count('class="invisible inline-flex h-7 w-7"') >= 1
+
+    empty_response = client.get(
+        "/views/video-list",
+        params={"channel_id": "UC_NO_MATCH", "limit": "20"},
+    )
+    assert empty_response.status_code == 200
+    assert 'colspan="7"' in empty_response.text
+
+
+def test_video_article_preview_modal_fragment_matches_detail_contract(
+    client: TestClient,
+) -> None:
+    _seed_channels_and_videos()
+    _seed_video_outputs("vid-a-000", transcript=True, article=True)
+
+    response = client.get("/views/videos/vid-a-000/article-preview-modal")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "data-article-preview-modal" in html
+    assert "data-article-preview-content" in html
+    assert 'data-copy-target="article-copy-source"' in html
+    assert "data-video-list-article-modal" in html
+    assert "Article for vid-a-000" in html
 
 
 def test_video_article_selected_empty_selection_returns_bulk_toast(client: TestClient) -> None:

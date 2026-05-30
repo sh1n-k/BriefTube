@@ -202,6 +202,7 @@ def test_detail_article_modal_contract_and_raw_body_preview(client: TestClient) 
     assert "data-article-preview-open" in html
     assert "data-article-preview-modal" in html
     assert "data-article-preview-content" in html
+    assert 'data-copy-target="article-copy-source"' in html
     assert 'class="article-rendered"' in html
     assert "<h1>Heading</h1>" in html
     assert "<strong>markdown</strong>" in html
