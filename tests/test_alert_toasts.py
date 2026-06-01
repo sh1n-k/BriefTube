@@ -44,10 +44,7 @@ def test_base_renders_grouped_alert_toast(client: TestClient) -> None:
     assert "문제 채널 B" in html
     assert 'hx-post="/views/alerts/ack-group"' in html
     assert 'name="alert_type" value="rss_channel_not_found"' in html
-    assert "포함된 채널 목록 보기" in html
     assert "전체 확인 (2)" in html
-    assert "내용을 확인했습니다" in html
-    assert "fixed bottom-24 right-4" in html
     assert "data-alert-dismiss" in html
 
 

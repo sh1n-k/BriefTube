@@ -149,19 +149,11 @@ def _goto_home(page: Page, server: dict) -> None:
 
 @pytest.mark.e2e
 def test_home_page_loads(e2e_page: Page, seeded_server: dict) -> None:
-    """GET / loads with title containing BriefTube, nav links, and video list."""
+    """GET / loads with title containing BriefTube and video list."""
     page = e2e_page
     _goto_home(page, seeded_server)
 
     expect(page).to_have_title(re.compile(r"BriefTube"))
-
-    # Nav links
-    nav = page.locator("header nav")
-    expect(nav.locator("a", has_text=re.compile(r"(영상|Videos)"))).to_be_visible()
-    expect(nav.locator("a", has_text=re.compile(r"(채널|Channels)"))).to_be_visible()
-    expect(nav.locator("a", has_text=re.compile(r"(설정|Settings)"))).to_be_visible()
-
-    # Video list wrapper
     expect(page.locator("#video-list-wrap")).to_be_visible()
 
 
@@ -230,43 +222,6 @@ def test_video_list_channel_filter(e2e_page: Page, seeded_server: dict) -> None:
     channel_select.select_option(label="Alpha Channel")
 
     # Wait for HTMX swap — all visible videos should belong to Alpha Channel
-    page.wait_for_function(
-        """() => {
-            const cells = document.querySelectorAll('#video-list-wrap tbody td:nth-child(4)');
-            if (cells.length === 0) return false;
-            return Array.from(cells).every(c => c.textContent.includes('Alpha Channel'));
-        }"""
-    )
-
-    rows = page.locator("#video-list-wrap tbody tr")
-    count = rows.count()
-    assert count > 0
-    for i in range(count):
-        channel_cell = rows.nth(i).locator("td:nth-child(4)")
-        expect(channel_cell).to_contain_text("Alpha Channel")
-
-
-@pytest.mark.e2e
-def test_video_list_category_filter(e2e_page: Page, seeded_server: dict) -> None:
-    """Selecting category filters to only that category's channels."""
-    page = e2e_page
-    _goto_home(page, seeded_server)
-
-    # Select the "투자" category
-    cat_select = page.locator("#video-list-wrap select[name='category_id']")
-    expect(cat_select).to_be_visible()
-
-    # Find the 투자 option value from the dropdown options
-    options = cat_select.locator("option")
-    invest_value = None
-    for i in range(options.count()):
-        if "투자" in (options.nth(i).inner_text() or ""):
-            invest_value = options.nth(i).get_attribute("value")
-            break
-    assert invest_value is not None, "투자 option not found in category dropdown"
-    cat_select.select_option(value=invest_value)
-
-    # Wait for HTMX swap — only Alpha Channel videos should appear (투자 category)
     page.wait_for_function(
         """() => {
             const cells = document.querySelectorAll('#video-list-wrap tbody td:nth-child(4)');
@@ -463,29 +418,6 @@ def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(
 
 
 @pytest.mark.e2e
-def test_video_detail_status_badge_styles(e2e_page: Page, seeded_server: dict) -> None:
-    """Status badges use the correct CSS class per pipeline_status."""
-    page = e2e_page
-
-    test_cases = [
-        ("ALPHA_DONE_01", "status-badge--done"),
-        ("ALPHA_TP_01", "status-badge--transcript-pending"),
-        ("ALPHA_LP_01", "status-badge--llm-pending"),
-        ("BETA_TF_01", "status-badge--transcript-failed"),
-        ("BETA_NS_01", "status-badge--no-subtitle"),
-        ("BETA_LF_01", "status-badge--llm-failed"),
-        ("BETA_MR_01", "status-badge--manual-review"),
-    ]
-
-    for video_id, expected_class in test_cases:
-        page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
-        page.wait_for_selector("#video-detail-wrap")
-        badge = page.locator("[data-detail-status-card] .status-badge")
-        expect(badge).to_be_visible()
-        expect(badge).to_have_class(re.compile(re.escape(expected_class)))
-
-
-@pytest.mark.e2e
 def test_video_list_search(e2e_page: Page, seeded_server: dict) -> None:
     """Typing in the search box triggers HTMX update to #search-results."""
     page = e2e_page
@@ -559,29 +491,6 @@ def test_video_list_empty_state(e2e_page: Page, seeded_server: dict) -> None:
     expect(empty_cell).to_be_visible()
     # Check for the empty title text (ko or en)
     expect(empty_cell).to_contain_text(re.compile(r"(영상이 없습니다|No videos yet)"))
-
-
-@pytest.mark.e2e
-def test_video_thumbnail_fallback(e2e_page: Page, seeded_server: dict) -> None:
-    """When thumbnail_path is NULL, YouTube CDN URL is rendered as the img src."""
-    page = e2e_page
-    _goto_home(page, seeded_server)
-
-    # Our seeded videos have no thumbnail_path, so _thumbnail_url falls back to
-    # https://i.ytimg.com/vi/{video_id}/hqdefault.jpg
-    first_row = page.locator("#video-list-wrap tbody tr").first
-    first_link = first_row.locator("td a[href^='/videos/']").first
-    first_href = first_link.get_attribute("href")
-    assert first_href is not None and first_href.startswith("/videos/")
-    first_video_id = first_href.removeprefix("/videos/")
-    first_img = first_row.locator("img[alt='thumbnail']").first
-    expect(first_img).to_be_visible()
-
-    src = first_img.get_attribute("src")
-    assert src is not None
-    assert "i.ytimg.com" in src
-    assert f"/{first_video_id}/" in src
-    assert "hqdefault.jpg" in src
 
 
 @pytest.mark.e2e

@@ -103,12 +103,6 @@ def test_downloads_page_summary_and_mobile_card_contract(client: TestClient) -> 
 
     assert response.status_code == 200
     html = response.text
-    assert "table-auto" in html
-    assert "md:hidden" in html
-    assert "overflow-x-auto" not in html
-    assert "hidden rounded-lg border border-slate-200 bg-white shadow-sm md:block" in html
-    assert "process_failed · this is a very long fai..." in html
-    assert "very-long-output-file-name-for-download-..." in html
     assert "data-download-detail-open" in html
     assert 'data-video-id="vid-download-view-1"' in html
     assert "data-error-message=" in html

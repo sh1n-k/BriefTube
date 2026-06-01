@@ -11,7 +11,7 @@ def test_queue_status_keys_and_defaults(client: TestClient) -> None:
     assert response.status_code == 200
 
     payload = response.json()
-    for key in (
+    expected_keys = {
         "auto_paused",
         "transcript_pending",
         "transcript_processing",
@@ -24,22 +24,10 @@ def test_queue_status_keys_and_defaults(client: TestClient) -> None:
         "manual_review",
         "done",
         "unknown_count",
-    ):
-        assert key in payload
-        assert isinstance(payload[key], int)
-
-    assert payload["transcript_pending"] == 0
-    assert payload["transcript_processing"] == 0
-    assert payload["auto_paused"] == 0
-    assert payload["transcript_done"] == 0
-    assert payload["transcript_failed"] == 0
-    assert payload["no_subtitle"] == 0
-    assert payload["llm_pending"] == 0
-    assert payload["llm_processing"] == 0
-    assert payload["llm_failed"] == 0
-    assert payload["manual_review"] == 0
-    assert payload["done"] == 0
-    assert payload["unknown_count"] == 0
+    }
+    assert expected_keys <= payload.keys()
+    assert all(isinstance(payload[key], int) for key in expected_keys)
+    assert all(payload[key] == 0 for key in expected_keys)
 
 
 def test_queue_status_counts_unknown_values_in_unknown_count(client: TestClient) -> None:

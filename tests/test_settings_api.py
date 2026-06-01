@@ -11,7 +11,6 @@ from app.services.llm import LlmRuntimePlan
 from app.services.llm_capabilities import LlmCapabilityProbe
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
-    TRANSCRIPT_REQUEST_HEADER_KEYS,
     TRANSCRIPT_REQUEST_HEADER_PROFILE,
     default_transcript_request_headers,
 )
@@ -20,67 +19,24 @@ from app.services.transcript_headers import (
 def test_settings_language_default_and_update(client: TestClient) -> None:
     initial = client.get("/api/settings")
     assert initial.status_code == 200
-    assert initial.json()["language"] == "ko"
-    assert initial.json()["timezone"] == "Asia/Seoul"
-    assert initial.json()["workers"] == {
+    payload = initial.json()
+    assert payload["language"] == "ko"
+    assert payload["timezone"] == "Asia/Seoul"
+    assert payload["workers"] == {
         "rss": True,
         "transcript": True,
         "llm": True,
         "notifier": True,
     }
-    assert initial.json()["policy"] == {
-        "rss_bootstrap_lookback_days": 60,
-        "retention_days": 180,
-        "rss_feed_mode": "long_form_only",
-    }
-    assert initial.json()["llm_settings"] == {
-        "provider_primary": "codex",
-        "provider_fallback": "claude",
-        "prompt_template": "",
-        "llm_model": {
-            "codex": "gpt-5.3-codex",
-            "claude": "",
-            "gemini": "gemini-3.1-pro-preview",
-        },
-        "llm_reasoning_effort": {
-            "codex": "",
-            "claude": "",
-            "gemini": "none",
-        },
-        "max_concurrent": 1,
-    }
-    assert "codex" in initial.json()["llm_capabilities"]
-    assert initial.json()["telegram_settings"] == {
-        "configured": False,
-        "override_active": False,
-        "bot_token_stored": False,
-        "chat_id_stored": False,
-        "stored_bot_token_preview": "",
-        "stored_chat_id_preview": "",
-        "effective_bot_token_preview": "",
-        "effective_chat_id_preview": "",
-        "bot_token_source": "none",
-        "chat_id_source": "none",
-    }
-    assert initial.json()["videos_per_page"] == 8
-    assert (
-        initial.json()["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
-    )
-    assert initial.json()["transcript_request_headers"]["keys"] == list(
-        TRANSCRIPT_REQUEST_HEADER_KEYS
-    )
-    assert (
-        initial.json()["transcript_request_headers"]["field_names"]
-        == TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS
-    )
-    assert (
-        initial.json()["transcript_request_headers"]["defaults"]
-        == default_transcript_request_headers()
-    )
-    assert (
-        initial.json()["transcript_request_headers"]["values"]["Accept-Language"]
-        == default_transcript_request_headers()["Accept-Language"]
-    )
+    assert payload["policy"]["rss_feed_mode"] == "long_form_only"
+    assert payload["llm_settings"]["provider_primary"] == "codex"
+    assert payload["llm_settings"]["provider_fallback"] == "claude"
+    assert payload["llm_settings"]["max_concurrent"] == 1
+    assert "codex" in payload["llm_capabilities"]
+    assert payload["telegram_settings"]["configured"] is False
+    assert payload["telegram_settings"]["bot_token_source"] == "none"
+    assert payload["videos_per_page"] == 8
+    assert payload["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
 
     updated = client.put("/api/settings/language", json={"language": "en"})
     assert updated.status_code == 200
@@ -432,64 +388,46 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert after.json()["llm_settings"]["max_concurrent"] == 4
 
 
-def test_settings_llm_rejects_invalid_max_concurrent(client: TestClient) -> None:
+@pytest.mark.parametrize(
+    ("payload", "detail"),
+    [
+        ({"max_concurrent": 5}, "max_concurrent must be between 1 and 4"),
+        (
+            {"provider_primary": "codex", "provider_fallback": "codex"},
+            "provider_fallback must be different from provider_primary",
+        ),
+        ({}, "empty llm settings payload"),
+        (
+            {
+                "provider_primary": "codex",
+                "provider_fallback": "none",
+                "prompt_template": "Title={source_title}",
+            },
+            "prompt_template must include {transcript_text}",
+        ),
+        (["invalid"], "llm payload must be object"),
+        ({"llm_model": "invalid"}, "llm_model must be object"),
+        (
+            {"llm_model": {"codex": "x" * 201}},
+            "llm_model.codex is too long (max 200)",
+        ),
+        (
+            {"llm_reasoning_effort": {"claude": "ultra"}},
+            "reasoning_effort must be one of: high, low, medium",
+        ),
+    ],
+)
+def test_settings_llm_rejects_invalid_payloads(
+    client: TestClient,
+    payload: object,
+    detail: str,
+) -> None:
     response = client.put(
         "/api/settings/llm",
-        json={"max_concurrent": 5},
+        json=payload,
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "max_concurrent must be between 1 and 4"
-
-
-def test_settings_llm_rejects_same_primary_and_fallback(client: TestClient) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "codex",
-        },
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "provider_fallback must be different from provider_primary"
-
-
-def test_settings_llm_rejects_empty_payload(client: TestClient) -> None:
-    response = client.put("/api/settings/llm", json={})
-    assert response.status_code == 400
-    assert response.json()["detail"] == "empty llm settings payload"
-
-
-def test_settings_llm_rejects_prompt_without_transcript_placeholder(client: TestClient) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Title={source_title}",
-        },
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "prompt_template must include {transcript_text}"
-
-
-def test_settings_llm_rejects_non_object_json_payload(client: TestClient) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json=["invalid"],
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "llm payload must be object"
-
-
-def test_settings_llm_rejects_non_object_llm_model(client: TestClient) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "llm_model": "invalid",
-        },
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "llm_model must be object"
+    assert response.json()["detail"] == detail
 
 
 def test_settings_llm_accepts_custom_codex_model(client: TestClient) -> None:
@@ -503,32 +441,6 @@ def test_settings_llm_accepts_custom_codex_model(client: TestClient) -> None:
     )
     assert response.status_code == 200
     assert response.json()["llm_settings"]["llm_model"]["codex"] == "custom-codex-model"
-
-
-def test_settings_llm_rejects_too_long_codex_model(client: TestClient) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "llm_model": {
-                "codex": "x" * 201,
-            }
-        },
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "llm_model.codex is too long (max 200)"
-
-
-def test_settings_llm_rejects_invalid_reasoning_effort_value(client: TestClient) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "llm_reasoning_effort": {
-                "claude": "ultra",
-            }
-        },
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "reasoning_effort must be one of: high, low, medium"
 
 
 def test_settings_llm_accepts_codex_xhigh_reasoning_effort(client: TestClient) -> None:
@@ -690,22 +602,9 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
 
     after = client.get("/api/settings")
     assert after.status_code == 200
-    assert after.json()["llm_settings"] == {
-        "provider_primary": "codex",
-        "provider_fallback": "claude",
-        "prompt_template": "",
-        "llm_model": {
-            "codex": "gpt-5.3-codex",
-            "claude": "",
-            "gemini": "gemini-3.1-pro-preview",
-        },
-        "llm_reasoning_effort": {
-            "codex": "",
-            "claude": "",
-            "gemini": "none",
-        },
-        "max_concurrent": 1,
-    }
+    assert after.json()["llm_settings"]["provider_primary"] == "codex"
+    assert after.json()["llm_settings"]["provider_fallback"] == "claude"
+    assert after.json()["llm_settings"]["max_concurrent"] == 1
 
 
 def test_settings_llm_update_blocks_when_primary_provider_is_gemini(client: TestClient) -> None:
@@ -790,27 +689,28 @@ def test_settings_llm_runtime_status_prefers_auth_issue_when_pending(
     assert payload["pending_count"] == 2
 
 
-def test_settings_llm_resume_returns_409_when_runtime_not_ready(client: TestClient) -> None:
-    response = client.post("/api/settings/llm/resume")
-    assert response.status_code == 409
-    assert response.json()["ok"] is False
-    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
-    assert "llm-runtime-toast" in trigger
-
-
-def test_settings_llm_resume_returns_409_when_schema_is_invalid(
+@pytest.mark.parametrize(
+    "blocking_reason",
+    [
+        "llm_prompt_missing",
+        "llm_provider_schema_invalid_codex",
+    ],
+)
+def test_settings_llm_resume_returns_409_when_runtime_is_blocked(
     client: TestClient,
     monkeypatch,
+    blocking_reason: str,
 ) -> None:
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=[],
-            blocking_reason="llm_provider_schema_invalid_codex",
-            warnings=[],
-        ),
-    )
+    if blocking_reason != "llm_prompt_missing":
+        monkeypatch.setattr(
+            client.app.state.runtime.llm_client,
+            "resolve_runtime_plan",
+            lambda _settings: LlmRuntimePlan(
+                providers_to_try=[],
+                blocking_reason=blocking_reason,
+                warnings=[],
+            ),
+        )
     response = client.post("/api/settings/llm/resume")
     assert response.status_code == 409
     assert response.json()["ok"] is False

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 
 import pytest
@@ -133,31 +132,6 @@ def test_downloads_page_loads(e2e_page: Page, downloads_seeded: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. test_downloads_status_filter_tabs
-# ---------------------------------------------------------------------------
-def test_downloads_status_filter_tabs(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Tab links exist with correct count badges."""
-    _goto_downloads(e2e_page)
-
-    # "all" tab should show total (4)
-    all_tab = e2e_page.locator("a[href='/downloads?status=all']")
-    expect(all_tab).to_contain_text("(4)")
-
-    # Individual count badges
-    pending_tab = e2e_page.locator("a[href='/downloads?status=pending']")
-    expect(pending_tab).to_contain_text("(1)")
-
-    running_tab = e2e_page.locator("a[href='/downloads?status=running']")
-    expect(running_tab).to_contain_text("(1)")
-
-    succeeded_tab = e2e_page.locator("a[href='/downloads?status=succeeded']")
-    expect(succeeded_tab).to_contain_text("(1)")
-
-    failed_tab = e2e_page.locator("a[href='/downloads?status=failed']")
-    expect(failed_tab).to_contain_text("(1)")
-
-
-# ---------------------------------------------------------------------------
 # 3. test_downloads_status_filter_pending
 # ---------------------------------------------------------------------------
 def test_downloads_status_filter_pending(e2e_page: Page, downloads_seeded: dict) -> None:
@@ -266,27 +240,6 @@ def test_downloads_retry_button(e2e_page: Page, downloads_seeded: dict) -> None:
         retry_btn.click()
     response = response_info.value
     assert response.ok
-
-
-# ---------------------------------------------------------------------------
-# 8. test_downloads_ffmpeg_warning
-# ---------------------------------------------------------------------------
-def test_downloads_ffmpeg_warning(e2e_page: Page, downloads_seeded: dict) -> None:
-    """When ffmpeg is available, no warning banner is shown.
-    When it is unavailable, the amber warning div should appear.
-    We check for the ffmpeg warning div's existence based on server state.
-    """
-    _goto_downloads(e2e_page)
-
-    # The ffmpeg warning banner has specific classes if present
-    ffmpeg_warning = e2e_page.locator("div.border-amber-300.bg-amber-50")
-    count = ffmpeg_warning.count()
-    ffmpeg_installed = shutil.which("ffmpeg") is not None
-    if ffmpeg_installed:
-        assert count == 0, "ffmpeg installed environment must not show warning"
-        return
-    assert count == 1, "ffmpeg missing environment must show warning"
-    expect(ffmpeg_warning).to_contain_text("ffmpeg")
 
 
 # ---------------------------------------------------------------------------

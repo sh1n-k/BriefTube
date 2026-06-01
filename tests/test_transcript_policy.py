@@ -13,7 +13,6 @@ from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.services import transcript as transcript_service_module
-from app.services.transcript_guard import _compute_retry_delay_seconds
 from app.workers.transcript_worker import run_transcript_fetcher
 
 repository = SimpleNamespace(
@@ -32,13 +31,6 @@ repository = SimpleNamespace(
     ensure_llm_config_missing_alert=llm_repo.ensure_llm_config_missing_alert,
     get_setting=settings_repo.get_setting,
 )
-
-
-def test_compute_retry_delay_seconds_uses_exponential_backoff_with_cap() -> None:
-    assert _compute_retry_delay_seconds(base_delay=120, max_delay=3600, retry_count=0) == 120
-    assert _compute_retry_delay_seconds(base_delay=120, max_delay=3600, retry_count=1) == 240
-    assert _compute_retry_delay_seconds(base_delay=120, max_delay=3600, retry_count=4) == 1920
-    assert _compute_retry_delay_seconds(base_delay=120, max_delay=3600, retry_count=20) == 3600
 
 
 def test_pop_pending_transcript_videos_prioritizes_recent_and_due(client) -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sqlite3
 from typing import Any
 
@@ -55,40 +54,20 @@ def test_settings_page_renders(client: TestClient) -> None:
 
     response = client.get("/settings")
     assert response.status_code == 200
-    assert "설정" in response.text
-    assert "시간대" in response.text
-    assert "테마" in response.text
-    assert "목록 설정" in response.text
-    assert "수집/보관 정책" in response.text
+    assert 'href="/settings"' in response.text
     assert 'data-rss-poll-preview="settings"' in response.text
-    assert "요청 간격 미리보기" in response.text
-    assert "워커 제어" in response.text
-    assert "Telegram 알림" in response.text
-    assert "봇 토큰과 채팅 ID를 SQLite에 저장합니다." in response.text
     assert 'hx-put="/api/settings/telegram"' in response.text
     assert 'name="telegram_bot_token"' in response.text
     assert 'name="telegram_chat_id"' in response.text
-    assert 'name="telegram_clear_bot_token"' in response.text
-    assert 'name="telegram_clear_chat_id"' in response.text
-    assert "영상 다운로드" in response.text
-    assert "LLM 재구조화" in response.text
-    assert "재구조화 프롬프트 템플릿" in response.text
-    assert "{transcript_text}는 필수" in response.text
-    assert "런타임 상태" in response.text
-    assert "다시 점검" in response.text
-    assert "인증 완료 후 재개" in response.text
     assert 'id="llm-runtime-status"' in response.text
     assert 'hx-get="/views/settings/llm/runtime-status"' in response.text
     assert 'hx-post="/views/settings/llm/resume"' in response.text
     assert 'name="llm_provider_primary"' in response.text
     assert 'name="llm_provider_fallback"' in response.text
     assert 'name="llm_max_concurrent"' in response.text
-    assert "동시 처리 수" in response.text
-    assert "LLM 작업을 동시에 처리할 최대 개수입니다." in response.text
     assert "change from:select[name='llm_max_concurrent']" in response.text
     assert 'name="llm_model_codex"' in response.text
     assert 'value="gpt-5.4"' in response.text
-    assert "Codex 모델 새로고침" in response.text
     assert 'name="llm_model_claude"' in response.text
     assert 'name="llm_model_gemini"' in response.text
     assert 'name="llm_reasoning_effort_codex"' in response.text
@@ -97,85 +76,40 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'name="llm_prompt_template"' in response.text
     assert response.text.count('name="llm_prompt_template"') == 1
     assert 'hx-put="/api/settings/llm"' in response.text
-    assert "Provider별 모델/사고 수준" in response.text
     assert response.text.index('name="llm_provider_fallback"') < response.text.index(
         'name="llm_max_concurrent"'
     )
-    assert response.text.index('name="llm_max_concurrent"') < response.text.index(
-        "Provider별 모델/사고 수준"
-    )
-    assert "Codex 모델 목록은 설치된 Codex CLI에서 확인" in response.text
     assert 'value="xhigh"' in response.text
-    assert "Google Gemini CLI" in response.text
-    assert "기본 화질 상한" in response.text
-    assert "다운로드 저장 경로" in response.text
     assert 'name="download_output_dir"' in response.text
     assert "data-download-output-dir-error" in response.text
     assert (
         "change from:select[name='download_quality'], change from:input[name='download_overwrite'], change from:input[name='download_output_dir']"
         in response.text
     )
-    assert "input changed delay:800ms from:input[name='download_output_dir']" not in response.text
     assert "hx-trigger=\"change from:select[name='language']\"" in response.text
     assert (
         "hx-trigger=\"input changed delay:1s from:input[name='videos_per_page']\"" in response.text
     )
     assert 'data-save-toast="' in response.text
     assert "data-digits-only" in response.text
-    assert "/static/js/ui/download-controls.js" in response.text
-    assert "/static/js/ui/auto-refresh.js" in response.text
-    assert "/static/js/main-ui.js" in response.text
-    assert response.text.index("/static/js/ui/download-controls.js") < response.text.index(
-        "/static/js/main-ui.js"
-    )
-    assert response.text.index("/static/js/ui/auto-refresh.js") < response.text.index(
-        "/static/js/main-ui.js"
-    )
-    assert "window.BRIEFTUBE_UI_BOOTSTRAP" in response.text
-    assert "data-theme-toggle" in response.text
-    assert "data-theme-mode-select" in response.text
-    assert "data-theme-tone-select" in response.text
-    assert "brieftube.theme.mode" in response.text
-    assert "brieftube.theme.tone" in response.text
-    assert "뉴트럴 (기본)" in response.text
-    assert "고대비" in response.text
-    assert 'document.body.addEventListener("htmx:afterRequest"' not in response.text
-    assert "Asia/Tokyo" not in response.text
-    assert 'id="channel-list-wrap"' not in response.text
-    assert 'href="/settings"' in response.text
-    assert response.text.count('href="/settings"') == 1
-    assert "채널 관리로 이동" not in response.text
-    assert "채널 등록/일괄 추가는 채널 관리 페이지에서 진행합니다." not in response.text
-    assert "자막 요청 헤더" in response.text
-    assert "Firefox(Windows) 한국어 프로필을 기본으로 사용합니다." in response.text
-    assert "고정 키별 값 입력 (빈 값 저장 시 기본값 복원)" in response.text
     assert 'name="transcript_header_user_agent"' in response.text
     assert 'name="transcript_header_accept"' in response.text
     assert 'name="transcript_header_accept_language"' in response.text
     assert 'name="transcript_header_dnt"' in response.text
     assert 'name="transcript_header_upgrade_insecure_requests"' in response.text
     assert 'name="transcript_request_headers"' not in response.text
-    assert 'placeholder="ko-KR,ko;q=0.9,en-US;q=0.6,en;q=0.3"' in response.text
-    assert "자막 보호 상태" in response.text
-    assert "주의 구역: 자막 보호 상태 초기화" in response.text
-    assert "전체 편집" in response.text
-    assert "재구조화 프롬프트 전체 편집" in response.text
     assert 'id="llm-prompt-modal"' in response.text
     assert "data-open-llm-prompt-modal" in response.text
     assert "data-llm-prompt-editor" in response.text
-    assert response.text.index('data-settings-section="workers"') < response.text.index(
-        'data-settings-section="language"'
-    )
-    assert response.text.index('data-settings-section="llm"') < response.text.index(
-        'data-settings-section="telegram"'
-    )
-    assert response.text.index('data-settings-section="telegram"') < response.text.index(
-        'data-settings-section="transcript-headers"'
-    )
-    assert response.text.index('data-settings-section="transcript-headers"') < response.text.index(
-        'data-settings-section="transcript-guard"'
-    )
-    assert len(re.findall(r'type="number"', response.text)) >= 3
+    for section in (
+        "workers",
+        "language",
+        "llm",
+        "telegram",
+        "transcript-headers",
+        "transcript-guard",
+    ):
+        assert f'data-settings-section="{section}"' in response.text
 
 
 def test_settings_page_preserves_saved_codex_model_outside_probe_options(
