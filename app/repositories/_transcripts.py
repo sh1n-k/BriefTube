@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import aiosqlite
 
+from app.remote_sync_metadata import SYNC_NOW_SQL
 from app.repositories import _settings as settings_repository
 
 TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
@@ -97,6 +98,7 @@ async def list_queue_items(
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE v.pipeline_status IN ({placeholders})
+          AND v.deleted_at IS NULL
         ORDER BY
             CASE v.pipeline_status
                 WHEN 'transcript_processing' THEN 0
@@ -172,6 +174,7 @@ async def pop_pending_transcript_videos(
             transcript_target_language
         FROM videos
         WHERE pipeline_status = 'transcript_pending'
+          AND deleted_at IS NULL
           AND (
               transcript_next_attempt_at IS NULL
               OR transcript_next_attempt_at <= datetime('now')
@@ -230,13 +233,17 @@ async def save_transcript(
     force_llm_pending: bool = False,
 ) -> None:
     await db.execute(
-        """
-        INSERT INTO transcripts(video_id, raw_text, language, source_type)
-        VALUES (?, ?, ?, ?)
+        f"""
+        INSERT INTO transcripts(video_id, raw_text, language, source_type, origin_device_id)
+        VALUES (?, ?, ?, ?, COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), ''))
         ON CONFLICT(video_id) DO UPDATE SET
             raw_text=excluded.raw_text,
             language=excluded.language,
-            source_type=excluded.source_type
+            source_type=excluded.source_type,
+            deleted_at=NULL,
+            updated_at={SYNC_NOW_SQL},
+            sync_dirty=1,
+            origin_device_id=COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), transcripts.origin_device_id, '')
         """,
         (video_id, raw_text, language, source_type),
     )
@@ -261,6 +268,7 @@ async def save_transcript(
             transcript_last_error_at = NULL,
             thumbnail_path = COALESCE(?, thumbnail_path)
         WHERE video_id = ?
+          AND deleted_at IS NULL
         """,
         (1 if force_llm_pending else 0, language, thumbnail_path, video_id),
     )

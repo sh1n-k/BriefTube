@@ -24,6 +24,7 @@ async def pick_next_rss_channel(db: aiosqlite.Connection) -> dict[str, Any] | No
             created_at
         FROM channels
         WHERE is_active = 1
+          AND deleted_at IS NULL
         ORDER BY
             CASE WHEN rss_last_polled_at IS NULL THEN 0 ELSE 1 END,
             rss_last_polled_at ASC,
@@ -66,7 +67,9 @@ async def touch_rss_last_polled_at(db: aiosqlite.Connection, channel_id: str) ->
 
 
 async def count_active_channels(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute("SELECT COUNT(*) FROM channels WHERE is_active = 1")
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM channels WHERE is_active = 1 AND deleted_at IS NULL"
+    )
     row = await cursor.fetchone()
     return int(row[0]) if row else 0
 

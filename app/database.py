@@ -11,6 +11,8 @@ from app.database_migrations import (
     _ensure_channel_metadata_columns,
     _ensure_download_columns,
     _ensure_manual_transcript_jobs_table,
+    _ensure_remote_sync_device_id,
+    _ensure_sync_metadata_columns,
     _ensure_video_columns,
     _ensure_video_indexes,
 )
@@ -33,12 +35,15 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await db.executescript(schema_sql)
     await _ensure_app_settings_table(db)
     await _ensure_video_columns(db)
+    await _ensure_remote_sync_device_id(db)
     await _ensure_article_columns(db)
     await _ensure_video_indexes(db)
     await _ensure_download_columns(db)
     await _ensure_manual_transcript_jobs_table(db)
     await _ensure_category_tables(db)
     await _ensure_channel_metadata_columns(db)
+    for table in ("categories", "channels", "videos", "transcripts", "articles"):
+        await _ensure_sync_metadata_columns(db, table)
     await db.commit()
 
 

@@ -4,6 +4,7 @@ from typing import Any
 
 import aiosqlite
 
+from app.remote_sync_metadata import sync_dirty_set_clause
 from app.repositories._channels import (
     CHANNEL_MANAGEMENT_STATUS_ACTIVE,
     CHANNEL_MANAGEMENT_STATUS_OPTIONS,
@@ -53,6 +54,7 @@ async def enqueue_channel_metadata_refresh(
             metadata_fetch_error = NULL,
             metadata_next_fetch_at = datetime('now')
         WHERE channel_id = ?
+          AND deleted_at IS NULL
         """,
         (CHANNEL_METADATA_STATUS_PENDING, normalized_channel_id),
     )
@@ -74,6 +76,7 @@ async def schedule_channel_metadata_backfill(
             metadata_fetch_error = NULL,
             metadata_next_fetch_at = datetime('now')
         WHERE metadata_fetch_status != ?
+          AND deleted_at IS NULL
           AND (
             metadata_fetched_at IS NULL
             OR metadata_next_fetch_at IS NULL
@@ -101,6 +104,7 @@ async def claim_next_channel_metadata_target(db: aiosqlite.Connection) -> dict[s
         SELECT channel_id
         FROM channels
         WHERE metadata_fetch_status = ?
+          AND deleted_at IS NULL
           AND (
             metadata_next_fetch_at IS NULL
             OR metadata_next_fetch_at <= datetime('now')
@@ -122,6 +126,7 @@ async def claim_next_channel_metadata_target(db: aiosqlite.Connection) -> dict[s
             metadata_fetch_error = NULL
         WHERE channel_id = ?
           AND metadata_fetch_status = ?
+          AND deleted_at IS NULL
         """,
         (
             CHANNEL_METADATA_STATUS_RUNNING,
@@ -141,6 +146,7 @@ async def claim_next_channel_metadata_target(db: aiosqlite.Connection) -> dict[s
             metadata_next_fetch_at
         FROM channels
         WHERE channel_id = ?
+          AND deleted_at IS NULL
         LIMIT 1
         """,
         (channel_id,),
@@ -170,7 +176,7 @@ async def mark_channel_metadata_succeeded(
     safe_http_status = _normalize_optional_int(http_status)
     safe_interval_days = max(1, int(refresh_interval_days))
     cursor = await db.execute(
-        """
+        f"""
         UPDATE channels
         SET
             channel_name = COALESCE(?, channel_name),
@@ -184,8 +190,10 @@ async def mark_channel_metadata_succeeded(
             metadata_fetch_error = NULL,
             metadata_retry_count = 0,
             metadata_next_fetch_at = datetime('now', '+' || ? || ' days'),
-            metadata_last_http_status = ?
+            metadata_last_http_status = ?,
+            {sync_dirty_set_clause()}
         WHERE channel_id = ?
+          AND deleted_at IS NULL
         """,
         (
             safe_channel_name,
@@ -217,6 +225,7 @@ async def mark_channel_metadata_failed(
         SELECT metadata_retry_count
         FROM channels
         WHERE channel_id = ?
+          AND deleted_at IS NULL
         LIMIT 1
         """,
         (channel_id,),
@@ -244,6 +253,7 @@ async def mark_channel_metadata_failed(
             metadata_next_fetch_at = datetime('now', '+' || ? || ' minutes'),
             metadata_last_http_status = ?
         WHERE channel_id = ?
+          AND deleted_at IS NULL
         """,
         (
             status,

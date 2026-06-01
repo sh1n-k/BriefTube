@@ -30,6 +30,7 @@ from app.routers import api, pages, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
 from app.services.llm_capabilities import LlmCapabilityProbe
+from app.services.remote_sync import run_startup_pull
 from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier, configure_telegram_notifier
 from app.services.transcript import TranscriptService
@@ -43,6 +44,7 @@ from app.workers.manual_article_worker import run_manual_article_worker
 from app.workers.manual_transcript_worker import run_manual_transcript_worker
 from app.workers.notifier_worker import run_telegram_notifier
 from app.workers.poller import run_rss_poller
+from app.workers.remote_sync_worker import run_remote_sync_worker
 from app.workers.transcript_worker import run_transcript_fetcher
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,7 @@ WORKER_SPECS: tuple[WorkerSpec, ...] = (
     WorkerSpec("manual_article", "manual_article_worker", run_manual_article_worker, order=30),
     WorkerSpec("llm", "llm_queue_worker", run_llm_queue_worker, order=40),
     WorkerSpec("notifier", "telegram_notifier", run_telegram_notifier, order=50),
+    WorkerSpec("remote_sync", "remote_sync_worker", run_remote_sync_worker, order=55),
     WorkerSpec(
         "channel_metadata",
         "channel_metadata_worker",
@@ -198,6 +201,7 @@ async def lifespan(app: FastAPI):
 
     db = await open_database(config.db_path)
     await init_database(db)
+    await run_startup_pull(config, db)
     recovered = await recover_stuck_jobs(db)
     orphan_repaired = await llm_repo.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
@@ -206,6 +210,8 @@ async def lifespan(app: FastAPI):
         await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
     )
     enabled_worker_names = _enabled_worker_names()
+    if not config.remote_sync_enabled:
+        enabled_worker_names.discard("remote_sync")
     metadata_worker_enabled = "channel_metadata" in enabled_worker_names
     recovered_metadata_running = 0
     scheduled_metadata_targets = 0

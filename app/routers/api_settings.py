@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.i18n import SUPPORTED_LANGUAGES, normalize_language
 from app.repositories import downloads as downloads_repo
+from app.repositories import remote_sync as remote_sync_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers import (
@@ -66,6 +67,11 @@ async def get_settings(request: Request):
     llm_runtime_status = await resolve_llm_runtime_status_payload(request)
     llm_capabilities = await resolve_llm_capabilities_payload(request)
     telegram_settings = await build_telegram_settings_payload_for_request(request)
+    remote_sync_status = await remote_sync_repo.get_status(
+        request.app.state.runtime.db,
+        configured=bool(request.app.state.runtime.config.remote_sync_dsn),
+        enabled=bool(request.app.state.runtime.config.remote_sync_enabled),
+    )
     return {
         "language": normalize_language(language),
         "timezone": normalize_timezone(timezone_value),
@@ -79,6 +85,7 @@ async def get_settings(request: Request):
         "llm_runtime_status": llm_runtime_status,
         "llm_capabilities": llm_capabilities,
         "telegram_settings": telegram_settings,
+        "remote_sync": remote_sync_status,
         "ffmpeg_available": is_ffmpeg_available(),
     }
 

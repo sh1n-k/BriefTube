@@ -6,8 +6,15 @@ Extracted verbatim from app.database to keep the public DB surface thin.
 from __future__ import annotations
 
 import logging
+import uuid
 
 import aiosqlite
+
+from app.remote_sync_metadata import (
+    DEFAULT_CATEGORY_UID,
+    REMOTE_SYNC_DEVICE_ID_KEY,
+    SYNC_NOW_SQL,
+)
 
 VALID_PIPELINE_STATUSES: tuple[str, ...] = (
     "auto_paused",
@@ -156,7 +163,12 @@ async def _rebuild_videos_table_with_pipeline_status(
                 transcript_last_error_at TEXT,
                 retry_count             INTEGER NOT NULL DEFAULT 0,
                 created_at              TEXT NOT NULL DEFAULT (datetime('now')),
-                viewed_at               TEXT
+                viewed_at               TEXT,
+                updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                deleted_at              TEXT,
+                sync_dirty              INTEGER NOT NULL DEFAULT 1,
+                sync_last_pushed_at     TEXT,
+                origin_device_id        TEXT NOT NULL DEFAULT ''
             )
             """
         )
@@ -237,6 +249,64 @@ async def _ensure_app_settings_table(db: aiosqlite.Connection) -> None:
             updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
         )
         """
+    )
+
+
+async def _ensure_remote_sync_device_id(db: aiosqlite.Connection) -> None:
+    cursor = await db.execute(
+        "SELECT value FROM app_settings WHERE key = ?",
+        (REMOTE_SYNC_DEVICE_ID_KEY,),
+    )
+    row = await cursor.fetchone()
+    if row is not None and str(row["value"] or "").strip():
+        return
+    await db.execute(
+        """
+        INSERT INTO app_settings(key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = datetime('now')
+        """,
+        (REMOTE_SYNC_DEVICE_ID_KEY, str(uuid.uuid4())),
+    )
+
+
+async def _ensure_sync_metadata_columns(
+    db: aiosqlite.Connection,
+    table: str,
+) -> None:
+    columns = await _table_columns(db, table)
+    if "updated_at" not in columns:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN updated_at TEXT")
+    if "deleted_at" not in columns:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT")
+    if "sync_dirty" not in columns:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1")
+    if "sync_last_pushed_at" not in columns:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN sync_last_pushed_at TEXT")
+    if "origin_device_id" not in columns:
+        await db.execute(
+            f"ALTER TABLE {table} ADD COLUMN origin_device_id TEXT NOT NULL DEFAULT ''"
+        )
+    await db.execute(
+        f"""
+        UPDATE {table}
+        SET updated_at = COALESCE(NULLIF(trim(updated_at), ''), created_at, {SYNC_NOW_SQL})
+        WHERE updated_at IS NULL OR trim(updated_at) = ''
+        """
+    )
+    await db.execute(
+        f"""
+        UPDATE {table}
+        SET origin_device_id = COALESCE(
+            NULLIF(origin_device_id, ''),
+            (SELECT value FROM app_settings WHERE key = ?),
+            ''
+        )
+        WHERE origin_device_id IS NULL OR trim(origin_device_id) = ''
+        """,
+        (REMOTE_SYNC_DEVICE_ID_KEY,),
     )
 
 
@@ -395,12 +465,18 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS categories (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_uid TEXT UNIQUE,
             name        TEXT NOT NULL UNIQUE,
             sort_order  INTEGER NOT NULL DEFAULT 0,
             llm_enabled INTEGER NOT NULL DEFAULT 1,
             processing_stage TEXT NOT NULL DEFAULT 'off',
             is_default  INTEGER NOT NULL DEFAULT 0,
-            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            deleted_at  TEXT,
+            sync_dirty  INTEGER NOT NULL DEFAULT 1,
+            sync_last_pushed_at TEXT,
+            origin_device_id TEXT NOT NULL DEFAULT ''
         )
         """
     )
@@ -421,6 +497,8 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
             END
             """
         )
+    if not await _column_exists(db, "categories", "category_uid"):
+        await db.execute("ALTER TABLE categories ADD COLUMN category_uid TEXT")
     await db.execute(
         """
         UPDATE categories
@@ -439,9 +517,10 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
     if row is None:
         await db.execute(
             """
-            INSERT INTO categories (name, sort_order, llm_enabled, processing_stage, is_default)
-            VALUES ('미분류', 0, 1, 'off', 1)
-            """
+            INSERT INTO categories (category_uid, name, sort_order, llm_enabled, processing_stage, is_default)
+            VALUES (?, '미분류', 0, 1, 'off', 1)
+            """,
+            (DEFAULT_CATEGORY_UID,),
         )
         logger.info(
             "event=db.default_category_created",
@@ -456,9 +535,23 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
     if default_row is not None:
         default_id = int(default_row["id"])
         await db.execute(
+            "UPDATE categories SET category_uid = ? WHERE id = ?",
+            (DEFAULT_CATEGORY_UID, default_id),
+        )
+        await db.execute(
             "UPDATE channels SET category_id = ? WHERE category_id IS NULL",
             (default_id,),
         )
+    await db.execute(
+        """
+        UPDATE categories
+        SET category_uid = 'category-' || id
+        WHERE category_uid IS NULL OR trim(category_uid) = ''
+        """
+    )
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_category_uid ON categories(category_uid)"
+    )
 
 
 async def _ensure_download_columns(db: aiosqlite.Connection) -> None:

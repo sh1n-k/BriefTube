@@ -1,11 +1,17 @@
 CREATE TABLE IF NOT EXISTS categories (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_uid TEXT UNIQUE,
     name        TEXT NOT NULL UNIQUE,
     sort_order  INTEGER NOT NULL DEFAULT 0,
     llm_enabled INTEGER NOT NULL DEFAULT 1,
     processing_stage TEXT NOT NULL DEFAULT 'off',
     is_default  INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at  TEXT,
+    sync_dirty  INTEGER NOT NULL DEFAULT 1,
+    sync_last_pushed_at TEXT,
+    origin_device_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_categories_sort ON categories(sort_order ASC, id ASC);
 
@@ -29,7 +35,12 @@ CREATE TABLE IF NOT EXISTS channels (
     metadata_last_http_status INTEGER,
     rss_fail_streak         INTEGER NOT NULL DEFAULT 0,
     rss_last_polled_at      TEXT,
-    created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at              TEXT,
+    sync_dirty              INTEGER NOT NULL DEFAULT 1,
+    sync_last_pushed_at     TEXT,
+    origin_device_id        TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -65,7 +76,12 @@ CREATE TABLE IF NOT EXISTS videos (
     transcript_last_error_at TEXT,
     retry_count         INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    viewed_at           TEXT
+    viewed_at           TEXT,
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at          TEXT,
+    sync_dirty          INTEGER NOT NULL DEFAULT 1,
+    sync_last_pushed_at TEXT,
+    origin_device_id    TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS transcripts (
@@ -74,7 +90,12 @@ CREATE TABLE IF NOT EXISTS transcripts (
     raw_text    TEXT NOT NULL,
     language    TEXT,
     source_type TEXT NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at  TEXT,
+    sync_dirty  INTEGER NOT NULL DEFAULT 1,
+    sync_last_pushed_at TEXT,
+    origin_device_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS articles (
@@ -89,7 +110,12 @@ CREATE TABLE IF NOT EXISTS articles (
     llm_model   TEXT NOT NULL DEFAULT '',
     llm_reasoning_effort TEXT NOT NULL DEFAULT '',
     llm_generated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    deleted_at  TEXT,
+    sync_dirty  INTEGER NOT NULL DEFAULT 1,
+    sync_last_pushed_at TEXT,
+    origin_device_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
