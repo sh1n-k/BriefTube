@@ -18,6 +18,7 @@ pip-wheel-metadata/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.import_linter_cache/
 .coverage
 htmlcov/
 
@@ -28,6 +29,7 @@ data.dev.db
 data.dev.db-*
 data.prod.db
 data.prod.db-*
+data*.db.*
 thumbnails/
 thumbnails-dev/
 thumbnails-prod/
@@ -60,3 +62,4 @@ channels_page.png
 output/
 playwright-report/
 test-results/
+repomix.config.json
