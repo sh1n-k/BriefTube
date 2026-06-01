@@ -7,11 +7,10 @@ LEGACY_LABELS=("com.brieftube.server" "local.brieftube.prod")
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
 LOG_DIR="${ROOT_DIR}/logs/launchd"
-STDOUT_PATH="${LOG_DIR}/brieftube-prod.stdout.log"
-STDERR_PATH="${LOG_DIR}/brieftube-prod.stderr.log"
+LAUNCHD_LOG_PATH="${LOG_DIR}/BriefTube.log"
 APP_CONFIG_FILE_PATH="${APP_CONFIG_FILE:-${ROOT_DIR}/config.prod.yaml}"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
-LAUNCHER_PATH="${ROOT_DIR}/run-prod.sh"
+LAUNCHER_PATH="${ROOT_DIR}/scripts/launchd/BriefTube"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
 
 read_config_value() {
@@ -34,8 +33,20 @@ read_config_value() {
   printf "%s\n" "${value:-${default_value}}"
 }
 
+resolve_path() {
+  local path="$1"
+  if [[ "${path}" == /* ]]; then
+    printf "%s\n" "${path}"
+    return
+  fi
+  printf "%s\n" "${ROOT_DIR}/${path#./}"
+}
+
 SERVER_HOST_VALUE="$(read_config_value "server_host" "0.0.0.0")"
 SERVER_PORT_VALUE="$(read_config_value "server_port" "48080")"
+APP_LOG_DIR_VALUE="$(read_config_value "log_dir" "./logs/prod")"
+APP_LOG_FILE_NAME_VALUE="$(read_config_value "log_file_name" "brieftube-prod.log")"
+APP_LOG_PATH="$(resolve_path "${APP_LOG_DIR_VALUE}")/${APP_LOG_FILE_NAME_VALUE}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   cat <<EOF
@@ -48,8 +59,8 @@ LaunchAgent dry run:
   app_config_file: ${APP_CONFIG_FILE_PATH}
   server_host: ${SERVER_HOST_VALUE}
   server_port: ${SERVER_PORT_VALUE}
-  stdout: ${STDOUT_PATH}
-  stderr: ${STDERR_PATH}
+  app_log: ${APP_LOG_PATH}
+  launchd_log: ${LAUNCHD_LOG_PATH}
   service_target: gui/$(id -u)/${LABEL}
   legacy_labels: ${LEGACY_LABELS[*]}
   would_create_dirs:
@@ -102,9 +113,9 @@ cat >"${PLIST_PATH}" <<PLIST
     <true/>
 
     <key>StandardOutPath</key>
-    <string>${STDOUT_PATH}</string>
+    <string>${LAUNCHD_LOG_PATH}</string>
     <key>StandardErrorPath</key>
-    <string>${STDERR_PATH}</string>
+    <string>${LAUNCHD_LOG_PATH}</string>
   </dict>
 </plist>
 PLIST
@@ -124,6 +135,6 @@ Installed LaunchAgent:
 Status:
   launchctl print gui/$(id -u)/${LABEL}
 Logs:
-  tail -f ${STDOUT_PATH}
-  tail -f ${STDERR_PATH}
+  tail -f ${APP_LOG_PATH}
+  tail -f ${LAUNCHD_LOG_PATH}
 EOF

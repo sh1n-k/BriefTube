@@ -7,8 +7,9 @@ LEGACY_LABELS=("com.brieftube.server" "local.brieftube.prod")
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
 LOG_DIR="${ROOT_DIR}/logs/launchd"
-STDOUT_PATH="${LOG_DIR}/brieftube-prod.stdout.log"
-STDERR_PATH="${LOG_DIR}/brieftube-prod.stderr.log"
+LAUNCHD_LOG_PATH="${LOG_DIR}/BriefTube.log"
+LEGACY_STDOUT_PATH="${LOG_DIR}/brieftube-prod.stdout.log"
+LEGACY_STDERR_PATH="${LOG_DIR}/brieftube-prod.stderr.log"
 DRY_RUN="${BRIEFTUBE_LAUNCHD_DRY_RUN:-0}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -17,14 +18,16 @@ LaunchAgent dry run:
   action: uninstall
   label: ${LABEL}
   plist: ${PLIST_PATH}
-  stdout: ${STDOUT_PATH}
-  stderr: ${STDERR_PATH}
+  launchd_log: ${LAUNCHD_LOG_PATH}
+  legacy_stdout: ${LEGACY_STDOUT_PATH}
+  legacy_stderr: ${LEGACY_STDERR_PATH}
   service_target: gui/$(id -u)/${LABEL}
   legacy_labels: ${LEGACY_LABELS[*]}
   would_remove:
     ${PLIST_PATH}
-    ${STDOUT_PATH}
-    ${STDERR_PATH}
+    ${LAUNCHD_LOG_PATH}
+    ${LEGACY_STDOUT_PATH}
+    ${LEGACY_STDERR_PATH}
 EOF
   exit 0
 fi
@@ -40,7 +43,7 @@ for legacy_label in "${LEGACY_LABELS[@]}"; do
 done
 
 rm -f "${PLIST_PATH}"
-rm -f "${STDOUT_PATH}" "${STDERR_PATH}"
+rm -f "${LAUNCHD_LOG_PATH}" "${LEGACY_STDOUT_PATH}" "${LEGACY_STDERR_PATH}"
 
 cat <<EOF
 Uninstalled LaunchAgent:
