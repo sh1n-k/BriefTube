@@ -63,6 +63,7 @@ async def set_llm_settings(request: Request):
     prompt_template: str | None = None
     llm_model: dict[str, str] | None = None
     llm_reasoning_effort: dict[str, str] | None = None
+    max_concurrent: str | None = None
 
     if "application/json" in content_type:
         payload = await request.json()
@@ -74,6 +75,8 @@ async def set_llm_settings(request: Request):
             provider_fallback = str(payload.get("provider_fallback", "")).strip().lower()
         if "prompt_template" in payload:
             prompt_template = str(payload.get("prompt_template", ""))
+        if "max_concurrent" in payload:
+            max_concurrent = str(payload.get("max_concurrent", "")).strip()
         if "llm_model" in payload:
             llm_model_payload = payload.get("llm_model")
             if not isinstance(llm_model_payload, dict):
@@ -94,6 +97,8 @@ async def set_llm_settings(request: Request):
             provider_fallback = str(form.get("llm_provider_fallback", "")).strip().lower()
         if "llm_prompt_template" in form:
             prompt_template = str(form.get("llm_prompt_template", ""))
+        if "llm_max_concurrent" in form:
+            max_concurrent = str(form.get("llm_max_concurrent", "")).strip()
         model_keys = ("llm_model_codex", "llm_model_claude", "llm_model_gemini")
         if any(key in form for key in model_keys):
             llm_model = {}
@@ -123,6 +128,7 @@ async def set_llm_settings(request: Request):
         and prompt_template is None
         and llm_model is None
         and llm_reasoning_effort is None
+        and max_concurrent is None
     ):
         raise HTTPException(status_code=400, detail="empty llm settings payload")
 
@@ -135,6 +141,7 @@ async def set_llm_settings(request: Request):
             prompt_template=prompt_template,
             llm_model=llm_model,
             llm_reasoning_effort=llm_reasoning_effort,
+            max_concurrent=max_concurrent,
             persist=False,
         )
     except ValueError as exc:
@@ -179,6 +186,7 @@ async def set_llm_settings(request: Request):
         prompt_template=prompt_template,
         llm_model=llm_model,
         llm_reasoning_effort=llm_reasoning_effort,
+        max_concurrent=max_concurrent,
     )
 
     runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)

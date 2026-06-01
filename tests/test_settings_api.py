@@ -47,6 +47,7 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
             "claude": "",
             "gemini": "none",
         },
+        "max_concurrent": 1,
     }
     assert "codex" in initial.json()["llm_capabilities"]
     assert initial.json()["telegram_settings"] == {
@@ -392,6 +393,7 @@ def test_settings_llm_update(client: TestClient) -> None:
                 "claude": "medium",
                 "gemini": "low",
             },
+            "max_concurrent": 4,
         },
     )
     assert response.status_code == 200
@@ -411,6 +413,7 @@ def test_settings_llm_update(client: TestClient) -> None:
         "claude": "medium",
         "gemini": "low",
     }
+    assert response.json()["llm_settings"]["max_concurrent"] == 4
 
     after = client.get("/api/settings")
     assert after.status_code == 200
@@ -426,6 +429,16 @@ def test_settings_llm_update(client: TestClient) -> None:
         "claude": "medium",
         "gemini": "low",
     }
+    assert after.json()["llm_settings"]["max_concurrent"] == 4
+
+
+def test_settings_llm_rejects_invalid_max_concurrent(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={"max_concurrent": 5},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "max_concurrent must be between 1 and 4"
 
 
 def test_settings_llm_rejects_same_primary_and_fallback(client: TestClient) -> None:
@@ -621,6 +634,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
             "llm_reasoning_effort_codex": "medium",
             "llm_reasoning_effort_claude": "high",
             "llm_reasoning_effort_gemini": "low",
+            "llm_max_concurrent": "3",
         },
     )
     assert response.status_code == 200
@@ -635,6 +649,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
         "claude": "high",
         "gemini": "low",
     }
+    assert llm_settings["max_concurrent"] == 3
 
 
 def test_settings_llm_update_blocks_when_schema_preflight_fails(
@@ -689,6 +704,7 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
             "claude": "",
             "gemini": "none",
         },
+        "max_concurrent": 1,
     }
 
 

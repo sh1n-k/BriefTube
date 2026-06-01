@@ -89,6 +89,34 @@ class DelayedSuccessClient:
         }
 
 
+class ConcurrentSuccessClient:
+    def __init__(self) -> None:
+        self.started: asyncio.Queue[str] = asyncio.Queue()
+        self.proceed = asyncio.Event()
+
+    def resolve_runtime_plan(self, settings):
+        return LlmRuntimePlan(
+            providers_to_try=["codex"],
+            blocking_reason=None,
+            warnings=[],
+        )
+
+    async def restructure(self, source_title: str, transcript_text: str, settings):
+        await self.started.put(source_title)
+        await asyncio.wait_for(self.proceed.wait(), timeout=2)
+        return {
+            "title": f"Article {source_title}",
+            "lead": "Article lead",
+            "body": "Article body",
+            "fact_box": "{}",
+            "timestamps": "[]",
+            "_llm_provider": "codex",
+            "_llm_model": "gpt-5.3-codex",
+            "_llm_reasoning_effort": "medium",
+            "_llm_generated_at": "2026-03-02T10:00:00+00:00",
+        }
+
+
 class DelayedRetryableFailureClient:
     def __init__(self) -> None:
         self.started = asyncio.Event()
@@ -449,6 +477,92 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
     assert llm_model == "gpt-5.3-codex"
     assert llm_effort == "medium"
     assert llm_generated_at == "2026-03-02T10:00:00+00:00"
+
+
+def test_llm_worker_processes_multiple_candidates_concurrently(tmp_path) -> None:
+    db_path = tmp_path / "worker-runtime-concurrent.db"
+
+    async def _run() -> tuple[set[str], set[str], int]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await db.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCworker008",
+                "Worker Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCworker008",
+            ),
+        )
+        for video_id, title in (
+            ("vid-worker-008a", "worker-video-8a"),
+            ("vid-worker-008b", "worker-video-8b"),
+        ):
+            await db.execute(
+                """
+                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+                VALUES (?, ?, ?, ?, 'llm_pending', 0)
+                """,
+                (video_id, "UCworker008", title, "2026-02-24T00:00:00+00:00"),
+            )
+            await db.execute(
+                """
+                INSERT INTO transcripts(video_id, raw_text, language, source_type)
+                VALUES (?, ?, ?, ?)
+                """,
+                (video_id, f"hello transcript {video_id}", "ko", "manual"),
+            )
+        await settings_repo.set_llm_settings(db, max_concurrent=2)
+        await db.commit()
+
+        client = ConcurrentSuccessClient()
+        queue = asyncio.Queue()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=queue,
+            llm_wake_event=asyncio.Event(),
+        )
+
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            started = {
+                await asyncio.wait_for(client.started.get(), timeout=2),
+                await asyncio.wait_for(client.started.get(), timeout=2),
+            }
+            processing_ids = set()
+            for video_id in ("vid-worker-008a", "vid-worker-008b"):
+                row = await _wait_for_video_status(
+                    db,
+                    video_id=video_id,
+                    expected="llm_processing",
+                    timeout_seconds=2,
+                )
+                processing_ids.add(str(row["video_id"]))
+
+            client.proceed.set()
+            for video_id in ("vid-worker-008a", "vid-worker-008b"):
+                await _wait_for_video_status(
+                    db,
+                    video_id=video_id,
+                    expected="done",
+                    timeout_seconds=2,
+                )
+            cursor = await db.execute("SELECT COUNT(1) AS cnt FROM articles")
+            article_row = await cursor.fetchone()
+            return started, processing_ids, int(article_row["cnt"] or 0)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    started, processing_ids, article_count = asyncio.run(_run())
+    assert started == {"worker-video-8a", "worker-video-8b"}
+    assert processing_ids == {"vid-worker-008a", "vid-worker-008b"}
+    assert article_count == 2
 
 
 def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:

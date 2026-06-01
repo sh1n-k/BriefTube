@@ -99,6 +99,19 @@ async def pop_llm_candidate(
     return _row_to_dict(row)
 
 
+async def claim_next_llm_candidate(
+    db: aiosqlite.Connection, max_retry_count: int
+) -> dict[str, Any] | None:
+    candidate = await pop_llm_candidate(db, max_retry_count)
+    if candidate is None:
+        return None
+
+    marked = await mark_restructure_processing(db, str(candidate["video_id"]))
+    if int(marked or 0) == 0:
+        return None
+    return candidate
+
+
 async def mark_restructure_processing(db: aiosqlite.Connection, video_id: str) -> int:
     cursor = await db.execute(
         """

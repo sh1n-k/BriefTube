@@ -82,6 +82,10 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'hx-post="/views/settings/llm/resume"' in response.text
     assert 'name="llm_provider_primary"' in response.text
     assert 'name="llm_provider_fallback"' in response.text
+    assert 'name="llm_max_concurrent"' in response.text
+    assert "동시 처리 수" in response.text
+    assert "LLM 작업을 동시에 처리할 최대 개수입니다." in response.text
+    assert "change from:select[name='llm_max_concurrent']" in response.text
     assert 'name="llm_model_codex"' in response.text
     assert 'value="gpt-5.4"' in response.text
     assert "Codex 모델 새로고침" in response.text
@@ -94,6 +98,12 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert response.text.count('name="llm_prompt_template"') == 1
     assert 'hx-put="/api/settings/llm"' in response.text
     assert "Provider별 모델/사고 수준" in response.text
+    assert response.text.index('name="llm_provider_fallback"') < response.text.index(
+        'name="llm_max_concurrent"'
+    )
+    assert response.text.index('name="llm_max_concurrent"') < response.text.index(
+        "Provider별 모델/사고 수준"
+    )
     assert "Codex 모델 목록은 설치된 Codex CLI에서 확인" in response.text
     assert 'value="xhigh"' in response.text
     assert "Google Gemini CLI" in response.text

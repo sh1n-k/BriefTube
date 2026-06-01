@@ -242,6 +242,7 @@ LLM_SCHEMA_INVALID_ALERT_SENT_KEY = llm_repository.LLM_SCHEMA_INVALID_ALERT_SENT
 repair_orphan_llm_candidates = llm_repository.repair_orphan_llm_candidates
 clear_llm_queue_items = llm_repository.clear_llm_queue_items
 pop_llm_candidate = llm_repository.pop_llm_candidate
+claim_next_llm_candidate = llm_repository.claim_next_llm_candidate
 mark_restructure_processing = llm_repository.mark_restructure_processing
 save_article = llm_repository.save_article
 mark_restructure_failed = llm_repository.mark_restructure_failed

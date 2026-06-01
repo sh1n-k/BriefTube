@@ -13,6 +13,7 @@ LLM_SCHEMA_INVALID_ALERT_SENT_KEY = settings_repository.LLM_SCHEMA_INVALID_ALERT
 repair_orphan_llm_candidates = repository.repair_orphan_llm_candidates
 clear_llm_queue_items = repository.clear_llm_queue_items
 pop_llm_candidate = repository.pop_llm_candidate
+claim_next_llm_candidate = repository.claim_next_llm_candidate
 mark_restructure_processing = repository.mark_restructure_processing
 save_article = repository.save_article
 mark_restructure_failed = repository.mark_restructure_failed

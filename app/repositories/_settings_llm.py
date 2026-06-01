@@ -38,11 +38,14 @@ LLM_MODEL_GEMINI_KEY = "llm_model_gemini"
 LLM_REASONING_EFFORT_CODEX_KEY = "llm_reasoning_effort_codex"
 LLM_REASONING_EFFORT_CLAUDE_KEY = "llm_reasoning_effort_claude"
 LLM_REASONING_EFFORT_GEMINI_KEY = "llm_reasoning_effort_gemini"
+LLM_MAX_CONCURRENT_KEY = "llm_max_concurrent"
 LLM_RUNTIME_LAST_CODE_KEY = "llm_runtime_last_code"
 LLM_RUNTIME_LAST_MESSAGE_KEY = "llm_runtime_last_message"
 LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
 LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
 LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_CLAUDE
+LLM_MAX_CONCURRENT_DEFAULT = 1
+LLM_MAX_CONCURRENT_LIMIT = 4
 LLM_MODEL_CLAUDE_MAX_LENGTH = 200
 LLM_MODEL_GEMINI_MAX_LENGTH = 200
 
@@ -113,6 +116,18 @@ def _validate_llm_reasoning_effort_settings(value: Mapping[str, Any]) -> dict[st
     }
 
 
+def _validate_llm_max_concurrent(value: Any) -> int:
+    try:
+        normalized = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"max_concurrent must be between 1 and {LLM_MAX_CONCURRENT_LIMIT}"
+        ) from exc
+    if normalized < 1 or normalized > LLM_MAX_CONCURRENT_LIMIT:
+        raise ValueError(f"max_concurrent must be between 1 and {LLM_MAX_CONCURRENT_LIMIT}")
+    return normalized
+
+
 async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     settings = await get_settings_map(
         db,
@@ -126,6 +141,7 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
             LLM_REASONING_EFFORT_CODEX_KEY: "",
             LLM_REASONING_EFFORT_CLAUDE_KEY: "",
             LLM_REASONING_EFFORT_GEMINI_KEY: "none",
+            LLM_MAX_CONCURRENT_KEY: str(LLM_MAX_CONCURRENT_DEFAULT),
         },
     )
     primary_raw = settings[LLM_PROVIDER_PRIMARY_KEY]
@@ -137,6 +153,7 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     reasoning_effort_codex_raw = settings[LLM_REASONING_EFFORT_CODEX_KEY]
     reasoning_effort_claude_raw = settings[LLM_REASONING_EFFORT_CLAUDE_KEY]
     reasoning_effort_gemini_raw = settings[LLM_REASONING_EFFORT_GEMINI_KEY]
+    max_concurrent_raw = settings[LLM_MAX_CONCURRENT_KEY]
 
     primary = normalize_llm_provider(primary_raw, allow_none=False)
     fallback = normalize_llm_provider(fallback_raw, allow_none=True)
@@ -184,6 +201,10 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         "claude": reasoning_effort_claude,
         "gemini": reasoning_effort_gemini,
     }
+    try:
+        max_concurrent = _validate_llm_max_concurrent(max_concurrent_raw)
+    except ValueError:
+        max_concurrent = LLM_MAX_CONCURRENT_DEFAULT
 
     return {
         "provider_primary": primary,
@@ -191,6 +212,7 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         "prompt_template": prompt_template,
         "llm_model": model,
         "llm_reasoning_effort": reasoning_effort,
+        "max_concurrent": max_concurrent,
     }
 
 
@@ -202,6 +224,7 @@ async def set_llm_settings(
     prompt_template: str | None = None,
     llm_model: Mapping[str, Any] | None = None,
     llm_reasoning_effort: Mapping[str, Any] | None = None,
+    max_concurrent: Any | None = None,
     persist: bool = True,
 ) -> dict[str, Any]:
     current = await get_llm_settings(db)
@@ -216,6 +239,7 @@ async def set_llm_settings(
     next_reasoning_effort_codex = str(current_reasoning_effort.get("codex", ""))
     next_reasoning_effort_claude = str(current_reasoning_effort.get("claude", ""))
     next_reasoning_effort_gemini = str(current_reasoning_effort.get("gemini", "none"))
+    next_max_concurrent = int(current.get("max_concurrent", LLM_MAX_CONCURRENT_DEFAULT))
 
     if provider_primary is not None:
         next_primary = _validate_llm_provider_setting(provider_primary, allow_none=False)
@@ -255,6 +279,8 @@ async def set_llm_settings(
         next_reasoning_effort_codex = validated_effort["codex"]
         next_reasoning_effort_claude = validated_effort["claude"]
         next_reasoning_effort_gemini = validated_effort["gemini"]
+    if max_concurrent is not None:
+        next_max_concurrent = _validate_llm_max_concurrent(max_concurrent)
 
     next_settings: dict[str, Any] = {
         "provider_primary": next_primary,
@@ -270,6 +296,7 @@ async def set_llm_settings(
             "claude": next_reasoning_effort_claude,
             "gemini": next_reasoning_effort_gemini,
         },
+        "max_concurrent": next_max_concurrent,
     }
     if not persist:
         return next_settings
@@ -283,4 +310,5 @@ async def set_llm_settings(
     await set_setting(db, key=LLM_REASONING_EFFORT_CODEX_KEY, value=next_reasoning_effort_codex)
     await set_setting(db, key=LLM_REASONING_EFFORT_CLAUDE_KEY, value=next_reasoning_effort_claude)
     await set_setting(db, key=LLM_REASONING_EFFORT_GEMINI_KEY, value=next_reasoning_effort_gemini)
+    await set_setting(db, key=LLM_MAX_CONCURRENT_KEY, value=str(next_max_concurrent))
     return next_settings
