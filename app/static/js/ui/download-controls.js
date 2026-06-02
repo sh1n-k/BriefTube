@@ -32,7 +32,7 @@
     detailRequestedAt: "요청 시각",
     detailUpdatedAt: "갱신 시각",
     detailFinishedAt: "완료 시각",
-    detailSize: "파일 크기(bytes)",
+    detailSize: "파일 크기",
     detailErrorCode: "오류 코드",
     detailOutputPath: "출력 파일",
     detailCopyOutput: "파일 경로 복사",
@@ -99,6 +99,14 @@
     return Object.entries(values).reduce((acc, [key, value]) => {
       return acc.replaceAll(`{${key}}`, String(value));
     }, base);
+  }
+
+  function formatFileSizeMb(value) {
+    const raw = String(value == null ? "" : value).trim();
+    if (!raw) return DOWNLOAD_UI_TEXT.detailNone;
+    const bytes = Number(raw);
+    if (!Number.isFinite(bytes) || bytes < 0) return raw;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   function resolveDownloadPathErrorMessage(detail) {
@@ -551,7 +559,6 @@
         }
       });
     }
-
     return root;
   }
 
@@ -568,8 +575,9 @@
     const requestedAt = textOrNone(options.requestedAt);
     const updatedAt = textOrNone(options.updatedAt);
     const finishedAt = textOrNone(options.finishedAt);
-    const fileSize = textOrNone(options.fileSize);
+    const fileSize = formatFileSizeMb(options.fileSize);
     const outputPath = String(options.outputPath || "").trim();
+    const outputFullPath = String(options.outputFullPath || "").trim();
     const outputUrl = String(options.outputUrl || "").trim();
     const errorCode = textOrNone(options.errorCode);
     const errorMessage = String(options.errorMessage || "").trim();
@@ -638,7 +646,7 @@
       copyErrorButton.disabled = true;
     }
 
-    root.dataset.currentOutputPath = outputPath;
+    root.dataset.currentOutputPath = outputFullPath || outputPath;
     root.dataset.currentErrorMessage = errorMessage;
     root.dataset.modalOpen = "1";
     root.classList.remove("hidden");
@@ -658,6 +666,7 @@
         finishedAt: button.dataset.finishedAt,
         fileSize: button.dataset.fileSize,
         outputPath: button.dataset.outputPath,
+        outputFullPath: button.dataset.outputFullPath,
         outputUrl: button.dataset.outputUrl,
         errorCode: button.dataset.errorCode,
         errorMessage: button.dataset.errorMessage,

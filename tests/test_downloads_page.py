@@ -15,6 +15,7 @@ LONG_OUTPUT = (
     "very-long-output-file-name-for-download-history-view-"
     "with-multiple-segments-and-identifiers.mp4"
 )
+DOWNLOAD_TARGET_DIR = "/tmp/brieftube-downloads"
 
 
 def _seed_download_jobs(db_path: str) -> None:
@@ -56,12 +57,13 @@ def _seed_download_jobs(db_path: str) -> None:
                 finished_at,
                 output_path,
                 file_size_bytes,
+                target_dir,
                 error_code,
                 error_message
             )
             VALUES
-            (?, ?, 'failed', '1080', 0, 1, datetime('now'), datetime('now'), datetime('now'), NULL, NULL, 'process_failed', ?),
-            (?, ?, 'succeeded', '720', 1, 1, datetime('now'), datetime('now'), datetime('now'), ?, 12345, NULL, NULL)
+            (?, ?, 'failed', '1080', 0, 1, datetime('now'), datetime('now'), datetime('now'), NULL, NULL, NULL, 'process_failed', ?),
+            (?, ?, 'succeeded', '720', 1, 1, datetime('now'), datetime('now'), datetime('now'), ?, 12345, ?, NULL, NULL)
             """,
             (
                 "vid-download-view-1",
@@ -70,6 +72,7 @@ def _seed_download_jobs(db_path: str) -> None:
                 "vid-download-view-1",
                 "View Video 1",
                 LONG_OUTPUT,
+                DOWNLOAD_TARGET_DIR,
             ),
         )
         conn.commit()
@@ -107,6 +110,8 @@ def test_downloads_page_summary_and_mobile_card_contract(client: TestClient) -> 
     assert 'data-video-id="vid-download-view-1"' in html
     assert "data-error-message=" in html
     assert "data-output-url=" in html
+    assert "data-output-full-path=" in html
+    assert f'data-output-full-path="{DOWNLOAD_TARGET_DIR}/{LONG_OUTPUT}"' in html
     assert 'id="download-history-fragment"' in html
     assert (
         'data-download-history-refresh-url="/views/downloads/table?status=all&amp;page=1"' in html

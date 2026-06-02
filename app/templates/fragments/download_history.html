@@ -82,6 +82,8 @@
     {% set finished_text = format_upload_time(job.finished_at, timezone) if job.finished_at else txt.download_detail_none %}
     {% set error_text = job.error_message or '' %}
     {% set output_path = job.output_path or '' %}
+    {% set output_dir = job.target_dir or '' %}
+    {% set output_full_path = (output_dir.rstrip('/') ~ '/' ~ output_path) if (output_path and output_dir) else output_path %}
     {% set result_short = result_text[:40] ~ ('...' if result_text|length > 40 else '') %}
     <article class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       <div class="flex items-start justify-between gap-2">
@@ -116,6 +118,7 @@
           data-finished-at="{{ finished_text }}"
           data-file-size="{{ job.file_size_bytes if job.file_size_bytes is not none else txt.download_detail_none }}"
           data-output-path="{{ output_path }}"
+          data-output-full-path="{{ output_full_path }}"
           data-output-url="{{ ('/downloads/files/' ~ (job.output_path | urlencode) ~ '?job_id=' ~ job.id) if job.output_path else '' }}"
           data-error-code="{{ job.error_code or txt.download_detail_none }}"
           data-error-message="{{ error_text }}"
@@ -179,6 +182,8 @@
           {% set finished_text = format_upload_time(job.finished_at, timezone) if job.finished_at else txt.download_detail_none %}
           {% set error_text = job.error_message or '' %}
           {% set output_path = job.output_path or '' %}
+          {% set output_dir = job.target_dir or '' %}
+          {% set output_full_path = (output_dir.rstrip('/') ~ '/' ~ output_path) if (output_path and output_dir) else output_path %}
           {% set result_short = result_text[:40] ~ ('...' if result_text|length > 40 else '') %}
           <tr>
             <td class="px-4 py-3 align-top">
@@ -216,6 +221,7 @@
                 data-finished-at="{{ finished_text }}"
                 data-file-size="{{ job.file_size_bytes if job.file_size_bytes is not none else txt.download_detail_none }}"
                 data-output-path="{{ output_path }}"
+                data-output-full-path="{{ output_full_path }}"
                 data-output-url="{{ ('/downloads/files/' ~ (job.output_path | urlencode) ~ '?job_id=' ~ job.id) if job.output_path else '' }}"
                 data-error-code="{{ job.error_code or txt.download_detail_none }}"
                 data-error-message="{{ error_text }}"
