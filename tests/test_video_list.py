@@ -558,6 +558,7 @@ def test_video_article_preview_modal_fragment_matches_detail_contract(
     assert response.status_code == 200
     html = response.text
     assert "data-article-preview-modal" in html
+    assert "data-article-preview-scroll" in html
     assert "data-article-preview-content" in html
     assert 'data-copy-target="article-copy-source"' in html
     assert "data-video-list-article-modal" in html

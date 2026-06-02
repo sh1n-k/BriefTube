@@ -6,6 +6,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.e2e.seed_helpers import (
+    get_db_connection,
     make_past_time,
     seed_app_setting,
     seed_article,
@@ -179,6 +180,51 @@ def test_video_list_shows_videos(e2e_page: Page, seeded_server: dict) -> None:
     # Status badge should be visible
     badge = first_row.locator(".status-badge")
     expect(badge).to_be_visible()
+
+
+@pytest.mark.e2e
+def test_video_list_article_modal_scroll_resets_for_different_article(
+    e2e_page: Page,
+    seeded_server: dict,
+) -> None:
+    """목록 기사 모달은 같은 기사 재오픈만 스크롤을 유지한다."""
+    page = e2e_page
+    conn = get_db_connection(seeded_server["db_path"])
+    try:
+        for video_id in ("ALPHA_DONE_01", "BETA_DONE_01"):
+            conn.execute(
+                "UPDATE articles SET body = ? WHERE video_id = ?",
+                (
+                    "\n\n".join(
+                        f"Full article body for {video_id}. Paragraph {idx}." for idx in range(80)
+                    ),
+                    video_id,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    page.goto(f"{seeded_server['base_url']}/?limit=25")
+    page.wait_for_selector("#video-list-wrap")
+
+    def open_article(video_id: str) -> None:
+        page.locator("tr", has_text=video_id).locator("[data-video-article-preview-load]").click()
+        expect(page.locator("[data-video-list-article-modal]")).to_be_visible()
+
+    open_article("ALPHA_DONE_01")
+    modal = page.locator("[data-video-list-article-modal]")
+    scroller = modal.locator("[data-article-preview-scroll]")
+    scroller.evaluate("(node) => { node.scrollTop = 360; }")
+    assert scroller.evaluate("(node) => node.scrollTop") > 0
+    modal.locator("[data-article-preview-close]").click()
+
+    open_article("ALPHA_DONE_01")
+    assert scroller.evaluate("(node) => node.scrollTop") > 0
+    modal.locator("[data-article-preview-close]").click()
+
+    open_article("BETA_DONE_01")
+    assert scroller.evaluate("(node) => node.scrollTop") == 0
 
 
 @pytest.mark.e2e

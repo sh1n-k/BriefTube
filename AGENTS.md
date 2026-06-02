@@ -66,6 +66,14 @@ uv run pyright && uv run lint-imports
 - 변경 범위별 최신 명령은 `CONTRIBUTING.md`의 테스트/검증 기준을 canonical source로 따른다.
 - 검증을 일부만 했거나 못 했으면 이유와 재현 가능한 command를 남긴다.
 
+### 도구 사용 오류 방지
+
+- `ruff` 개별 실행 대상은 Python 파일만; JS/HTML/Jinja는 e2e/브라우저로 검증한다.
+- e2e는 `uv run pytest -q -m e2e ...`; `deselected`는 통과로 보지 않는다.
+- DOM `scrollTop`은 표시 후 복원하고, 숨기기 전 저장하며, hidden 상태 값으로 덮어쓰지 않는다.
+- 포맷 실패 시 전면 포맷 금지; 본인이 수정한 파일만 포맷 후 재검증한다.
+- module-scoped e2e fixture/DB를 바꾸면 뒤 테스트 영향까지 해당 e2e 파일로 확인한다.
+
 ## 운영 체크
 
 - 개발 환경에서 재활성화 트러블슈팅은 `tail -f logs/dev/brieftube-dev.log | rg "channels.reactivate"`로 본다.

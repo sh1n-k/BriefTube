@@ -1,6 +1,8 @@
 (() => {
   let showToast = () => {};
   let refreshVideoDetail = () => {};
+  let lastVideoListArticlePreviewKey = "";
+  let lastVideoListArticlePreviewScrollTop = 0;
 
   function configure(options = {}) {
     if (typeof options.showUiToast === "function") {
@@ -82,6 +84,7 @@
 
   function closeArticlePreviewModal(modal) {
     if (!(modal instanceof HTMLElement)) return;
+    rememberVideoListArticlePreviewScroll(modal);
     modal.classList.add("hidden");
     modal.classList.remove("flex");
     modal.dataset.modalOpen = "0";
@@ -92,6 +95,29 @@
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     modal.dataset.modalOpen = "1";
+  }
+
+  function getArticlePreviewScroller(modal) {
+    if (!(modal instanceof HTMLElement)) return null;
+    const scroller = modal.querySelector("[data-article-preview-scroll]");
+    return scroller instanceof HTMLElement ? scroller : null;
+  }
+
+  function rememberVideoListArticlePreviewScroll(modal) {
+    const targetModal = modal || document.querySelector("[data-video-list-article-modal]");
+    if (!(targetModal instanceof HTMLElement)) return;
+    if (!targetModal.hasAttribute("data-video-list-article-modal")) return;
+    if (targetModal.dataset.modalOpen === "0") return;
+    lastVideoListArticlePreviewKey = targetModal.dataset.articlePreviewKey || "";
+    lastVideoListArticlePreviewScrollTop = getArticlePreviewScroller(targetModal)?.scrollTop || 0;
+  }
+
+  function restoreVideoListArticlePreviewScroll(modal, previewKey) {
+    const scroller = getArticlePreviewScroller(modal);
+    if (!scroller) return;
+    scroller.scrollTop = previewKey === lastVideoListArticlePreviewKey
+      ? lastVideoListArticlePreviewScrollTop
+      : 0;
   }
 
   function setupArticlePreviewModal(modal) {
@@ -219,12 +245,14 @@
       if (button.dataset.videoArticlePreviewLoadInFlight === "1") return;
       button.dataset.videoArticlePreviewLoadInFlight = "1";
       button.disabled = true;
+      const previewKey = button.dataset.articlePreviewUrl || "";
       try {
         const response = await fetch(button.dataset.articlePreviewUrl || "", {
           headers: { "Accept": "text/html" },
         });
         if (!response.ok) throw new Error("article preview load failed");
         const html = await response.text();
+        rememberVideoListArticlePreviewScroll();
         document.querySelectorAll("[data-video-list-article-modal]").forEach((node) => {
           node.remove();
         });
@@ -232,11 +260,13 @@
         container.innerHTML = html.trim();
         const modal = container.querySelector("[data-article-preview-modal]");
         if (!(modal instanceof HTMLElement)) throw new Error("article preview modal missing");
+        modal.dataset.articlePreviewKey = previewKey;
         document.body.appendChild(modal);
         ensureArticlePreviewEscapeHandler();
         setupArticlePreviewModal(modal);
         bindCopyButtons(modal);
         openArticlePreviewModal(modal);
+        restoreVideoListArticlePreviewScroll(modal, previewKey);
       } catch (_err) {
         showToast(button.dataset.loadFailed || "Could not load article.", "error");
       } finally {
