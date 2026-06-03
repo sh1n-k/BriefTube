@@ -1,32 +1,30 @@
 <div
   id="llm-runtime-status"
-  class="mt-4 rounded-md border p-3 {% if llm_runtime_status.ready %}border-emerald-200 bg-emerald-50{% else %}border-amber-200 bg-amber-50{% endif %}"
+  class="mt-4 rounded-md border px-3 py-2 {% if llm_runtime_status.ready %}border-emerald-200 bg-emerald-50{% else %}border-amber-200 bg-amber-50{% endif %}"
   data-llm-runtime-status
   data-llm-runtime-refresh-url="/views/settings/llm/runtime-status"
   data-llm-runtime-auto-refresh="{{ '1' if (not llm_runtime_status.ready) or llm_runtime_status.pending_count > 0 else '0' }}"
 >
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div>
-      <p class="text-xs font-medium {% if llm_runtime_status.ready %}text-emerald-800{% else %}text-amber-800{% endif %}">
-        {{ txt.settings_llm_runtime_status_label }}
-      </p>
-      <p class="mt-1 text-sm font-semibold {% if llm_runtime_status.ready %}text-emerald-900{% else %}text-amber-900{% endif %}">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex min-w-0 flex-col gap-1 text-xs sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
+      <span class="inline-flex items-center gap-2 font-semibold {% if llm_runtime_status.ready %}text-emerald-900{% else %}text-amber-900{% endif %}">
+        <span class="h-2 w-2 rounded-full {% if llm_runtime_status.ready %}bg-emerald-500{% else %}bg-amber-500{% endif %}"></span>
         {% if llm_runtime_status.ready %}
           {{ txt.settings_llm_runtime_ready }}
         {% else %}
           {{ txt.settings_llm_runtime_not_ready }}
         {% endif %}
-      </p>
-      <p class="mt-1 text-xs {% if llm_runtime_status.ready %}text-emerald-800{% else %}text-amber-800{% endif %}">
-        {{ txt.settings_llm_runtime_reason_label }}: {{ llm_runtime_status.reason_text if llm_runtime_status.reason_text else txt.settings_llm_runtime_reason_ok }}
-      </p>
-      <p class="mt-1 text-xs {% if llm_runtime_status.ready %}text-emerald-800{% else %}text-amber-800{% endif %}">
+      </span>
+      <span class="{% if llm_runtime_status.ready %}text-emerald-800{% else %}text-amber-800{% endif %}">
+        {{ txt.settings_llm_runtime_status_label }}: {{ llm_runtime_status.reason_text if llm_runtime_status.reason_text else txt.settings_llm_runtime_reason_ok }}
+      </span>
+      <span class="{% if llm_runtime_status.ready %}text-emerald-800{% else %}text-amber-800{% endif %}">
         {{ txt.settings_llm_runtime_pending_label }}: {{ llm_runtime_status.pending_count }}
-      </p>
+      </span>
       {% if llm_runtime_status.warning_texts %}
-      <p class="mt-1 text-xs text-amber-800">
+      <span class="text-amber-800">
         {{ txt.settings_llm_runtime_warning_label }}: {{ llm_runtime_status.warning_texts | join(", ") }}
-      </p>
+      </span>
       {% endif %}
     </div>
     <div class="flex shrink-0 flex-wrap items-center gap-2">

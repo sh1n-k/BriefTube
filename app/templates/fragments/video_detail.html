@@ -23,7 +23,17 @@
     <h1 class="text-xl font-semibold text-slate-900">{{ video.title }}</h1>
     <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-500">
       <div>
+        {% if video.channel_id %}
+        <a
+          href="/?channel_id={{ video.channel_id|string|urlencode }}"
+          class="font-medium text-slate-700 hover:text-indigo-700"
+          title="{{ video.channel_name or video.channel_id }}"
+        >
+          {{ video.channel_name or video.channel_id }}
+        </a>
+        {% else %}
         <span class="font-medium text-slate-700">{{ video.channel_name or video.channel_id }}</span>
+        {% endif %}
         {% if video.channel_name %}
         <div class="text-xs font-mono text-slate-400">{{ video.channel_id }}</div>
         {% endif %}

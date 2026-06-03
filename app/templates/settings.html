@@ -278,47 +278,64 @@
       data-save-toast="{{ txt.settings_saved_toast }}"
       data-settings-section="llm"
     >
-      <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_title }}</h2>
-      <p class="mt-1 text-sm text-slate-500">{{ txt.settings_llm_desc }}</p>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_title }}</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ txt.settings_llm_desc }}</p>
+        </div>
+      </div>
       {% include "fragments/llm_runtime_status.html" %}
 
-      <div class="mt-4 grid gap-4 lg:grid-cols-2">
-        <div class="min-w-0">
-          <label class="block text-sm text-slate-600">{{ txt.settings_llm_provider_primary_label }}</label>
-          <select name="llm_provider_primary" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-            <option value="codex" {% if llm_settings.provider_primary == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
-            <option value="claude" {% if llm_settings.provider_primary == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
-            <option value="gemini" {% if llm_settings.provider_primary == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
-          </select>
+      <div class="mt-4 grid gap-4 lg:grid-cols-2 lg:items-stretch">
+        <div class="flex min-w-0 flex-col gap-4">
+          <section class="rounded-md border border-slate-200 bg-slate-50 p-4 lg:min-h-[260px]">
+            <h3 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_execution_title }}</h3>
+            <div class="mt-3 grid gap-3">
+              <label class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+                <span class="text-sm text-slate-600">{{ txt.settings_llm_provider_primary_label }}</span>
+                <select name="llm_provider_primary" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <option value="codex" {% if llm_settings.provider_primary == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
+                  <option value="claude" {% if llm_settings.provider_primary == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
+                  <option value="gemini" {% if llm_settings.provider_primary == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
+                </select>
+              </label>
 
-          <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_llm_provider_fallback_label }}</label>
-          <select name="llm_provider_fallback" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-            <option value="none" {% if llm_settings.provider_fallback == 'none' %}selected{% endif %}>{{ txt.settings_llm_provider_none }}</option>
-            <option value="codex" {% if llm_settings.provider_fallback == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
-            <option value="claude" {% if llm_settings.provider_fallback == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
-            <option value="gemini" {% if llm_settings.provider_fallback == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
-          </select>
+              <label class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+                <span class="text-sm text-slate-600">{{ txt.settings_llm_provider_fallback_label }}</span>
+                <select name="llm_provider_fallback" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <option value="none" {% if llm_settings.provider_fallback == 'none' %}selected{% endif %}>{{ txt.settings_llm_provider_none }}</option>
+                  <option value="codex" {% if llm_settings.provider_fallback == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
+                  <option value="claude" {% if llm_settings.provider_fallback == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
+                  <option value="gemini" {% if llm_settings.provider_fallback == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
+                </select>
+              </label>
 
-          <label class="mt-3 block text-sm text-slate-600">{{ txt.settings_llm_max_concurrent_label }}</label>
-          <select name="llm_max_concurrent" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-            {% for count in [1, 2, 3, 4] %}
-            <option value="{{ count }}" {% if llm_settings.max_concurrent == count %}selected{% endif %}>{{ txt.settings_llm_max_concurrent_option.format(count=count) }}</option>
-            {% endfor %}
-          </select>
-          <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_max_concurrent_help }}</p>
+              <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start">
+                <label class="pt-2 text-sm text-slate-600" for="llm-max-concurrent">{{ txt.settings_llm_max_concurrent_label }}</label>
+                <div>
+                  <select id="llm-max-concurrent" name="llm_max_concurrent" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                    {% for count in [1, 2, 3, 4] %}
+                    <option value="{{ count }}" {% if llm_settings.max_concurrent == count %}selected{% endif %}>{{ txt.settings_llm_max_concurrent_option.format(count=count) }}</option>
+                    {% endfor %}
+                  </select>
+                  <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_max_concurrent_help }}</p>
+                </div>
+              </div>
+            </div>
+          </section>
 
-          <div class="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <section class="flex min-h-[323px] flex-col rounded-md border border-slate-200 bg-slate-50 p-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <p class="text-sm font-medium text-slate-700">{{ txt.settings_llm_model_effort_title }}</p>
+              <h3 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_model_effort_title }}</h3>
               <a
                 href="/settings?llm_capabilities_refresh=1"
-                class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
               >
                 {{ txt.settings_llm_capabilities_refresh_button }}
               </a>
             </div>
-            <div class="mt-3 space-y-3">
-              <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
+            <div class="mt-3 flex-1 overflow-hidden rounded-md border border-slate-200 bg-white">
+              <div class="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
                 <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
                 <select
                   name="llm_model_codex"
@@ -341,7 +358,7 @@
                 </select>
               </div>
 
-              <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
+              <div class="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
                 <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_claude }}</span>
                 <input
                   type="text"
@@ -362,7 +379,7 @@
                 </select>
               </div>
 
-              <div class="grid gap-2 sm:grid-cols-[130px_1fr_180px] sm:items-center">
+              <div class="grid gap-2 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
                 <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_gemini }}</span>
                 <input
                   type="text"
@@ -384,34 +401,64 @@
               </div>
             </div>
             <p class="mt-2 text-xs text-slate-500">{{ txt.settings_llm_model_effort_help }}</p>
-          </div>
+          </section>
         </div>
 
-        <div class="min-w-0">
-          <label class="block text-sm font-medium text-slate-700" for="llm-prompt-template">{{ txt.settings_llm_prompt_label }}</label>
-          <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_prompt_help }}</p>
-          <div class="relative mt-3">
-            <textarea
-              id="llm-prompt-template"
-              name="llm_prompt_template"
-              rows="15"
-              spellcheck="false"
-              placeholder="{{ txt.settings_llm_prompt_placeholder }}"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 pr-16 text-sm font-mono"
-              data-llm-prompt-inline-editor
-            >{{ llm_settings.prompt_template }}</textarea>
-            <button
-              type="button"
-              class="absolute bottom-3 right-3 rounded-md border border-slate-300 bg-white px-2.5 py-2 text-slate-700 shadow-sm hover:bg-slate-100"
-              data-open-llm-prompt-modal
-              aria-label="{{ txt.settings_llm_prompt_expand_button }}"
-              title="{{ txt.settings_llm_prompt_expand_button }}"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3.75H3.75v4.5m0-4.5 6 6m4.5-6h4.5v4.5m0-4.5-6 6m6 4.5v4.5h-4.5m4.5-4.5-6-6m-4.5 6-6 6m0-4.5v4.5h4.5"/>
-              </svg>
-            </button>
-          </div>
+        <div class="flex min-w-0 flex-col gap-4">
+          <section class="rounded-md border border-slate-200 bg-slate-50 p-4 lg:min-h-[260px]">
+            <h3 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_prompt_settings_title }}</h3>
+            <div class="mt-3 grid gap-3">
+              <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+                <span class="text-sm text-slate-600">{{ txt.settings_llm_prompt_variables_label }}</span>
+                <div class="flex min-h-[38px] flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-mono text-slate-700">
+                  <span>{transcript_text}</span>
+                  <span>{source_title}</span>
+                </div>
+              </div>
+
+              <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+                <span class="text-sm text-slate-600">{{ txt.settings_llm_prompt_status_label }}</span>
+                <div class="flex min-h-[38px] items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  {% if llm_settings.prompt_template %}
+                    {{ txt.settings_llm_prompt_ready }}
+                  {% else %}
+                    {{ txt.settings_llm_runtime_reason_prompt_missing }}
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+                <span class="text-sm text-slate-600">{{ txt.settings_llm_prompt_actions_label }}</span>
+                <div class="flex min-h-[38px] items-center rounded-md border border-slate-200 bg-white px-3 py-1.5">
+                  <button
+                    type="button"
+                    class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    data-open-llm-prompt-modal
+                    aria-label="{{ txt.settings_llm_prompt_expand_button }}"
+                    title="{{ txt.settings_llm_prompt_expand_button }}"
+                  >
+                    {{ txt.settings_llm_prompt_expand_button }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="flex min-h-[300px] flex-col rounded-md border border-slate-200 bg-slate-50 p-4">
+            <label class="block text-sm font-semibold text-slate-700" for="llm-prompt-template">{{ txt.settings_llm_prompt_preview_title }}</label>
+            <p class="mt-1 text-xs text-slate-500">{{ txt.settings_llm_prompt_help }}</p>
+            <div class="relative mt-3 flex-1">
+              <textarea
+                id="llm-prompt-template"
+                name="llm_prompt_template"
+                rows="8"
+                spellcheck="false"
+                placeholder="{{ txt.settings_llm_prompt_placeholder }}"
+                class="h-full min-h-[215px] w-full resize-none overflow-y-auto rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono leading-6"
+                data-llm-prompt-inline-editor
+              >{{ llm_settings.prompt_template }}</textarea>
+            </div>
+          </section>
         </div>
       </div>
     </form>
