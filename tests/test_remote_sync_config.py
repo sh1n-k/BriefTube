@@ -48,7 +48,8 @@ def test_remote_sync_status_is_local_mode_when_unconfigured(client: TestClient) 
 
     payload = response.json()
     assert payload["remote_sync"]["configured"] is False
-    assert payload["remote_sync"]["enabled"] is False
+    assert payload["remote_sync"]["requested"] is False
+    assert payload["remote_sync"]["active"] is False
 
 
 def test_remote_sync_unconfigured_keeps_delete_hard_delete(client: TestClient) -> None:

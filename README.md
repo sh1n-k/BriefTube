@@ -50,6 +50,14 @@ uv run python .\scripts\init_db.py
 ./run-prod.sh
 ```
 
+원격 동기화 미러를 쓰는 운영 실행:
+
+```bash
+export BRIEFTUBE_REMOTE_SYNC_DSN='postgresql://user:password@host:5432/dbname'
+./run-dev-remote-sync.sh
+./run-prod-remote-sync.sh
+```
+
 ```powershell
 .\run-dev.ps1
 .\run-prod.ps1
@@ -66,6 +74,22 @@ macOS LaunchAgent 운영:
 ```
 
 LaunchAgent 기본 라벨은 `BriefTube.prod`이고, 앱 주소는 `config.prod.yaml`의 `server_host`/`server_port`를 따릅니다. 실제 시스템 변경 없이 검토하려면 `BRIEFTUBE_LAUNCHD_DRY_RUN=1`을 붙여 실행합니다.
+
+## 원격 동기화
+
+원격 동기화는 여러 장비가 같은 핵심 데이터를 공유하도록 Postgres에 작은 미러 DB를 두는 기능입니다. 전체 SQLite를 복제하지 않고 카테고리, 채널, 영상, 자막, 기사만 동기화합니다. 다운로드 파일, 작업 큐, 로컬 설정, 조회 상태는 공유하지 않습니다.
+
+DSN은 비밀값이므로 설정 파일에 쓰지 않고 환경 변수로만 지정합니다.
+
+```bash
+export BRIEFTUBE_REMOTE_SYNC_DSN='postgresql://user:password@host:5432/dbname'
+uv run python scripts/init_remote_sync_db.py
+./run-dev-remote-sync.sh
+```
+
+운영 설정으로 실행하려면 `./run-prod-remote-sync.sh`를 사용합니다.
+
+`BRIEFTUBE_REMOTE_SYNC_DSN`이 없으면 원격 동기화는 꺼집니다. DSN이 잘못됐거나 원격 DB에 접속할 수 없어도 앱은 로컬 모드로 계속 실행됩니다. 상태는 `/api/settings`의 `remote_sync`에서 `requested`, `active`, `last_failure_code`로 확인할 수 있습니다.
 
 ## 구조
 

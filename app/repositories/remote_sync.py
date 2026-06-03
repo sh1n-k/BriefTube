@@ -6,6 +6,7 @@ from typing import Any
 import aiosqlite
 
 from app.remote_sync_metadata import (
+    REMOTE_SYNC_RUNTIME_ENABLED_KEY,
     REMOTE_SYNC_STATUS_LAST_FAILURE_CODE_KEY,
     REMOTE_SYNC_STATUS_LAST_SUCCESS_AT_KEY,
     REMOTE_SYNC_STATUS_SCHEMA_VERSION_KEY,
@@ -91,15 +92,16 @@ async def record_status(
 
 
 async def get_status(
-    db: aiosqlite.Connection, *, configured: bool, enabled: bool
+    db: aiosqlite.Connection, *, configured: bool, requested: bool
 ) -> dict[str, Any]:
     cursor = await db.execute(
         """
         SELECT key, value
         FROM app_settings
-        WHERE key IN (?, ?, ?)
+        WHERE key IN (?, ?, ?, ?)
         """,
         (
+            REMOTE_SYNC_RUNTIME_ENABLED_KEY,
             REMOTE_SYNC_STATUS_LAST_SUCCESS_AT_KEY,
             REMOTE_SYNC_STATUS_LAST_FAILURE_CODE_KEY,
             REMOTE_SYNC_STATUS_SCHEMA_VERSION_KEY,
@@ -109,7 +111,8 @@ async def get_status(
     values = {str(row["key"]): str(row["value"] or "") for row in rows}
     return {
         "configured": configured,
-        "enabled": enabled,
+        "requested": requested,
+        "active": requested and values.get(REMOTE_SYNC_RUNTIME_ENABLED_KEY) == "1",
         "last_success_at": values.get(REMOTE_SYNC_STATUS_LAST_SUCCESS_AT_KEY, ""),
         "last_failure_code": values.get(REMOTE_SYNC_STATUS_LAST_FAILURE_CODE_KEY, ""),
         "schema_version_status": values.get(REMOTE_SYNC_STATUS_SCHEMA_VERSION_KEY, "unknown"),

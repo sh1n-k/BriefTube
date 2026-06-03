@@ -70,7 +70,7 @@ async def get_settings(request: Request):
     remote_sync_status = await remote_sync_repo.get_status(
         request.app.state.runtime.db,
         configured=bool(request.app.state.runtime.config.remote_sync_dsn),
-        enabled=bool(request.app.state.runtime.config.remote_sync_enabled),
+        requested=bool(request.app.state.runtime.config.remote_sync_enabled),
     )
     return {
         "language": normalize_language(language),
