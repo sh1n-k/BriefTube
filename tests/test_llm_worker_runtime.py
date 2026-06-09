@@ -394,7 +394,7 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
         )
         await repository.set_llm_runtime_issue(
             db,
-            code="llm_unknown_issue",
+            code="llm_provider_unavailable_codex",
             message="stale issue",
         )
         await db.commit()

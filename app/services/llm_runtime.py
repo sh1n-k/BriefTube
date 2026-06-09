@@ -102,7 +102,11 @@ def resolve_llm_runtime_status(
     issue = runtime_issue or {}
     issue_code = str(issue.get("code") or "").strip()
     issue_message = str(issue.get("message") or "").strip()
-    if safe_pending > 0 and _is_runtime_blocking_issue(issue_code):
+    if (
+        safe_pending > 0
+        and _is_runtime_blocking_issue(issue_code)
+        and not issue_code.lower().startswith("llm_provider_unavailable_")
+    ):
         return LlmRuntimeStatus(
             ready=False,
             code=issue_code,

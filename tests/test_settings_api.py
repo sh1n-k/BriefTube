@@ -689,10 +689,58 @@ def test_settings_llm_runtime_status_prefers_auth_issue_when_pending(
     assert payload["pending_count"] == 2
 
 
+def test_settings_llm_runtime_status_ignores_stale_unavailable_issue_when_ready(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "codex",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+        },
+    )
+    assert response.status_code == 200
+
+    from app.routers import api as api_router
+
+    monkeypatch.setattr(
+        client.app.state.runtime.llm_client,
+        "resolve_runtime_plan",
+        lambda _settings: LlmRuntimePlan(
+            providers_to_try=["codex"],
+            blocking_reason=None,
+            warnings=[],
+        ),
+    )
+
+    async def fake_issue(_db):
+        return {
+            "code": "llm_provider_unavailable_codex",
+            "message": "codex command not found",
+            "seen_at": "2026-03-01T00:00:00+00:00",
+        }
+
+    async def fake_pending(_db):
+        return 2
+
+    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
+    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
+
+    runtime_response = client.get("/api/settings/llm/runtime-status")
+    assert runtime_response.status_code == 200
+    payload = runtime_response.json()
+    assert payload["ready"] is True
+    assert payload["code"] == ""
+    assert payload["pending_count"] == 2
+
+
 @pytest.mark.parametrize(
     "blocking_reason",
     [
         "llm_prompt_missing",
+        "llm_provider_unavailable_codex",
         "llm_provider_schema_invalid_codex",
     ],
 )
@@ -761,6 +809,53 @@ def test_settings_llm_resume_wakes_worker_when_ready(
     assert client.app.state.runtime.llm_wake_event.is_set() is True
     trigger = json.loads(resume_response.headers.get("HX-Trigger", "{}"))
     assert "llm-runtime-toast" in trigger
+
+
+def test_settings_llm_resume_wakes_worker_when_stale_unavailable_issue_exists(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "codex",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+        },
+    )
+    assert response.status_code == 200
+
+    from app.routers import api as api_router
+
+    monkeypatch.setattr(
+        client.app.state.runtime.llm_client,
+        "resolve_runtime_plan",
+        lambda _settings: LlmRuntimePlan(
+            providers_to_try=["codex"],
+            blocking_reason=None,
+            warnings=[],
+        ),
+    )
+
+    async def fake_issue(_db):
+        return {
+            "code": "llm_provider_unavailable_codex",
+            "message": "codex command not found",
+            "seen_at": "2026-03-01T00:00:00+00:00",
+        }
+
+    async def fake_pending(_db):
+        return 3
+
+    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
+    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
+
+    client.app.state.runtime.llm_wake_event.clear()
+    resume_response = client.post("/api/settings/llm/resume")
+    assert resume_response.status_code == 200
+    assert resume_response.json()["ok"] is True
+    assert resume_response.json()["resumed_count"] == 3
+    assert client.app.state.runtime.llm_wake_event.is_set() is True
 
 
 def test_settings_llm_resume_allows_retry_when_auth_issue_exists(
