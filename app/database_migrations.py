@@ -131,6 +131,19 @@ async def _rebuild_videos_table_with_pipeline_status(
     retry_count_expr = _source_column_expr(columns, "retry_count", "0")
     created_at_expr = _source_column_expr(columns, "created_at", "datetime('now')")
     viewed_at_expr = _source_column_expr(columns, "viewed_at", "NULL")
+    updated_at_expr = _source_column_expr(
+        columns,
+        "updated_at",
+        f"COALESCE({created_at_expr}, {SYNC_NOW_SQL})",
+    )
+    deleted_at_expr = _source_column_expr(columns, "deleted_at", "NULL")
+    sync_dirty_expr = _source_column_expr(columns, "sync_dirty", "1")
+    sync_last_pushed_at_expr = _source_column_expr(columns, "sync_last_pushed_at", "NULL")
+    origin_device_id_expr = _source_column_expr(
+        columns,
+        "origin_device_id",
+        "COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')",
+    )
     processing_stage_snapshot_expr = _source_column_expr(
         columns, "processing_stage_snapshot", "'full'"
     )
@@ -189,7 +202,12 @@ async def _rebuild_videos_table_with_pipeline_status(
                 transcript_last_error_at,
                 retry_count,
                 created_at,
-                viewed_at
+                viewed_at,
+                updated_at,
+                deleted_at,
+                sync_dirty,
+                sync_last_pushed_at,
+                origin_device_id
             )
             SELECT
                 video_id,
@@ -211,7 +229,12 @@ async def _rebuild_videos_table_with_pipeline_status(
                 {transcript_error_at_expr},
                 {retry_count_expr},
                 {created_at_expr},
-                {viewed_at_expr}
+                {viewed_at_expr},
+                COALESCE(NULLIF(trim({updated_at_expr}), ''), {created_at_expr}, {SYNC_NOW_SQL}),
+                {deleted_at_expr},
+                COALESCE({sync_dirty_expr}, 1),
+                {sync_last_pushed_at_expr},
+                COALESCE(NULLIF({origin_device_id_expr}, ''), (SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')
             FROM videos
             """
         )
@@ -308,6 +331,16 @@ async def _ensure_sync_metadata_columns(
         """,
         (REMOTE_SYNC_DEVICE_ID_KEY,),
     )
+
+
+async def _ensure_remote_sync_indexes(db: aiosqlite.Connection) -> None:
+    for table in ("categories", "channels", "videos", "transcripts", "articles"):
+        await db.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{table}_sync_dirty_updated
+            ON {table}(sync_dirty, updated_at)
+            """
+        )
 
 
 async def _ensure_video_columns(db: aiosqlite.Connection) -> None:

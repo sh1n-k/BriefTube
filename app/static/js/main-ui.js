@@ -678,11 +678,23 @@
               fileInput.value = "";
               const statusInput = document.querySelector('[data-channel-status-input]');
               const status = statusInput ? statusInput.value : "active";
+              const listFragment = document.querySelector("[data-channel-list-fragment]");
+              const currentRefreshUrl = listFragment?.dataset.channelListRefreshUrl || "";
+              const currentParams = new URLSearchParams(currentRefreshUrl.split("?")[1] || "");
+              const categoryId = currentParams.get("category_id");
+              const listParams = new URLSearchParams({ status });
+              if (categoryId) listParams.set("category_id", categoryId);
               if (typeof htmx !== "undefined") {
-                htmx.ajax("GET", "/views/channel-list?status=" + encodeURIComponent(status), {
+                htmx.ajax("GET", "/views/channel-list?" + listParams.toString(), {
                   target: "#channel-list-wrap",
                   swap: "innerHTML",
                 });
+                if (Number(data.created_categories || 0) > 0) {
+                  htmx.ajax("GET", "/views/category-sidebar?" + listParams.toString(), {
+                    target: "#category-sidebar",
+                    swap: "outerHTML",
+                  });
+                }
               }
             } else {
               showUiToast(form.dataset.toastFailed || "Import failed.", "error");

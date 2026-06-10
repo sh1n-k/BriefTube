@@ -89,6 +89,7 @@ async def _run_worker_until(db, transcript_service, video_id: str, status: str) 
         config=_config(),
         db=db,
         transcript_service=transcript_service,
+        transcript_fetch_lock=asyncio.Lock(),
         manual_transcript_wake_event=asyncio.Event(),
     )
     state.manual_transcript_wake_event.set()

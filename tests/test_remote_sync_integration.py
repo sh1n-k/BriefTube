@@ -231,6 +231,36 @@ def test_remote_sync_dirty_batch_limit_is_total(tmp_path: Path) -> None:
     assert asyncio.run(_run()) == 1
 
 
+def test_remote_sync_gateway_fetch_all_applies_batch_size(monkeypatch) -> None:
+    queries: list[tuple[str, tuple[object, ...]]] = []
+
+    class FakeConn:
+        async def fetch(self, query: str, *args: object):
+            queries.append((query, args))
+            return []
+
+        async def close(self) -> None:
+            return
+
+    async def fake_connect(self):
+        return FakeConn()
+
+    monkeypatch.setattr(remote_sync_service.RemoteSyncGateway, "_connect", fake_connect)
+
+    async def _run() -> None:
+        gateway = remote_sync_service.RemoteSyncGateway(
+            dsn="postgresql://example.test/db",
+            connect_timeout_seconds=5,
+        )
+        await gateway.fetch_all(batch_size=7)
+
+    asyncio.run(_run())
+
+    assert len(queries) == 5
+    assert all("LIMIT $1" in query for query, _ in queries)
+    assert all(args == (7,) for _, args in queries)
+
+
 def test_remote_sync_pull_preserves_newer_local_dirty_row(tmp_path: Path) -> None:
     async def _run() -> dict[str, object]:
         db = await open_database(str(tmp_path / "conflict.db"))

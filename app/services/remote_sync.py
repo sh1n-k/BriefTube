@@ -45,29 +45,34 @@ class RemoteSyncGateway:
             await conn.close()
 
     async def fetch_all(self, *, batch_size: int) -> dict[str, list[dict[str, Any]]]:
-        del batch_size
+        safe_limit = max(1, int(batch_size))
         conn = await self._connect()
         try:
             return {
                 "categories": await _fetch_dicts(
                     conn,
-                    "SELECT * FROM sync_categories ORDER BY updated_at ASC",
+                    "SELECT * FROM sync_categories ORDER BY updated_at ASC LIMIT $1",
+                    safe_limit,
                 ),
                 "channels": await _fetch_dicts(
                     conn,
-                    "SELECT * FROM sync_channels ORDER BY updated_at ASC",
+                    "SELECT * FROM sync_channels ORDER BY updated_at ASC LIMIT $1",
+                    safe_limit,
                 ),
                 "videos": await _fetch_dicts(
                     conn,
-                    "SELECT * FROM sync_videos ORDER BY updated_at ASC",
+                    "SELECT * FROM sync_videos ORDER BY updated_at ASC LIMIT $1",
+                    safe_limit,
                 ),
                 "transcripts": await _fetch_dicts(
                     conn,
-                    "SELECT * FROM sync_transcripts ORDER BY updated_at ASC",
+                    "SELECT * FROM sync_transcripts ORDER BY updated_at ASC LIMIT $1",
+                    safe_limit,
                 ),
                 "articles": await _fetch_dicts(
                     conn,
-                    "SELECT * FROM sync_articles ORDER BY updated_at ASC",
+                    "SELECT * FROM sync_articles ORDER BY updated_at ASC LIMIT $1",
+                    safe_limit,
                 ),
             }
         finally:

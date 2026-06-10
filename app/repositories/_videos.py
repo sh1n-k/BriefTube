@@ -160,11 +160,13 @@ async def list_videos(
                 SELECT 1
                 FROM transcripts t
                 WHERE t.video_id = v.video_id
+                  AND t.deleted_at IS NULL
             ) AS has_transcript,
             EXISTS(
                 SELECT 1
                 FROM articles a
                 WHERE a.video_id = v.video_id
+                  AND a.deleted_at IS NULL
             ) AS has_article
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
@@ -313,8 +315,8 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             mtj.finished_at AS manual_transcript_finished_at
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
-        LEFT JOIN transcripts t ON t.video_id = v.video_id
-        LEFT JOIN articles a ON a.video_id = v.video_id
+        LEFT JOIN transcripts t ON t.video_id = v.video_id AND t.deleted_at IS NULL
+        LEFT JOIN articles a ON a.video_id = v.video_id AND a.deleted_at IS NULL
         LEFT JOIN manual_transcript_jobs mtj ON mtj.id = (
             SELECT id
             FROM manual_transcript_jobs
@@ -450,6 +452,7 @@ async def requeue_done_video_for_manual_article_retry(
               SELECT 1
               FROM transcripts t
               WHERE t.video_id = videos.video_id
+                AND t.deleted_at IS NULL
           )
         """,
         (video_id,),

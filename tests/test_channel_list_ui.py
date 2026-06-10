@@ -237,6 +237,47 @@ def test_add_channel_view_saves_resolved_channel(
     assert any(item["channel_id"] == "UCsingle001" for item in channels)
 
 
+def test_add_channel_view_preserves_selected_category(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = client.post("/api/categories", json={"name": "저장카테고리"})
+    assert created.status_code == 200
+    category_id = int(created.json()["id"])
+    resolver = client.app.state.runtime.channel_resolver
+
+    async def fake_resolve_input(raw_input: str) -> dict:
+        return {
+            "input": raw_input,
+            "status": "resolved",
+            "resolved": {
+                "channel_id": "UCcategoryadd001",
+                "channel_name": "Category Add",
+                "channel_url": "https://www.youtube.com/channel/UCcategoryadd001",
+            },
+        }
+
+    monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
+
+    response = client.post(
+        "/views/channels/add",
+        data={"source": "@categoryadd", "status": "active", "category_id": str(category_id)},
+    )
+    assert response.status_code == 200
+    assert (
+        f'data-channel-list-refresh-url="/views/channel-list?status=active&amp;category_id={category_id}"'
+        in response.text
+    )
+
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT category_id FROM channels WHERE channel_id = ?",
+            ("UCcategoryadd001",),
+        ).fetchone()
+    assert row is not None
+    assert int(row[0]) == category_id
+
+
 def test_add_channel_view_requires_selection_when_multiple_candidates(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -306,3 +347,56 @@ def test_bulk_commit_refreshes_category_sidebar_oob(client: TestClient) -> None:
         r'<div[^>]*id="category-sidebar"[^>]*hx-swap-oob="true"|<div[^>]*hx-swap-oob="true"[^>]*id="category-sidebar"',
         response.text,
     )
+
+
+def test_bulk_resolve_and_commit_preserve_selected_category(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = client.post("/api/categories", json={"name": "일괄카테고리"})
+    assert created.status_code == 200
+    category_id = int(created.json()["id"])
+    resolver = client.app.state.runtime.channel_resolver
+
+    async def fake_resolve_input(raw_input: str) -> dict:
+        return {
+            "input": raw_input,
+            "status": "resolved",
+            "resolved": {
+                "channel_id": "UCbulkcategory001",
+                "channel_name": "Bulk Category",
+                "channel_url": "https://www.youtube.com/channel/UCbulkcategory001",
+            },
+        }
+
+    monkeypatch.setattr(resolver, "resolve_input", fake_resolve_input)
+
+    resolved = client.post(
+        "/views/channels/bulk-resolve",
+        data={"bulk_text": "@bulkcategory", "status": "active", "category_id": str(category_id)},
+    )
+    assert resolved.status_code == 200
+    assert f'name="category_id" value="{category_id}"' in resolved.text
+
+    committed = client.post(
+        "/views/channels/bulk-commit",
+        data={
+            "status": "active",
+            "category_id": str(category_id),
+            "resolved_channel_id": ["UCbulkcategory001"],
+            "resolved_channel_name": ["Bulk Category"],
+        },
+    )
+    assert committed.status_code == 200
+    assert (
+        f'data-channel-list-refresh-url="/views/channel-list?status=active&amp;category_id={category_id}"'
+        in committed.text
+    )
+
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT category_id FROM channels WHERE channel_id = ?",
+            ("UCbulkcategory001",),
+        ).fetchone()
+    assert row is not None
+    assert int(row[0]) == category_id

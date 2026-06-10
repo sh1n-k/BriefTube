@@ -103,7 +103,7 @@ uv run python scripts/init_remote_sync_db.py
 | `app/templates/`, `app/static/` | Jinja2 + HTMX UI |
 | `scripts/`, `run-*` | DB 초기화, 로컬 실행, macOS LaunchAgent 관리 |
 
-설정은 `환경변수 override > APP_CONFIG_FILE yaml > 코드 기본값` 순서로 적용됩니다. 이 프로젝트는 `.env` 파일을 자동 로드하지 않으며, 기본 설정은 YAML에서 관리합니다. 전체 키와 기본값은 `app/config.py`의 `AppConfig`를 기준으로 확인합니다.
+설정은 `환경변수 override > APP_CONFIG_FILE yaml > 코드 기본값` 순서로 적용됩니다. 이 프로젝트는 `.env` 파일을 자동 로드하지 않으며, 기본 설정은 YAML에서 관리합니다. 단, 원격 동기화 DSN은 비밀값으로 취급해 YAML의 `remote_sync_dsn`을 읽지 않고 `BRIEFTUBE_REMOTE_SYNC_DSN` 환경변수로만 설정합니다. 전체 키와 기본값은 `app/config.py`의 `AppConfig`를 기준으로 확인합니다.
 
 실행할 설정 파일을 바꾸려면 `APP_CONFIG_FILE`을 지정합니다. 서버 주소를 일회성으로만 바꾸려면 `SERVER_HOST`/`SERVER_PORT` 또는 기존 호환용 `HOST`/`PORT` 환경변수를 사용할 수 있습니다.
 

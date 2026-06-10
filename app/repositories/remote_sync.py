@@ -271,6 +271,9 @@ async def _apply_category(db: aiosqlite.Connection, row: Mapping[str, Any]) -> i
     local = await _fetch_one(db, "SELECT * FROM categories WHERE category_uid = ?", (category_uid,))
     if not _is_remote_newer(row, local):
         return 0
+    category_name = str(row.get("name") or "").strip() or category_uid
+    if row.get("deleted_at") and " [deleted:" not in category_name:
+        category_name = f"{category_name} [deleted:{category_uid}]"
     await db.execute(
         """
         INSERT INTO categories(
@@ -291,7 +294,7 @@ async def _apply_category(db: aiosqlite.Connection, row: Mapping[str, Any]) -> i
         """,
         (
             category_uid,
-            row.get("name"),
+            category_name,
             int(row.get("sort_order") or 0),
             row.get("processing_stage") or "off",
             int(row.get("is_default") or 0),

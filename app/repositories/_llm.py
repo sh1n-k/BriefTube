@@ -259,6 +259,7 @@ async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
         SELECT COUNT(1) AS cnt
         FROM videos
         WHERE pipeline_status IN ('llm_pending', 'llm_failed')
+          AND deleted_at IS NULL
         """
     )
     row = await cursor.fetchone()
@@ -307,6 +308,7 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
         SELECT COUNT(1) AS cnt
         FROM videos
         WHERE pipeline_status IN ('llm_pending', 'llm_failed')
+          AND deleted_at IS NULL
         """
     )
     row = await cursor.fetchone()
@@ -404,6 +406,7 @@ async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
         SELECT COUNT(1) AS cnt
         FROM videos v
         WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
+          AND v.deleted_at IS NULL
         """
     )
     row = await cursor.fetchone()

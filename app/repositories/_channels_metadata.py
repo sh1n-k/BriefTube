@@ -274,8 +274,9 @@ async def enqueue_failed_channel_metadata(
     status: str | None = None,
     category_id: int | None = None,
 ) -> int:
-    where_clauses = ["metadata_fetch_status IN (?, ?)"]
+    where_clauses = ["metadata_fetch_status IN (?, ?, ?)", "deleted_at IS NULL"]
     params: list[Any] = [
+        CHANNEL_METADATA_STATUS_PENDING,
         CHANNEL_METADATA_STATUS_PENDING,
         CHANNEL_METADATA_STATUS_FAILED,
         CHANNEL_METADATA_STATUS_RATE_LIMITED,

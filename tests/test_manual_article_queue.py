@@ -261,6 +261,7 @@ def test_manual_article_worker_reuses_existing_transcript(tmp_path) -> None:
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_NeverCalledTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )
@@ -312,6 +313,7 @@ def test_manual_article_worker_requeues_transcript_on_fetch_error(tmp_path) -> N
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_FailingTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )

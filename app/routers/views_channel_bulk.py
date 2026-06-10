@@ -26,6 +26,9 @@ async def bulk_resolve(request: Request):
     channel_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
+    requested_category_id = parse_optional_int(
+        str(form.get("category_id") or request.query_params.get("category_id", ""))
+    )
     bulk_text = str(form.get("bulk_text", ""))
     upload = form.get("takeout_file")
     takeout_data = parse_takeout_entries("takeout.txt", b"")
@@ -46,6 +49,7 @@ async def bulk_resolve(request: Request):
         request,
         result=result,
         channel_status=channel_status,
+        selected_category_id=requested_category_id,
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
@@ -97,6 +101,7 @@ async def bulk_commit(request: Request):
             request.app.state.runtime.db,
             channel_id=channel_id,
             channel_name=channel_name,
+            category_id=requested_category_id,
         )
         await channels_repo.enqueue_channel_metadata_refresh(
             request.app.state.runtime.db,

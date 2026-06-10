@@ -512,7 +512,10 @@ def test_channel_category_sidebar_delete(page: Page) -> None:
     sidebar = page.locator("#category-sidebar")
     name_input = sidebar.locator("input[name='name']")
     name_input.fill("삭제테스트카테고리")
-    sidebar.locator("form[hx-post='/views/categories'] button[type='submit']").click()
+    with page.expect_response(
+        lambda res: "/views/categories" in res.url and res.request.method == "POST" and res.ok
+    ):
+        sidebar.locator("form[hx-post='/views/categories'] button[type='submit']").click()
     expect(sidebar).to_contain_text("삭제테스트카테고리")
     sidebar = page.locator("#category-sidebar")
     target_selector = "[data-category-list] li:has-text('삭제테스트카테고리')"
@@ -520,13 +523,10 @@ def test_channel_category_sidebar_delete(page: Page) -> None:
     expect(target_item).to_have_count(1)
     delete_btn = target_item.locator("button[hx-delete]")
 
-    # hx-confirm will trigger a browser dialog
-    page.once("dialog", lambda dialog: dialog.accept())
-
-    with page.expect_response(
-        lambda res: "/views/categories/" in res.url and res.request.method == "DELETE" and res.ok
-    ):
-        delete_btn.click(force=True)
+    page.evaluate("window.confirm = () => true")
+    target_item.hover()
+    expect(delete_btn).to_be_visible()
+    delete_btn.click()
     expect(page.locator(target_selector)).to_have_count(0)
 
 

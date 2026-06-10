@@ -24,6 +24,16 @@ logger = logging.getLogger("app.routers.api")
 router = APIRouter(tags=["api"])
 
 
+async def _read_json_object(request: Request) -> dict:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON payload must be an object")
+    return payload
+
+
 @router.get("/channels")
 async def get_channels(request: Request):
     return await channels_repo.list_channels(request.app.state.runtime.db)
@@ -40,7 +50,7 @@ async def create_channel(request: Request):
     channel_language_hint: str | None = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
-        payload = await request.json()
+        payload = await _read_json_object(request)
         channel_id = str(payload.get("channel_id", "")).strip()
         channel_name = str(payload.get("channel_name", "")).strip()
         channel_handle = str(payload.get("channel_handle", "")).strip() or None
@@ -97,11 +107,14 @@ async def resolve_bulk_channels(request: Request):
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
-        payload = await request.json()
+        payload = await _read_json_object(request)
         bulk_text = str(payload.get("bulk_text", ""))
-        raw_entries = [
-            str(item).strip() for item in payload.get("takeout_entries", []) if str(item).strip()
-        ]
+        raw_takeout_entries = payload.get("takeout_entries", [])
+        if raw_takeout_entries is None:
+            raw_takeout_entries = []
+        if not isinstance(raw_takeout_entries, list):
+            raise HTTPException(status_code=400, detail="takeout_entries must be a list")
+        raw_entries = [str(item).strip() for item in raw_takeout_entries if str(item).strip()]
         if raw_entries:
             takeout_data = parse_takeout_entries(
                 "takeout.txt", "\n".join(raw_entries).encode("utf-8")
@@ -143,6 +156,8 @@ def _normalize_commit_items(raw_items: list[dict]) -> list[tuple[str, str]]:
     seen: set[str] = set()
     normalized: list[tuple[str, str]] = []
     for item in raw_items:
+        if not isinstance(item, dict):
+            continue
         channel_id = str(item.get("channel_id", "")).strip()
         channel_name = str(item.get("channel_name", "")).strip()
         if not channel_id or not channel_name:
@@ -159,8 +174,11 @@ async def commit_bulk_channels(request: Request):
     items: list[dict] = []
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
-        payload = await request.json()
-        items = payload.get("items", [])
+        payload = await _read_json_object(request)
+        raw_items = payload.get("items", [])
+        if not isinstance(raw_items, list):
+            raise HTTPException(status_code=400, detail="items must be a list")
+        items = raw_items
     else:
         form = await request.form()
         resolved_ids = list(form.getlist("resolved_channel_id"))

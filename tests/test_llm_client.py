@@ -25,6 +25,20 @@ def test_runtime_not_ready_when_prompt_is_empty() -> None:
     assert reason == "llm_prompt_missing"
 
 
+def test_classify_command_failure_redacts_provider_output() -> None:
+    sentinel = "RAW_PROVIDER_OUTPUT_SECRET"
+    error = classify_command_failure(
+        provider="codex",
+        stdout=f"model echoed {sentinel}",
+        stderr="runtime failed",
+        exit_code=1,
+    )
+
+    assert error.code == "llm_provider_command_failed"
+    assert str(error) == "LLM provider command failed (runtime); exit_code=1"
+    assert sentinel not in str(error)
+
+
 def test_runtime_plan_allows_primary_when_fallback_missing() -> None:
     client = UnifiedLlmClient(
         timeout_seconds=10,
@@ -295,7 +309,7 @@ def test_classify_command_failure_reports_generic_retryable_failure() -> None:
     assert exc.code == "llm_provider_command_failed"
     assert exc.provider == "codex"
     assert exc.retryable is True
-    assert "temporary command failure" in str(exc)
+    assert str(exc) == "LLM provider command failed (runtime); exit_code=2"
 
 
 def test_classify_command_failure_reports_refusal_as_non_retryable() -> None:

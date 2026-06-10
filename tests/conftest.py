@@ -17,6 +17,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "120")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+    monkeypatch.delenv("BRIEFTUBE_REMOTE_SYNC_DSN", raising=False)
+    monkeypatch.delenv("BRIEFTUBE_REMOTE_SYNC_ENABLED", raising=False)
 
     from app.main import app
 

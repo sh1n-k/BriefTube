@@ -217,13 +217,14 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         guard.last_channel_id = channel_id or guard.last_channel_id
                         guard.last_channel_attempt_at = datetime.now(UTC)
                         await _save_guard_state(db, guard)
-                        raw_text, language, source_type = await asyncio.wait_for(
-                            state.transcript_service.fetch_transcript(
-                                video_id,
-                                preferred_language=preferred_language,
-                            ),
-                            timeout=fetch_timeout_seconds,
-                        )
+                        async with state.transcript_fetch_lock:
+                            raw_text, language, source_type = await asyncio.wait_for(
+                                state.transcript_service.fetch_transcript(
+                                    video_id,
+                                    preferred_language=preferred_language,
+                                ),
+                                timeout=fetch_timeout_seconds,
+                            )
                         interval_after_fetch = _compute_jittered_interval_seconds(
                             request_interval_seconds,
                             guard.adaptive_factor if adaptive_enabled else 1.0,

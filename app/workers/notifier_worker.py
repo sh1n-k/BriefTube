@@ -179,11 +179,16 @@ async def _send_with_retry(
         last_reason = str(response.get("description") or "ok=false")[:200]
         if attempt >= NOTIFIER_SEND_RETRY_LIMIT or retry_after is None:
             logger.warning(
-                "event=notifier.send_failed worker=notifier batch_size=%s attempt=%s response=%s",
+                "event=notifier.send_failed worker=notifier batch_size=%s attempt=%s error_code=%s reason=%s",
                 batch_size,
                 attempt,
-                response,
-                extra={"event": "notifier.send_failed", "worker": "notifier"},
+                response.get("error_code", "-"),
+                last_reason,
+                extra={
+                    "event": "notifier.send_failed",
+                    "worker": "notifier",
+                    "code": str(response.get("error_code") or "-"),
+                },
             )
             return False, last_reason
         logger.info(

@@ -93,6 +93,7 @@ async def add_channel(request: Request):
             request.app.state.runtime.db,
             channel_id=channel_id,
             channel_name=channel_name,
+            category_id=requested_category_id,
         )
         await channels_repo.enqueue_channel_metadata_refresh(
             request.app.state.runtime.db,
@@ -175,6 +176,7 @@ async def add_channel(request: Request):
                 request.app.state.runtime.db,
                 channel_id=channel_id,
                 channel_name=channel_name,
+                category_id=requested_category_id,
                 channel_handle=str(item.get("channel_handle", "")).strip() or None,
                 channel_url_canonical=str(item.get("channel_url", "")).strip() or None,
                 channel_thumbnail_url=str(item.get("channel_thumbnail_url", "")).strip() or None,

@@ -318,6 +318,7 @@ def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
                 db=db,
                 transcript_service=fake_service,
                 transcript_worker_lock=asyncio.Lock(),
+                transcript_fetch_lock=asyncio.Lock(),
             )
             task = asyncio.create_task(run_transcript_fetcher(state))
             try:

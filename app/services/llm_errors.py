@@ -22,6 +22,11 @@ AUTH_KEYWORDS = (
     "forbidden",
     "auth failed",
 )
+SCHEMA_KEYWORDS = (
+    "invalid_json_schema",
+    "response_format",
+    "text.format.schema",
+)
 
 
 class LlmClientError(RuntimeError):
@@ -51,10 +56,8 @@ def looks_like_auth(text: str) -> bool:
 
 def looks_like_schema_mismatch(text: str) -> bool:
     lowered = text.lower()
-    return (
-        "invalid_json_schema" in lowered
-        or ("response_format" in lowered and "schema" in lowered)
-        or "text.format.schema" in lowered
+    return any(keyword in lowered for keyword in SCHEMA_KEYWORDS) or (
+        "response_format" in lowered and "schema" in lowered
     )
 
 
@@ -70,6 +73,10 @@ def trim_error_message(text: str, limit: int = 600) -> str:
     return trimmed[:limit]
 
 
+def _sanitized_command_failure_message(*, exit_code: int, category: str) -> str:
+    return f"LLM provider command failed ({category}); exit_code={exit_code}"
+
+
 def classify_command_failure(
     *,
     provider: str,
@@ -78,31 +85,30 @@ def classify_command_failure(
     exit_code: int,
 ) -> LlmClientError:
     combined = f"{stderr}\n{stdout}".strip()
-    message = trim_error_message(combined or f"provider exit code={exit_code}")
-    if looks_like_schema_mismatch(message):
+    if looks_like_schema_mismatch(combined):
         return LlmClientError(
             schema_error_code(provider),
-            message,
+            _sanitized_command_failure_message(exit_code=exit_code, category="schema"),
             provider=provider,
             retryable=False,
         )
-    if looks_like_auth(message):
+    if looks_like_auth(combined):
         return LlmClientError(
             "llm_provider_auth_required",
-            message,
+            _sanitized_command_failure_message(exit_code=exit_code, category="auth"),
             provider=provider,
             retryable=False,
         )
-    if looks_like_refusal(message):
+    if looks_like_refusal(combined):
         return LlmClientError(
             "llm_provider_refused",
-            message,
+            _sanitized_command_failure_message(exit_code=exit_code, category="refusal"),
             provider=provider,
             retryable=False,
         )
     return LlmClientError(
         "llm_provider_command_failed",
-        message,
+        _sanitized_command_failure_message(exit_code=exit_code, category="runtime"),
         provider=provider,
         retryable=True,
     )

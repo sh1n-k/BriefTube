@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.main import _resolve_worker_start_specs
+from tests.e2e.conftest import _build_e2e_env
 
 
 def _task_names(enabled_worker_names: set[str]) -> list[str]:
@@ -46,3 +47,27 @@ def test_worker_start_specs_preserve_sparse_insert_order() -> None:
         "transcript_fetcher",
         "telegram_notifier",
     ]
+
+
+def test_e2e_server_env_disables_background_workers(tmp_path) -> None:
+    env = _build_e2e_env(
+        db_path=str(tmp_path / "e2e.db"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        download_dir=str(tmp_path / "downloads"),
+        log_dir=str(tmp_path / "logs"),
+    )
+
+    for name in (
+        "RSS",
+        "DOWNLOAD",
+        "MANUAL_ARTICLE",
+        "LLM",
+        "NOTIFIER",
+        "REMOTE_SYNC",
+        "CHANNEL_METADATA",
+        "TRANSCRIPT",
+        "MANUAL_TRANSCRIPT",
+    ):
+        assert env[f"BRIEFTUBE_DISABLE_{name}_WORKER"] == "1"
+    assert env["BRIEFTUBE_REMOTE_SYNC_ENABLED"] == "0"
+    assert env["BRIEFTUBE_REMOTE_SYNC_DSN"] == ""

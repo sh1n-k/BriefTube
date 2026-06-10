@@ -56,9 +56,14 @@ async def get_manual_transcript_job(
             v.pipeline_status,
             v.transcript_retry_count,
             v.transcript_target_language,
-            EXISTS(SELECT 1 FROM transcripts t WHERE t.video_id = j.video_id) AS has_transcript
+            EXISTS(
+                SELECT 1
+                FROM transcripts t
+                WHERE t.video_id = j.video_id
+                  AND t.deleted_at IS NULL
+            ) AS has_transcript
         FROM manual_transcript_jobs j
-        LEFT JOIN videos v ON v.video_id = j.video_id
+        LEFT JOIN videos v ON v.video_id = j.video_id AND v.deleted_at IS NULL
         WHERE j.id = ?
         """,
         (int(job_id),),
@@ -101,9 +106,15 @@ async def enqueue_manual_transcript_job(
         SELECT
             v.video_id,
             v.pipeline_status,
-            EXISTS(SELECT 1 FROM transcripts t WHERE t.video_id = v.video_id) AS has_transcript
+            EXISTS(
+                SELECT 1
+                FROM transcripts t
+                WHERE t.video_id = v.video_id
+                  AND t.deleted_at IS NULL
+            ) AS has_transcript
         FROM videos v
         WHERE v.video_id = ?
+          AND v.deleted_at IS NULL
         """,
         (normalized_video_id,),
     )

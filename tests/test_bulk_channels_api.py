@@ -152,3 +152,26 @@ def test_bulk_resolve_json_takeout_entries_uses_parser(
     payload = response.json()
     assert payload["total_inputs"] >= 1
     assert any("youtube.com/@alpha" in item for item in seen_inputs)
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "detail"),
+    [
+        ("/api/channels", [], "JSON payload must be an object"),
+        (
+            "/api/channels/bulk/resolve",
+            {"takeout_entries": "bad"},
+            "takeout_entries must be a list",
+        ),
+        ("/api/channels/bulk/commit", {"items": "bad"}, "items must be a list"),
+    ],
+)
+def test_channel_json_apis_reject_wrong_payload_shape(
+    client: TestClient,
+    path: str,
+    payload: object,
+    detail: str,
+) -> None:
+    response = client.post(path, json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"] == detail

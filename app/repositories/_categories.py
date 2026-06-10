@@ -62,6 +62,20 @@ def next_category_processing_stage(current: str | None) -> str:
     return CATEGORY_PROCESSING_STAGE_OFF
 
 
+async def _release_deleted_category_name(db: aiosqlite.Connection, name: str) -> None:
+    await db.execute(
+        """
+        UPDATE categories
+        SET name = name || ' [deleted:' || id || ']',
+            updated_at = COALESCE(updated_at, datetime('now'))
+        WHERE name = ?
+          AND deleted_at IS NOT NULL
+          AND name NOT LIKE '% [deleted:%]'
+        """,
+        (name,),
+    )
+
+
 async def get_default_category_id(db: aiosqlite.Connection) -> int:
     cursor = await db.execute(
         "SELECT id FROM categories WHERE is_default = 1 AND deleted_at IS NULL LIMIT 1"
@@ -92,6 +106,7 @@ async def create_category(db: aiosqlite.Connection, name: str) -> dict[str, Any]
     name = str(name).strip()
     if not name:
         raise ValueError("category name must not be empty")
+    await _release_deleted_category_name(db, name)
     cursor = await db.execute(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM categories"
     )
@@ -176,6 +191,10 @@ async def delete_category(db: aiosqlite.Connection, category_id: int) -> dict[st
             f"""
             UPDATE categories
             SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
+                name = CASE
+                    WHEN name LIKE '% [deleted:%]' THEN name
+                    ELSE name || ' [deleted:' || id || ']'
+                END,
                 {sync_dirty_set_clause()}
             WHERE id = ?
             """,

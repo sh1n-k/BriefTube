@@ -218,6 +218,32 @@ def test_video_list_channel_filter(client: TestClient) -> None:
     assert "vid-a-000" not in html
 
 
+def test_video_list_and_detail_ignore_tombstoned_outputs(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _seed_video_outputs("vid-a-000")
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE transcripts SET deleted_at = datetime('now') WHERE video_id = ?", ("vid-a-000",)
+        )
+        conn.execute(
+            "UPDATE articles SET deleted_at = datetime('now') WHERE video_id = ?", ("vid-a-000",)
+        )
+        conn.commit()
+
+    list_response = client.get("/views/video-list", params={"limit": "20"})
+    assert list_response.status_code == 200
+    list_html = list_response.text
+    assert "vid-a-000" in list_html
+    assert "Transcript for vid-a-000" not in list_html
+    assert "Article for vid-a-000" not in list_html
+
+    detail_response = client.get("/videos/vid-a-000")
+    assert detail_response.status_code == 200
+    assert "Transcript for vid-a-000" not in detail_response.text
+    assert "Article for vid-a-000" not in detail_response.text
+
+
 def test_video_list_channel_name_links_to_channel_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]

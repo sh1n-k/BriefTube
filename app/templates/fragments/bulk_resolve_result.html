@@ -12,6 +12,9 @@
   {% else %}
     <form class="mt-4 space-y-3" hx-post="/views/channels/bulk-commit" hx-target="#bulk-resolve-result" hx-swap="innerHTML">
       <input type="hidden" name="status" value="{{ channel_status }}" />
+      {% if selected_category_id is defined and selected_category_id is not none %}
+      <input type="hidden" name="category_id" value="{{ selected_category_id }}" />
+      {% endif %}
       {% if result.resolved %}
       <div class="rounded-md border border-emerald-200 bg-emerald-50 p-3">
         <p class="mb-2 text-xs font-semibold text-emerald-700">{{ txt.settings_bulk_resolved }}</p>

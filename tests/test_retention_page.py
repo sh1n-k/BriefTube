@@ -66,6 +66,24 @@ def test_retention_page_shows_expired_only(client: TestClient) -> None:
     assert "/static/js/main-ui.js" in home.text
 
 
+def test_retention_page_ignores_deleted_expired_videos(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE videos SET deleted_at = datetime('now') WHERE video_id = 'vid-ret-old-001'"
+        )
+        conn.commit()
+
+    response = client.get("/retention")
+    assert response.status_code == 200
+    assert "vid-ret-old-001" not in response.text
+
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "data-retention-notice" not in home.text
+
+
 def test_retention_delete_all_requires_confirmation(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)

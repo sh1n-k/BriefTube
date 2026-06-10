@@ -12,6 +12,7 @@ from app.database_migrations import (
     _ensure_download_columns,
     _ensure_manual_transcript_jobs_table,
     _ensure_remote_sync_device_id,
+    _ensure_remote_sync_indexes,
     _ensure_sync_metadata_columns,
     _ensure_video_columns,
     _ensure_video_indexes,
@@ -44,6 +45,7 @@ async def init_database(db: aiosqlite.Connection) -> None:
     await _ensure_channel_metadata_columns(db)
     for table in ("categories", "channels", "videos", "transcripts", "articles"):
         await _ensure_sync_metadata_columns(db, table)
+    await _ensure_remote_sync_indexes(db)
     await db.commit()
 
 

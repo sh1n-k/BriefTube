@@ -42,6 +42,16 @@ resolve_path() {
   printf "%s\n" "${ROOT_DIR}/${path#./}"
 }
 
+xml_escape() {
+  local value="$1"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  value="${value//\"/&quot;}"
+  value="${value//\'/&apos;}"
+  printf "%s\n" "${value}"
+}
+
 SERVER_HOST_VALUE="$(read_config_value "server_host" "0.0.0.0")"
 SERVER_PORT_VALUE="$(read_config_value "server_port" "48080")"
 APP_LOG_DIR_VALUE="$(read_config_value "log_dir" "./logs/prod")"
@@ -74,6 +84,14 @@ fi
 
 mkdir -p "${PLIST_DIR}" "${LOG_DIR}"
 
+LABEL_XML="$(xml_escape "${LABEL}")"
+LAUNCHER_PATH_XML="$(xml_escape "${LAUNCHER_PATH}")"
+ROOT_DIR_XML="$(xml_escape "${ROOT_DIR}")"
+APP_CONFIG_FILE_PATH_XML="$(xml_escape "${APP_CONFIG_FILE_PATH}")"
+HOME_XML="$(xml_escape "${HOME}")"
+PATH_VALUE_XML="$(xml_escape "${PATH_VALUE}")"
+LAUNCHD_LOG_PATH_XML="$(xml_escape "${LAUNCHD_LOG_PATH}")"
+
 for legacy_label in "${LEGACY_LABELS[@]}"; do
   legacy_plist="${PLIST_DIR}/${legacy_label}.plist"
   launchctl bootout "gui/$(id -u)/${legacy_label}" >/dev/null 2>&1 || true
@@ -87,24 +105,24 @@ cat >"${PLIST_PATH}" <<PLIST
 <plist version="1.0">
   <dict>
     <key>Label</key>
-    <string>${LABEL}</string>
+    <string>${LABEL_XML}</string>
 
     <key>ProgramArguments</key>
     <array>
-      <string>${LAUNCHER_PATH}</string>
+      <string>${LAUNCHER_PATH_XML}</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>${ROOT_DIR}</string>
+    <string>${ROOT_DIR_XML}</string>
 
     <key>EnvironmentVariables</key>
     <dict>
       <key>APP_CONFIG_FILE</key>
-      <string>${APP_CONFIG_FILE_PATH}</string>
+      <string>${APP_CONFIG_FILE_PATH_XML}</string>
       <key>HOME</key>
-      <string>${HOME}</string>
+      <string>${HOME_XML}</string>
       <key>PATH</key>
-      <string>${PATH_VALUE}</string>
+      <string>${PATH_VALUE_XML}</string>
     </dict>
 
     <key>KeepAlive</key>
@@ -113,9 +131,9 @@ cat >"${PLIST_PATH}" <<PLIST
     <true/>
 
     <key>StandardOutPath</key>
-    <string>${LAUNCHD_LOG_PATH}</string>
+    <string>${LAUNCHD_LOG_PATH_XML}</string>
     <key>StandardErrorPath</key>
-    <string>${LAUNCHD_LOG_PATH}</string>
+    <string>${LAUNCHD_LOG_PATH_XML}</string>
   </dict>
 </plist>
 PLIST

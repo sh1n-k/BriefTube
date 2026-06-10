@@ -6,9 +6,10 @@ import logging
 import httpx
 from fastapi import APIRouter, Query, Request
 
+from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.repositories import settings as settings_repo
-from app.routers.helpers import htmx_trigger_header, request_texts
+from app.routers.helpers import htmx_trigger_header, parse_optional_int, request_texts
 from app.routers.template_context import build_template_context
 from app.routers.views_channel_delete import delete_channels_and_cleanup_runtime
 from app.routers.views_common import (
@@ -124,6 +125,9 @@ async def reactivate_selected_channels(request: Request):
     requested_status = channels_repo.normalize_channel_management_status(
         str(form.get("status") or request.query_params.get("status", ""))
     )
+    requested_category_id = parse_optional_int(
+        str(form.get("category_id") or request.query_params.get("category_id", ""))
+    )
     bulk_action = str(form.get("bulk_action", "")).strip().lower()
     channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
     logger.debug(
@@ -229,12 +233,16 @@ async def reactivate_selected_channels(request: Request):
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
         requested_status,
+        category_id=requested_category_id,
     )
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        categories=categories,
+        selected_category_id=requested_category_id,
         **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(
@@ -254,6 +262,7 @@ async def reactivate_single_channel(
     channel_id: str,
     request: Request,
     status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
+    category_id: int | None = Query(default=None),
 ):
     normalized = channel_id.strip()
     requested_status = channels_repo.normalize_channel_management_status(status)
@@ -300,12 +309,16 @@ async def reactivate_single_channel(
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
         requested_status,
+        category_id=category_id,
     )
+    categories = await categories_repo.list_categories(request.app.state.runtime.db)
     context = await build_template_context(
         request,
         channels=channels,
         channel_status=channel_status,
         channel_counts=channel_counts,
+        categories=categories,
+        selected_category_id=category_id,
         **_channel_management_ui_context(request, channel_counts),
     )
     return request.app.state.templates.TemplateResponse(

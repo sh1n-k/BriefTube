@@ -94,6 +94,7 @@ def test_manual_article_worker_save_transcript_failure_marks_job_failed(
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_SuccessTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )
@@ -140,6 +141,7 @@ def test_manual_article_worker_reuses_existing_transcript_without_fetch(tmp_path
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_NeverCalledTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )
@@ -181,6 +183,7 @@ def test_manual_article_worker_fetches_missing_transcript_and_succeeds(tmp_path)
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_SuccessTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )
@@ -228,6 +231,7 @@ def test_manual_article_worker_persists_guard_state_after_fetch(tmp_path) -> Non
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_SuccessTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )
@@ -268,6 +272,7 @@ def test_manual_article_worker_fetch_failure_requeues_transcript_and_fails_job(t
                 transcript_fetch_timeout_seconds=1,
             ),
             transcript_service=_FailingTranscriptService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )
@@ -345,6 +350,7 @@ def test_manual_article_worker_processes_jobs_sequentially_with_spacing(tmp_path
                 transcript_jitter_ratio=0.0,
             ),
             transcript_service=_TrackingService(),
+            transcript_fetch_lock=asyncio.Lock(),
             manual_article_wake_event=asyncio.Event(),
             llm_wake_event=asyncio.Event(),
         )

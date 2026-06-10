@@ -219,13 +219,14 @@ async def run_manual_transcript_worker(state: AppState) -> None:
                     guard.last_channel_id = channel_id or guard.last_channel_id
                     guard.last_channel_attempt_at = datetime.now(UTC)
                     await _save_guard_state(state.db, guard)
-                    raw_text, language, source_type = await asyncio.wait_for(
-                        state.transcript_service.fetch_transcript(
-                            video_id,
-                            preferred_language=preferred_language,
-                        ),
-                        timeout=fetch_timeout_seconds,
-                    )
+                    async with state.transcript_fetch_lock:
+                        raw_text, language, source_type = await asyncio.wait_for(
+                            state.transcript_service.fetch_transcript(
+                                video_id,
+                                preferred_language=preferred_language,
+                            ),
+                            timeout=fetch_timeout_seconds,
+                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

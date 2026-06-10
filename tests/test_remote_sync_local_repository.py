@@ -132,6 +132,37 @@ def test_remote_sync_runtime_enabled_uses_tombstones(tmp_path: Path) -> None:
     assert result["sync_dirty"] == 1
 
 
+def test_remote_sync_deleted_category_name_can_be_reused(tmp_path: Path) -> None:
+    async def _run() -> dict[str, object]:
+        db = await open_database(str(tmp_path / "category-reuse.db"))
+        try:
+            await init_database(db)
+            await remote_sync_repo.set_runtime_enabled(db, True)
+            first = await categories_repo.create_category(db, "Reusable")
+            await categories_repo.delete_category(db, int(first["id"]))
+            second = await categories_repo.create_category(db, "Reusable")
+            cursor = await db.execute(
+                """
+                SELECT name, deleted_at
+                FROM categories
+                WHERE name LIKE 'Reusable%'
+                ORDER BY id ASC
+                """
+            )
+            rows = await cursor.fetchall()
+            return {
+                "created_name": second["name"],
+                "rows": [(str(row["name"]), row["deleted_at"] is not None) for row in rows],
+            }
+        finally:
+            await db.close()
+
+    result = asyncio.run(_run())
+
+    assert result["created_name"] == "Reusable"
+    assert result["rows"] == [("Reusable [deleted:2]", True), ("Reusable", False)]
+
+
 def test_remote_sync_push_once_prunes_even_without_dirty_rows(monkeypatch, tmp_path: Path) -> None:
     calls: list[str] = []
 
