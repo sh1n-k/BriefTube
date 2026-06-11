@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import shutil
+import signal
+import subprocess
 import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from app import llm_policy as _llm_policy
 from app.services.llm_errors import LlmClientError
@@ -37,6 +42,28 @@ CommandRunner = Callable[[list[str], int, str | None], Awaitable[CommandExecutio
 CommandExists = Callable[[str], bool]
 
 
+def _subprocess_group_kwargs() -> dict[str, Any]:
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+async def _kill_timed_out_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    if os.name == "nt":
+        process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            process.kill()
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(process.wait(), timeout=5)
+
+
 async def default_command_runner(
     args: list[str],
     timeout_seconds: int,
@@ -47,6 +74,7 @@ async def default_command_runner(
         stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **_subprocess_group_kwargs(),
     )
     try:
         input_bytes = stdin_text.encode("utf-8") if stdin_text is not None else None
@@ -55,8 +83,7 @@ async def default_command_runner(
             timeout=max(1, int(timeout_seconds)),
         )
     except TimeoutError as exc:
-        process.kill()
-        await process.wait()
+        await _kill_timed_out_process(process)
         raise LlmClientError(
             "llm_timeout",
             f"LLM command timed out after {timeout_seconds}s",
