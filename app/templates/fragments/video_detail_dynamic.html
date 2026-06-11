@@ -119,7 +119,9 @@
         {% endif %}
       </blockquote>
       {% endif %}
-      {% if video.body %}
+      {% if article_body_html %}
+      <div class="article-rendered">{{ article_body_html | safe }}</div>
+      {% elif video.body %}
       <pre class="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">{{ video.body }}</pre>
       {% else %}
       <p class="text-sm text-slate-500">{{ txt.detail_article_modal_empty }}</p>

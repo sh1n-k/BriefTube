@@ -391,7 +391,7 @@ def test_video_detail_article_section(e2e_page: Page, seeded_server: dict) -> No
 
     expect(article_card.locator("h3")).to_contain_text(f"Article Title for {video_id}")
     expect(article_card.locator("blockquote")).to_contain_text(f"Lead paragraph for {video_id}")
-    expect(article_card.locator("pre")).to_contain_text(f"Full article body for {video_id}")
+    expect(article_card.locator("div.article-rendered")).to_contain_text(f"Full article body for {video_id}")
 
     article_card.locator("[data-article-preview-open]").click()
     modal = page.locator("#article-preview-modal")

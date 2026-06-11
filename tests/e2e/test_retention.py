@@ -143,11 +143,11 @@ def test_retention_delete_selected(e2e_page: Page) -> None:
     # Delete button should now be enabled
     expect(delete_btn).to_be_enabled()
 
-    # Click delete → form submits → redirects to /retention?deleted=2
+    # Click delete → form submits → HTMX swaps retention content
     delete_btn.click()
 
-    # Wait for the redirect and check URL contains deleted=2
-    e2e_page.wait_for_url("**/retention?deleted=2")
+    # Wait for the content to refresh
+    e2e_page.wait_for_selector("#retention-content", state="visible")
 
     # The success message should appear
     success_msg = e2e_page.locator(".bg-emerald-50")
@@ -207,8 +207,8 @@ def test_retention_delete_all_confirm(e2e_page: Page) -> None:
     # Submit the form
     submit_btn.click()
 
-    # Should redirect with deleted count
-    e2e_page.wait_for_url("**/retention?deleted=*")
+    # Wait for the content to refresh
+    e2e_page.wait_for_selector("#retention-content", state="visible")
 
     # The success message should appear showing some deletion count
     success_msg = e2e_page.locator(".bg-emerald-50")

@@ -194,10 +194,7 @@ def test_detail_article_modal_contract_and_raw_body_preview(client: TestClient) 
     )
     response = client.get("/videos/vid-001")
     html = response.text
-    assert (
-        '<pre class="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">'
-        in html
-    )
+    assert '<div class="article-rendered">' in html
     assert "# Heading" in html
     assert "data-article-preview-open" in html
     assert "data-article-preview-modal" in html

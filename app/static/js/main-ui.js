@@ -102,7 +102,7 @@
         return `${baseMessage} (${detail})`;
       }
 
-      function showUiToast(message, tone = "success") {
+      function showUiToast(message, tone = "success", duration = null) {
         if (!message) return;
         const stack = ensureUiToastStack();
         const node = document.createElement("div");
@@ -115,10 +115,11 @@
         node.setAttribute("role", tone === "error" ? "alert" : "status");
         node.textContent = message;
         stack.appendChild(node);
+        const hideDelay = duration ?? (tone === "error" ? 5000 : 2000);
         setTimeout(() => {
           node.classList.add("opacity-0", "translate-y-1");
           setTimeout(() => node.remove(), 250);
-        }, 2000);
+        }, hideDelay);
       }
       videoControls?.configure?.({ showUiToast, refreshVideoDetailFragmentNow });
       categoryControls?.configure?.({ showUiToast });

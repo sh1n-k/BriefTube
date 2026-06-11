@@ -413,8 +413,6 @@ def _cleanup_thumbnail_files(thumbnail_paths: list[str], thumbnail_dir: str) -> 
 async def delete_retention_selected(request: Request):
     form = await request.form()
     selected = [str(value).strip() for value in form.getlist("video_id") if str(value).strip()]
-    if not selected:
-        return RedirectResponse(url="/retention?deleted=0", status_code=303)
 
     policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
     expired_ids = set(
@@ -432,7 +430,23 @@ async def delete_retention_selected(request: Request):
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
     )
-    return RedirectResponse(url=f"/retention?deleted={result['deleted']}", status_code=303)
+
+    deleted_count = int(result.get("deleted", 0) or 0)
+    expired_videos = await alerts_repo.list_retention_expired_videos(
+        request.app.state.runtime.db,
+        retention_days=int(policy["retention_days"]),
+    )
+    context = await build_template_context(
+        request,
+        expired_videos=expired_videos,
+        retention_days=int(policy["retention_days"]),
+        deleted_count=deleted_count,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="retention.html",
+        context=context,
+    )
 
 
 @router.post("/retention/delete-all")
@@ -453,4 +467,20 @@ async def delete_retention_all(request: Request):
         result["thumbnail_paths"],
         request.app.state.runtime.config.thumbnail_dir,
     )
-    return RedirectResponse(url=f"/retention?deleted={result['deleted']}", status_code=303)
+
+    deleted_count = int(result.get("deleted", 0) or 0)
+    expired_videos = await alerts_repo.list_retention_expired_videos(
+        request.app.state.runtime.db,
+        retention_days=int(policy["retention_days"]),
+    )
+    context = await build_template_context(
+        request,
+        expired_videos=expired_videos,
+        retention_days=int(policy["retention_days"]),
+        deleted_count=deleted_count,
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="retention.html",
+        context=context,
+    )

@@ -116,8 +116,8 @@ def test_retention_delete_all_with_confirmation(client: TestClient) -> None:
         data={"confirm_delete_all": "on"},
         follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/retention?deleted=")
+    assert response.status_code == 200
+    assert "retention-content" in response.text
 
     with sqlite3.connect(db_path) as conn:
         old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
@@ -139,8 +139,8 @@ def test_retention_delete_selected(client: TestClient) -> None:
         data={"video_id": "vid-ret-old-001"},
         follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/retention?deleted=")
+    assert response.status_code == 200
+    assert "retention-content" in response.text
 
     with sqlite3.connect(db_path) as conn:
         old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()

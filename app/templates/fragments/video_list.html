@@ -18,7 +18,7 @@
   <div class="border-b border-slate-200 px-3 py-2">
     <form hx-get="/views/video-list" hx-target="#video-list-wrap"
           hx-swap="outerHTML" hx-push-url="true"
-          hx-trigger="change from:select"
+          hx-trigger="change from:select delay:500ms"
           class="flex flex-wrap items-center gap-2">
       <input type="hidden" name="sort" value="{{ pager.sort }}" />
       <input type="hidden" name="order" value="{{ pager.order }}" />
@@ -128,7 +128,7 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full min-w-[1040px] table-fixed text-sm">
+      <table class="w-full min-w-0 md:min-w-[1040px] table-fixed text-sm">
         <colgroup>
           <col class="w-10" />
           <col class="w-32" />
