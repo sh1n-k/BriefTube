@@ -30,7 +30,7 @@ telegram_chat_id: ""
 polling_interval_minutes: 30
 rss_timeout_seconds: 20
 rss_inter_channel_delay_seconds: 2.0
-rss_fetcher_mode: "rss_then_yt_dlp"
+rss_fetcher_mode: "yt_dlp"
 yt_dlp_playlist_limit: 15
 yt_dlp_timeout_seconds: 60
 yt_dlp_longform_min_seconds: 180
