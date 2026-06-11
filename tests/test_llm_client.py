@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from app.services.llm import (
     LLM_CODEX_MODEL_DEFAULT,
@@ -11,6 +14,7 @@ from app.services.llm import (
     UnifiedLlmClient,
 )
 from app.services.llm_errors import classify_command_failure
+from app.services.llm_invocation import default_command_runner
 
 
 def test_runtime_not_ready_when_prompt_is_empty() -> None:
@@ -37,6 +41,15 @@ def test_classify_command_failure_redacts_provider_output() -> None:
     assert error.code == "llm_provider_command_failed"
     assert str(error) == "LLM provider command failed (runtime); exit_code=1"
     assert sentinel not in str(error)
+
+
+def test_default_command_runner_times_out() -> None:
+    script = "import time; time.sleep(30)"
+
+    with pytest.raises(LlmClientError) as exc_info:
+        asyncio.run(default_command_runner([sys.executable, "-c", script], 1, None))
+
+    assert exc_info.value.code == "llm_timeout"
 
 
 def test_runtime_plan_allows_primary_when_fallback_missing() -> None:

@@ -6,8 +6,6 @@ LABEL="${BRIEFTUBE_LAUNCHD_LABEL:-BriefTube.prod}"
 LEGACY_LABELS=("com.brieftube.server" "local.brieftube.prod")
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${LABEL}.plist"
-LOG_DIR="${ROOT_DIR}/logs/launchd"
-LAUNCHD_LOG_PATH="${LOG_DIR}/BriefTube.log"
 APP_CONFIG_FILE_PATH="${APP_CONFIG_FILE:-${ROOT_DIR}/config.prod.yaml}"
 PATH_VALUE="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
 LAUNCHER_PATH="${ROOT_DIR}/scripts/launchd/BriefTube"
@@ -56,7 +54,8 @@ SERVER_HOST_VALUE="$(read_config_value "server_host" "0.0.0.0")"
 SERVER_PORT_VALUE="$(read_config_value "server_port" "48080")"
 APP_LOG_DIR_VALUE="$(read_config_value "log_dir" "./logs/prod")"
 APP_LOG_FILE_NAME_VALUE="$(read_config_value "log_file_name" "brieftube-prod.log")"
-APP_LOG_PATH="$(resolve_path "${APP_LOG_DIR_VALUE}")/${APP_LOG_FILE_NAME_VALUE}"
+APP_LOG_DIR="$(resolve_path "${APP_LOG_DIR_VALUE}")"
+APP_LOG_PATH="${APP_LOG_DIR}/${APP_LOG_FILE_NAME_VALUE}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   cat <<EOF
@@ -69,20 +68,20 @@ LaunchAgent dry run:
   app_config_file: ${APP_CONFIG_FILE_PATH}
   server_host: ${SERVER_HOST_VALUE}
   server_port: ${SERVER_PORT_VALUE}
-  app_log: ${APP_LOG_PATH}
-  launchd_log: ${LAUNCHD_LOG_PATH}
+  log: ${APP_LOG_PATH}
+  log_to_file_env: false
   service_target: gui/$(id -u)/${LABEL}
   legacy_labels: ${LEGACY_LABELS[*]}
   would_create_dirs:
     ${PLIST_DIR}
-    ${LOG_DIR}
+    ${APP_LOG_DIR}
   would_bootstrap: launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}"
   would_kickstart: launchctl kickstart -k "gui/$(id -u)/${LABEL}"
 EOF
   exit 0
 fi
 
-mkdir -p "${PLIST_DIR}" "${LOG_DIR}"
+mkdir -p "${PLIST_DIR}" "${APP_LOG_DIR}"
 
 LABEL_XML="$(xml_escape "${LABEL}")"
 LAUNCHER_PATH_XML="$(xml_escape "${LAUNCHER_PATH}")"
@@ -90,7 +89,6 @@ ROOT_DIR_XML="$(xml_escape "${ROOT_DIR}")"
 APP_CONFIG_FILE_PATH_XML="$(xml_escape "${APP_CONFIG_FILE_PATH}")"
 HOME_XML="$(xml_escape "${HOME}")"
 PATH_VALUE_XML="$(xml_escape "${PATH_VALUE}")"
-LAUNCHD_LOG_PATH_XML="$(xml_escape "${LAUNCHD_LOG_PATH}")"
 
 for legacy_label in "${LEGACY_LABELS[@]}"; do
   legacy_plist="${PLIST_DIR}/${legacy_label}.plist"
@@ -123,6 +121,10 @@ cat >"${PLIST_PATH}" <<PLIST
       <string>${HOME_XML}</string>
       <key>PATH</key>
       <string>${PATH_VALUE_XML}</string>
+      <key>LOG_TO_FILE</key>
+      <string>false</string>
+      <key>LOG_CONSOLE_COLOR</key>
+      <string>NEVER</string>
     </dict>
 
     <key>KeepAlive</key>
@@ -131,9 +133,9 @@ cat >"${PLIST_PATH}" <<PLIST
     <true/>
 
     <key>StandardOutPath</key>
-    <string>${LAUNCHD_LOG_PATH_XML}</string>
+    <string>${APP_LOG_PATH}</string>
     <key>StandardErrorPath</key>
-    <string>${LAUNCHD_LOG_PATH_XML}</string>
+    <string>${APP_LOG_PATH}</string>
   </dict>
 </plist>
 PLIST
@@ -154,5 +156,4 @@ Status:
   launchctl print gui/$(id -u)/${LABEL}
 Logs:
   tail -f ${APP_LOG_PATH}
-  tail -f ${LAUNCHD_LOG_PATH}
 EOF
