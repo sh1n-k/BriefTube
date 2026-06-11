@@ -48,13 +48,13 @@ uv run pyright && uv run lint-imports
 - 채널 관리/재활성화 변경: `app/routers/views.py`, `app/templates/fragments/channel_list.html`, `app/templates/base.html`, `app/i18n.py`와 재활성화 토스트/fragment 계약을 함께 확인.
 - 설정/저장 UX 변경: `app/templates/settings.html`, `app/routers/template_context.py`, `tests/test_settings_views.py`를 같이 본다.
 - RSS 비활성화 정책 변경: `app/workers/poller.py`, `app/services/rss.py`, `app/repositories/channels.py`를 함께 점검한다.
-- LLM 워커 변경: 자유 텍스트 파싱 금지, 스키마 검증 JSON만 저장, prompt injection/policy refusal은 1회만 재시도 후 `llm_provider_refused`로 종료한다.
+- LLM 워커 변경: 자유 텍스트 파싱 금지, 스키마 검증 JSON만 저장한다.
 - 다운로드 변경: `app/domains/downloads/`, `app/services/downloads.py`, `app/workers/download_worker.py`, `tests/test_download_api.py`, `tests/test_downloads_page.py`를 같이 본다.
 
 ## LLM CLI 안전정책
 
 - Codex는 `--output-schema`와 `--output-last-message`, Claude는 `--output-format json`과 `--json-schema`를 우선 사용한다.
-- 지시문과 원문 데이터는 분리하고, 원문 내부 지시문/링크/코드는 실행 지시로 해석하지 않는다.
+
 - Provider fallback은 동일 스키마와 동일 타임아웃에서만 허용한다.
 - 원문 전문과 모델 원응답 전문은 로그에 남기지 않고, `provider`, `exit_code`, `schema_valid`, `retry_count`, `refusal_detected`, `latency_ms` 같은 메타만 남긴다.
 
