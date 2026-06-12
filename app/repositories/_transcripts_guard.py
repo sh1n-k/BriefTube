@@ -67,7 +67,7 @@ async def get_transcript_guard_state(db: aiosqlite.Connection) -> dict[str, Any]
         ),
         "breaker_state": breaker_state,
         "half_open_probe_remaining": _parse_int_setting(
-            probe_raw, default=1, min_value=1, max_value=1000
+            probe_raw, default=1, min_value=0, max_value=1000
         ),
         "last_channel_id": str(last_channel_raw or "").strip() or None,
         "last_channel_attempt_at": last_channel_attempt.isoformat()
@@ -96,7 +96,7 @@ async def save_transcript_guard_state(
         "transcript_guard_consecutive_hard_errors": str(max(0, int(consecutive_hard_errors))),
         "transcript_guard_consecutive_successes": str(max(0, int(consecutive_successes))),
         "transcript_guard_breaker_state": safe_breaker_state,
-        "transcript_guard_half_open_probe_remaining": str(max(1, int(half_open_probe_remaining))),
+        "transcript_guard_half_open_probe_remaining": str(max(0, int(half_open_probe_remaining))),
         "transcript_guard_last_channel_id": str(last_channel_id or "").strip(),
         "transcript_guard_last_channel_attempt_at": str(last_channel_attempt_at or "").strip(),
     }

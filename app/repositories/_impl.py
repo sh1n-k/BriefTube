@@ -190,6 +190,7 @@ VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES = (
 )
 normalize_pipeline_status_filter = videos_repository.normalize_pipeline_status_filter
 insert_video_if_absent = videos_repository.insert_video_if_absent
+insert_videos_if_absent_batch = videos_repository.insert_videos_if_absent_batch
 list_videos = videos_repository.list_videos
 count_videos = videos_repository.count_videos
 get_video = videos_repository.get_video

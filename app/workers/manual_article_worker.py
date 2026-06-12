@@ -11,7 +11,6 @@ from app.repositories import transcripts as transcripts_repo
 from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
-    TranscriptGuardState,
     _adaptive_decay_rate,
     _classify_transcript_error,
     _close_breaker,
@@ -19,7 +18,9 @@ from app.services.transcript_guard import (
     _compute_jittered_interval_seconds,
     _compute_retry_delay_seconds,
     _open_breaker,
-    _save_guard_state,
+    claim_transcript_fetch_permit,
+    read_transcript_guard,
+    transcript_guard_mutation,
 )
 from app.state import AppState
 from app.workers.wake_sleep import sleep_with_wake_event
@@ -143,9 +144,7 @@ async def run_manual_article_worker(state: AppState) -> None:
     next_runtime_recover_monotonic_at = 0.0
     active_job_id: int | None = None
     active_video_id = "-"
-    persisted = await transcripts_repo.get_transcript_guard_state(state.db)
-    guard = TranscriptGuardState.from_repository(persisted)
-    guard.half_open_probe_remaining = max(1, guard.half_open_probe_remaining)
+    await read_transcript_guard(state, state.db)
     logger.info(
         "event=manual_article.worker_started worker=manual_article",
         extra={"event": "manual_article.worker_started", "worker": "manual_article"},
@@ -167,6 +166,7 @@ async def run_manual_article_worker(state: AppState) -> None:
                     now_monotonic + runtime_recover_check_interval_seconds
                 )
 
+            guard = await read_transcript_guard(state, state.db)
             now_utc = datetime.now(UTC)
             if (
                 guard.breaker_state == TranscriptBreakerState.OPEN
@@ -180,15 +180,21 @@ async def run_manual_article_worker(state: AppState) -> None:
             if guard.breaker_state == TranscriptBreakerState.OPEN and (
                 guard.cooldown_until is None or now_utc >= guard.cooldown_until
             ):
-                guard.breaker_state = TranscriptBreakerState.HALF_OPEN
-                guard.cooldown_until = None
-                guard.half_open_probe_remaining = max(1, half_open_probe_count)
-                await _save_guard_state(state.db, guard)
-                logger.info(
-                    "event=manual_article.breaker_half_open probes=%s",
-                    guard.half_open_probe_remaining,
-                    extra={"event": "manual_article.breaker_half_open"},
-                )
+                post_transition_probes = 0
+                async with transcript_guard_mutation(state, state.db) as guard:
+                    if guard.breaker_state == TranscriptBreakerState.OPEN and (
+                        guard.cooldown_until is None or now_utc >= guard.cooldown_until
+                    ):
+                        guard.breaker_state = TranscriptBreakerState.HALF_OPEN
+                        guard.cooldown_until = None
+                        guard.half_open_probe_remaining = max(1, half_open_probe_count)
+                        post_transition_probes = guard.half_open_probe_remaining
+                if post_transition_probes > 0:
+                    logger.info(
+                        "event=manual_article.breaker_half_open probes=%s",
+                        post_transition_probes,
+                        extra={"event": "manual_article.breaker_half_open"},
+                    )
 
             job = await manual_articles_repo.claim_next_manual_article_job(state.db)
             if job is None:
@@ -259,16 +265,16 @@ async def run_manual_article_worker(state: AppState) -> None:
                     str(job.get("transcript_target_language") or "").strip().lower() or None
                 )
                 await _wait_until(next_request_monotonic_at)
-                if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                    if guard.half_open_probe_remaining <= 0:
-                        await _sleep_with_wake(state, idle_sleep_seconds)
-                        continue
-                    guard.half_open_probe_remaining -= 1
-                    await _save_guard_state(state.db, guard)
+                permit, guard = await claim_transcript_fetch_permit(
+                    state,
+                    state.db,
+                    channel_id=channel_id,
+                    half_open_probe_count=half_open_probe_count,
+                )
+                if not permit:
+                    await _sleep_with_wake(state, idle_sleep_seconds)
+                    continue
                 try:
-                    guard.last_channel_id = channel_id or guard.last_channel_id
-                    guard.last_channel_attempt_at = datetime.now(UTC)
-                    await _save_guard_state(state.db, guard)
                     async with state.transcript_fetch_lock:
                         raw_text, language, source_type = await asyncio.wait_for(
                             state.transcript_service.fetch_transcript(
@@ -293,18 +299,20 @@ async def run_manual_article_worker(state: AppState) -> None:
 
                     if error_category == TranscriptErrorCategory.NO_SUBTITLE:
                         await transcripts_repo.mark_no_subtitle(state.db, video_id)
-                        guard.consecutive_successes += 1
-                        guard.consecutive_hard_errors = 0
-                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                            _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                        if (
-                            adaptive_enabled
-                            and guard.consecutive_successes >= recovery_success_window
-                        ):
-                            guard.consecutive_successes = 0
-                            decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
-                            guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
-                        await _save_guard_state(state.db, guard)
+                        async with transcript_guard_mutation(state, state.db) as guard:
+                            guard.consecutive_successes += 1
+                            guard.consecutive_hard_errors = 0
+                            if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                                _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+                            if (
+                                adaptive_enabled
+                                and guard.consecutive_successes >= recovery_success_window
+                            ):
+                                guard.consecutive_successes = 0
+                                decay = _adaptive_decay_rate(
+                                    guard.adaptive_factor, adaptive_max_factor
+                                )
+                                guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
                         await manual_articles_repo.mark_manual_article_job_failed(
                             state.db,
                             job_id=active_job_id,
@@ -324,22 +332,22 @@ async def run_manual_article_worker(state: AppState) -> None:
                             retry_max_delay_seconds,
                             current_retry_count,
                         )
-                        guard.consecutive_hard_errors += 1
-                        guard.consecutive_successes = 0
-                        guard.adaptive_factor = min(
-                            adaptive_max_factor, guard.adaptive_factor * 2.0
-                        )
-                        breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
-                            hard_cooldown_base_seconds,
-                            hard_cooldown_max_seconds,
-                            guard.consecutive_hard_errors,
-                        )
-                        _open_breaker(
-                            guard,
-                            cooldown_seconds=breaker_cooldown_seconds,
-                            half_open_probe_count=half_open_probe_count,
-                        )
-                        await _save_guard_state(state.db, guard)
+                        async with transcript_guard_mutation(state, state.db) as guard:
+                            guard.consecutive_hard_errors += 1
+                            guard.consecutive_successes = 0
+                            guard.adaptive_factor = min(
+                                adaptive_max_factor, guard.adaptive_factor * 2.0
+                            )
+                            breaker_cooldown_seconds = _compute_hard_cooldown_seconds(
+                                hard_cooldown_base_seconds,
+                                hard_cooldown_max_seconds,
+                                guard.consecutive_hard_errors,
+                            )
+                            _open_breaker(
+                                guard,
+                                cooldown_seconds=breaker_cooldown_seconds,
+                                half_open_probe_count=half_open_probe_count,
+                            )
                         if channel_id:
                             await transcripts_repo.defer_channel_transcript_retries(
                                 state.db,
@@ -387,16 +395,16 @@ async def run_manual_article_worker(state: AppState) -> None:
                         )
                         continue
 
-                    guard.consecutive_successes = 0
-                    guard.consecutive_hard_errors = 0
-                    if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                        _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                    if adaptive_enabled:
-                        guard.adaptive_factor = min(
-                            adaptive_max_factor,
-                            guard.adaptive_factor * general_error_slowdown_multiplier,
-                        )
-                    await _save_guard_state(state.db, guard)
+                    async with transcript_guard_mutation(state, state.db) as guard:
+                        guard.consecutive_successes = 0
+                        guard.consecutive_hard_errors = 0
+                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                            _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+                        if adaptive_enabled:
+                            guard.adaptive_factor = min(
+                                adaptive_max_factor,
+                                guard.adaptive_factor * general_error_slowdown_multiplier,
+                            )
 
                     if (
                         error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT
@@ -471,15 +479,15 @@ async def run_manual_article_worker(state: AppState) -> None:
                     )
                     continue
 
-                guard.consecutive_successes += 1
-                guard.consecutive_hard_errors = 0
-                if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                    _close_breaker(guard, half_open_probe_count=half_open_probe_count)
-                if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
-                    guard.consecutive_successes = 0
-                    decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
-                    guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
-                await _save_guard_state(state.db, guard)
+                async with transcript_guard_mutation(state, state.db) as guard:
+                    guard.consecutive_successes += 1
+                    guard.consecutive_hard_errors = 0
+                    if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+                        _close_breaker(guard, half_open_probe_count=half_open_probe_count)
+                    if adaptive_enabled and guard.consecutive_successes >= recovery_success_window:
+                        guard.consecutive_successes = 0
+                        decay = _adaptive_decay_rate(guard.adaptive_factor, adaptive_max_factor)
+                        guard.adaptive_factor = max(1.0, guard.adaptive_factor * decay)
 
                 await transcripts_repo.save_transcript(
                     state.db,

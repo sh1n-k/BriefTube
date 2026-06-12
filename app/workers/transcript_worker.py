@@ -11,20 +11,20 @@ from app.repositories import transcripts as transcripts_repo
 from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
-    TranscriptGuardState,
     _classify_transcript_error,
     _compute_jittered_interval_seconds,
     _compute_retry_delay_seconds,
-    _save_guard_state,
     _wait_until,
+    claim_transcript_fetch_permit,
     mark_transcript_guard_half_open,
+    read_transcript_guard,
     record_transcript_guard_general_failure,
     record_transcript_guard_half_open_retryable_failure,
     record_transcript_guard_hard_throttle,
     record_transcript_guard_success,
+    transcript_guard_mutation,
 )
 from app.state import AppState
-from app.workers.transcript_worker_outcomes import record_no_subtitle_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +84,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
     db = state.db
     guard_cm = worker_lock if worker_lock is not None else contextlib.nullcontext()
     async with guard_cm:
-        persisted = await transcripts_repo.get_transcript_guard_state(db)
-        guard = TranscriptGuardState.from_repository(persisted)
-        guard.half_open_probe_remaining = max(1, guard.half_open_probe_remaining)
+        startup_guard = await read_transcript_guard(state, db)
         next_request_monotonic_at = 0.0
 
         logger.info(
@@ -98,9 +96,9 @@ async def run_transcript_fetcher(state: AppState) -> None:
             request_interval_seconds,
             jitter_ratio,
             adaptive_enabled,
-            guard.adaptive_factor,
-            guard.breaker_state.value,
-            guard.cooldown_until.isoformat() if guard.cooldown_until else "-",
+            startup_guard.adaptive_factor,
+            startup_guard.breaker_state.value,
+            startup_guard.cooldown_until.isoformat() if startup_guard.cooldown_until else "-",
             extra={"event": "transcript.guard_enabled", "worker": "transcript"},
         )
 
@@ -113,6 +111,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                 await _recover_runtime_stuck_transcript_jobs(db)
                 runtime_recovery_pending = False
 
+            guard = await read_transcript_guard(state, db)
             now_utc = datetime.now(UTC)
             if (
                 guard.breaker_state == TranscriptBreakerState.OPEN
@@ -126,16 +125,20 @@ async def run_transcript_fetcher(state: AppState) -> None:
             if guard.breaker_state == TranscriptBreakerState.OPEN and (
                 guard.cooldown_until is None or now_utc >= guard.cooldown_until
             ):
-                mark_transcript_guard_half_open(
-                    guard,
-                    half_open_probe_count=half_open_probe_count,
-                )
-                await _save_guard_state(db, guard)
+                async with transcript_guard_mutation(state, db) as guard:
+                    if guard.breaker_state == TranscriptBreakerState.OPEN and (
+                        guard.cooldown_until is None or now_utc >= guard.cooldown_until
+                    ):
+                        mark_transcript_guard_half_open(
+                            guard,
+                            half_open_probe_count=half_open_probe_count,
+                        )
                 logger.info(
                     "event=transcript.breaker_half_open worker=transcript probes=%s",
                     guard.half_open_probe_remaining,
                     extra={"event": "transcript.breaker_half_open", "worker": "transcript"},
                 )
+                guard = await read_transcript_guard(state, db)
 
             avoid_channel_id: str | None = None
             remaining_channel_wait = 0.0
@@ -183,12 +186,6 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     continue
 
                 for video in pending:
-                    if not await settings_repo.is_worker_enabled(db, "transcript"):
-                        break
-                    if guard.breaker_state == TranscriptBreakerState.OPEN and guard.cooldown_until:
-                        if datetime.now(UTC) < guard.cooldown_until:
-                            break
-
                     video_id = video["video_id"]
                     channel_id = str(video.get("channel_id") or "").strip()
                     preferred_language = (
@@ -197,26 +194,17 @@ async def run_transcript_fetcher(state: AppState) -> None:
 
                     try:
                         await _wait_until(next_request_monotonic_at)
-                        if (
-                            guard.breaker_state == TranscriptBreakerState.OPEN
-                            and guard.cooldown_until
-                        ):
-                            if datetime.now(UTC) < guard.cooldown_until:
-                                break
-                        if (
-                            guard.breaker_state == TranscriptBreakerState.HALF_OPEN
-                            and guard.half_open_probe_remaining <= 0
-                        ):
+                        permit, guard = await claim_transcript_fetch_permit(
+                            state,
+                            db,
+                            channel_id=channel_id,
+                            half_open_probe_count=half_open_probe_count,
+                        )
+                        if not permit:
                             break
                         marked = await transcripts_repo.mark_transcript_processing(db, video_id)
                         if marked == 0:
                             continue
-                        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
-                            guard.half_open_probe_remaining -= 1
-                            await _save_guard_state(db, guard)
-                        guard.last_channel_id = channel_id or guard.last_channel_id
-                        guard.last_channel_attempt_at = datetime.now(UTC)
-                        await _save_guard_state(db, guard)
                         async with state.transcript_fetch_lock:
                             raw_text, language, source_type = await asyncio.wait_for(
                                 state.transcript_service.fetch_transcript(
@@ -251,20 +239,24 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             source_type,
                             extra={"event": "transcript.fetch_succeeded", "worker": "transcript"},
                         )
-                        record_transcript_guard_success(
-                            guard,
-                            adaptive_enabled=adaptive_enabled,
-                            recovery_success_window=recovery_success_window,
-                            adaptive_max_factor=adaptive_max_factor,
-                            half_open_probe_count=half_open_probe_count,
-                        )
-                        await _save_guard_state(db, guard)
+                        async with transcript_guard_mutation(state, db) as guard:
+                            record_transcript_guard_success(
+                                guard,
+                                adaptive_enabled=adaptive_enabled,
+                                recovery_success_window=recovery_success_window,
+                                adaptive_max_factor=adaptive_max_factor,
+                                half_open_probe_count=half_open_probe_count,
+                            )
 
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
                         error_message = str(exc).strip() or exc.__class__.__name__
                         error_category = _classify_transcript_error(exc)
+
+                        current_retry_count = int(video.get("transcript_retry_count") or 0)
+                        next_retry_count = current_retry_count + 1
+
                         interval_after_error = _compute_jittered_interval_seconds(
                             request_interval_seconds,
                             guard.adaptive_factor if adaptive_enabled else 1.0,
@@ -272,19 +264,16 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         )
                         next_request_monotonic_at = time.monotonic() + interval_after_error
 
-                        current_retry_count = int(video.get("transcript_retry_count") or 0)
-                        next_retry_count = current_retry_count + 1
-
                         if error_category == TranscriptErrorCategory.NO_SUBTITLE:
-                            await record_no_subtitle_outcome(
-                                db,
-                                guard,
-                                video_id=video_id,
-                                adaptive_enabled=adaptive_enabled,
-                                recovery_success_window=recovery_success_window,
-                                adaptive_max_factor=adaptive_max_factor,
-                                half_open_probe_count=half_open_probe_count,
-                            )
+                            await transcripts_repo.mark_no_subtitle(db, video_id)
+                            async with transcript_guard_mutation(state, db) as guard:
+                                record_transcript_guard_success(
+                                    guard,
+                                    adaptive_enabled=adaptive_enabled,
+                                    recovery_success_window=recovery_success_window,
+                                    adaptive_max_factor=adaptive_max_factor,
+                                    half_open_probe_count=half_open_probe_count,
+                                )
                             logger.info(
                                 "event=transcript.no_subtitle worker=transcript video_id=%s",
                                 video_id,
@@ -299,19 +288,20 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 current_retry_count,
                             )
 
-                            breaker_cooldown_seconds = record_transcript_guard_hard_throttle(
-                                guard,
-                                adaptive_max_factor=adaptive_max_factor,
-                                hard_cooldown_base_seconds=hard_cooldown_base_seconds,
-                                hard_cooldown_max_seconds=hard_cooldown_max_seconds,
-                                half_open_probe_count=half_open_probe_count,
-                            )
+                            async with transcript_guard_mutation(state, db) as guard:
+                                breaker_cooldown_seconds = record_transcript_guard_hard_throttle(
+                                    guard,
+                                    adaptive_max_factor=adaptive_max_factor,
+                                    hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+                                    hard_cooldown_max_seconds=hard_cooldown_max_seconds,
+                                    half_open_probe_count=half_open_probe_count,
+                                )
+                                post_throttle_factor = guard.adaptive_factor
                             next_delay_seconds = max(
                                 next_delay_seconds,
                                 breaker_cooldown_seconds,
                                 channel_hard_cooldown_seconds,
                             )
-                            await _save_guard_state(db, guard)
 
                             if channel_id:
                                 await transcripts_repo.defer_channel_transcript_retries(
@@ -332,7 +322,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                     "event=transcript.hard_throttle_limit worker=transcript video_id=%s retry=%s factor=%.2f error=%s",
                                     video_id,
                                     next_retry_count,
-                                    guard.adaptive_factor,
+                                    post_throttle_factor,
                                     error_message,
                                     extra={
                                         "event": "transcript.hard_throttle_limit",
@@ -356,7 +346,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                     next_retry_count,
                                     breaker_cooldown_seconds,
                                     channel_hard_cooldown_seconds,
-                                    guard.adaptive_factor,
+                                    post_throttle_factor,
                                     error_message,
                                     extra={
                                         "event": "transcript.hard_throttle",
@@ -370,16 +360,17 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             guard.breaker_state == TranscriptBreakerState.HALF_OPEN
                             and error_category == TranscriptErrorCategory.RETRYABLE_TRANSIENT
                         ):
-                            probe_cooldown_seconds = record_transcript_guard_half_open_retryable_failure(
-                                guard,
-                                adaptive_enabled=adaptive_enabled,
-                                adaptive_max_factor=adaptive_max_factor,
-                                general_error_slowdown_multiplier=general_error_slowdown_multiplier,
-                                hard_cooldown_base_seconds=hard_cooldown_base_seconds,
-                                hard_cooldown_max_seconds=hard_cooldown_max_seconds,
-                                half_open_probe_count=half_open_probe_count,
-                            )
-                            await _save_guard_state(db, guard)
+                            async with transcript_guard_mutation(state, db) as guard:
+                                probe_cooldown_seconds = record_transcript_guard_half_open_retryable_failure(
+                                    guard,
+                                    adaptive_enabled=adaptive_enabled,
+                                    adaptive_max_factor=adaptive_max_factor,
+                                    general_error_slowdown_multiplier=general_error_slowdown_multiplier,
+                                    hard_cooldown_base_seconds=hard_cooldown_base_seconds,
+                                    hard_cooldown_max_seconds=hard_cooldown_max_seconds,
+                                    half_open_probe_count=half_open_probe_count,
+                                )
+                                post_probe_factor = guard.adaptive_factor
                             next_delay_seconds = max(
                                 _compute_retry_delay_seconds(
                                     retry_base_delay_seconds,
@@ -410,7 +401,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 video_id,
                                 next_retry_count,
                                 probe_cooldown_seconds,
-                                guard.adaptive_factor,
+                                post_probe_factor,
                                 error_message,
                                 extra={
                                     "event": "transcript.half_open_retryable_failure",
@@ -420,14 +411,15 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             )
                             continue
 
-                        record_transcript_guard_general_failure(
-                            guard,
-                            adaptive_enabled=adaptive_enabled,
-                            adaptive_max_factor=adaptive_max_factor,
-                            general_error_slowdown_multiplier=general_error_slowdown_multiplier,
-                            half_open_probe_count=half_open_probe_count,
-                        )
-                        await _save_guard_state(db, guard)
+                        async with transcript_guard_mutation(state, db) as guard:
+                            record_transcript_guard_general_failure(
+                                guard,
+                                adaptive_enabled=adaptive_enabled,
+                                adaptive_max_factor=adaptive_max_factor,
+                                general_error_slowdown_multiplier=general_error_slowdown_multiplier,
+                                half_open_probe_count=half_open_probe_count,
+                            )
+                            post_general_factor = guard.adaptive_factor
 
                         if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:
                             await transcripts_repo.mark_transcript_failed(
@@ -440,7 +432,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 "Transcript non-retryable failure. video_id=%s retry=%s factor=%.2f error=%s",
                                 video_id,
                                 next_retry_count,
-                                guard.adaptive_factor,
+                                post_general_factor,
                                 error_message,
                             )
                             continue
@@ -461,7 +453,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 "Transcript retry limit reached. video_id=%s retry=%s factor=%.2f error=%s",
                                 video_id,
                                 next_retry_count,
-                                guard.adaptive_factor,
+                                post_general_factor,
                                 error_message,
                             )
                         else:
@@ -475,7 +467,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 "Transcript fetch failed. video_id=%s retry=%s factor=%.2f next_delay=%ss error=%s",
                                 video_id,
                                 next_retry_count,
-                                guard.adaptive_factor,
+                                post_general_factor,
                                 next_delay_seconds,
                                 error_message,
                             )
