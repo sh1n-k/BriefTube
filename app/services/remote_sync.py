@@ -36,6 +36,7 @@ class RemoteSyncGateway:
         conn = await self._connect()
         try:
             await conn.execute(REMOTE_SYNC_DDL)
+            await conn.execute(REMOTE_SYNC_V2_MIGRATION)
             version = await conn.fetchval(
                 "SELECT value FROM sync_metadata WHERE key = 'schema_version'"
             )
@@ -438,6 +439,28 @@ CREATE INDEX IF NOT EXISTS idx_sync_channels_updated ON sync_channels(updated_at
 CREATE INDEX IF NOT EXISTS idx_sync_videos_updated ON sync_videos(updated_at);
 CREATE INDEX IF NOT EXISTS idx_sync_transcripts_updated ON sync_transcripts(updated_at);
 CREATE INDEX IF NOT EXISTS idx_sync_articles_updated ON sync_articles(updated_at);
+"""
+
+REMOTE_SYNC_V2_MIGRATION = f"""
+ALTER TABLE sync_channels
+ADD COLUMN IF NOT EXISTS rss_priority text DEFAULT 'normal';
+
+UPDATE sync_channels
+SET rss_priority = 'normal'
+WHERE rss_priority IS NULL
+   OR lower(trim(rss_priority)) NOT IN ('pinned', 'normal', 'low');
+
+ALTER TABLE sync_channels
+ALTER COLUMN rss_priority SET DEFAULT 'normal';
+
+ALTER TABLE sync_channels
+ALTER COLUMN rss_priority SET NOT NULL;
+
+UPDATE sync_metadata
+SET value = '{REMOTE_SYNC_SCHEMA_VERSION}',
+    updated_at = now() AT TIME ZONE 'utc'
+WHERE key = 'schema_version'
+  AND value = '1';
 """
 
 LWW_WHERE = """

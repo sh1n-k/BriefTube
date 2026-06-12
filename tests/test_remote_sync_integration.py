@@ -99,6 +99,7 @@ def test_remote_sync_two_local_one_remote_flow(monkeypatch, tmp_path: Path) -> N
                 "Shared Channel",
                 category_id=int(category_a["id"]),
             )
+            await channels_repo.update_rss_priority(db_a, "UCshared001", "pinned")
             await videos_repo.insert_video_if_absent(
                 db_a,
                 "vid-shared-001",
@@ -140,6 +141,7 @@ def test_remote_sync_two_local_one_remote_flow(monkeypatch, tmp_path: Path) -> N
             pulled = await _read_projection(db_b, "UCshared001", "vid-shared-001")
             assert pulled["category_name"] == "Shared"
             assert pulled["channel_name"] == "Shared Channel"
+            assert pulled["rss_priority"] == "pinned"
             assert pulled["video_title"] == "Shared Video"
             assert pulled["transcript_text"] == "remote sync transcript"
             assert pulled["article_title"] == "Article"
@@ -259,6 +261,91 @@ def test_remote_sync_gateway_fetch_all_applies_batch_size(monkeypatch) -> None:
     assert len(queries) == 5
     assert all("LIMIT $1" in query for query, _ in queries)
     assert all(args == (7,) for _, args in queries)
+
+
+def test_remote_sync_gateway_upgrades_v1_schema(monkeypatch) -> None:
+    class FakeConn:
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        async def execute(self, query: str, *args: object) -> str:
+            assert args == ()
+            self.executed.append(query)
+            return "OK"
+
+        async def fetchval(self, query: str, *args: object) -> str:
+            assert "schema_version" in query
+            assert args == ()
+            return remote_sync_service.REMOTE_SYNC_SCHEMA_VERSION
+
+        async def close(self) -> None:
+            return
+
+    conn = FakeConn()
+
+    async def fake_connect(self):
+        return conn
+
+    monkeypatch.setattr(remote_sync_service.RemoteSyncGateway, "_connect", fake_connect)
+
+    async def _run() -> list[str]:
+        gateway = remote_sync_service.RemoteSyncGateway(
+            dsn="postgresql://example.test/db",
+            connect_timeout_seconds=5,
+        )
+        await gateway.ensure_schema()
+        return conn.executed
+
+    executed = asyncio.run(_run())
+
+    assert executed == [
+        remote_sync_service.REMOTE_SYNC_DDL,
+        remote_sync_service.REMOTE_SYNC_V2_MIGRATION,
+    ]
+    assert "ADD COLUMN IF NOT EXISTS rss_priority" in executed[1]
+    assert "WHERE key = 'schema_version'" in executed[1]
+    assert "AND value = '1'" in executed[1]
+    assert "lower(trim(rss_priority)) NOT IN ('pinned', 'normal', 'low')" in executed[1]
+
+
+def test_remote_sync_gateway_rejects_unknown_schema_version(monkeypatch) -> None:
+    class FakeConn:
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        async def execute(self, query: str, *args: object) -> str:
+            assert args == ()
+            self.executed.append(query)
+            return "OK"
+
+        async def fetchval(self, query: str, *args: object) -> str:
+            assert "schema_version" in query
+            assert args == ()
+            return "999"
+
+        async def close(self) -> None:
+            return
+
+    conn = FakeConn()
+
+    async def fake_connect(self):
+        return conn
+
+    monkeypatch.setattr(remote_sync_service.RemoteSyncGateway, "_connect", fake_connect)
+
+    async def _run() -> None:
+        gateway = remote_sync_service.RemoteSyncGateway(
+            dsn="postgresql://example.test/db",
+            connect_timeout_seconds=5,
+        )
+        await gateway.ensure_schema()
+
+    with pytest.raises(remote_sync_service.RemoteSyncSchemaMismatch):
+        asyncio.run(_run())
+    assert conn.executed == [
+        remote_sync_service.REMOTE_SYNC_DDL,
+        remote_sync_service.REMOTE_SYNC_V2_MIGRATION,
+    ]
 
 
 def test_remote_sync_pull_preserves_newer_local_dirty_row(tmp_path: Path) -> None:
@@ -449,6 +536,7 @@ async def _read_projection(db, channel_id: str, video_id: str) -> dict[str, obje
         """
         SELECT
             cat.name AS category_name,
+            ch.rss_priority,
             ch.channel_name,
             v.title AS video_title,
             t.raw_text AS transcript_text,
