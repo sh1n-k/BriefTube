@@ -216,7 +216,11 @@ def test_reactivate_selected_channels_partial_success_single_toast(
         },
     )
     assert response.status_code == 200
+    assert "<html" not in response.text.lower()
+    assert "data-channel-manage-form" in response.text
     toast = _parse_reactivate_toast(response)
+    trigger_payload = json.loads(response.headers["HX-Trigger"])
+    assert list(trigger_payload.keys()) == ["channel-reactivate-toast"]
     assert toast["tone"] == "error"
     assert "성공 2" in toast["message"]
     assert "실패 1" in toast["message"]

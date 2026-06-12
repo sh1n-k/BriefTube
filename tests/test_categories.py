@@ -142,29 +142,21 @@ def test_move_channels_to_category(client: TestClient) -> None:
     assert move_resp.json()["moved"] == 2
 
 
-def test_video_list_category_filter(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "필터카테고리"})
-    cat_id = resp.json()["id"]
-    _add_channel(client, "UC_flt1", "Filter Ch")
-    client.post(
-        f"/api/categories/{cat_id}/channels",
-        json={"channel_ids": ["UC_flt1"]},
-    )
-    resp = client.get(f"/?category_id={cat_id}")
-    assert resp.status_code == 200
-
-
-def test_channel_management_page_renders(client: TestClient) -> None:
-    resp = client.get("/channels")
-    assert resp.status_code == 200
-    assert "category-sidebar" in resp.text
-
-
 def test_channel_management_page_with_category_filter(client: TestClient) -> None:
     cats = client.get("/api/categories").json()
     default_id = next(c for c in cats if c["is_default"])["id"]
     resp = client.get(f"/channels?category_id={default_id}")
     assert resp.status_code == 200
+
+
+def test_category_sidebar_fragment_contract(client: TestClient) -> None:
+    response = client.get("/views/category-sidebar?status=active")
+    assert response.status_code == 200
+    html = response.text
+    assert "<html" not in html.lower()
+    assert "<body" not in html.lower()
+    assert 'id="category-sidebar"' in html
+    assert 'hx-target="#channel-list-wrap"' in html
 
 
 def test_channel_management_page_renders_category_rename_controls(client: TestClient) -> None:
@@ -187,7 +179,11 @@ def test_create_category_fragment_refreshes_channel_list_oob(client: TestClient)
     )
     assert response.status_code == 200
     html = response.text
+    assert "<html" not in html.lower()
+    assert "<body" not in html.lower()
     assert 'id="channel-list-wrap" hx-swap-oob="true"' in html
+    assert 'id="category-sidebar"' in html
+    assert 'hx-swap-oob="true"' in html
     assert "data-channel-move-target" in html
     assert "즉시반영" in html
 

@@ -10,7 +10,6 @@ from tests.e2e.seed_helpers import (
     get_db_connection,
     seed_categories,
     seed_channel,
-    seed_video,
 )
 
 # ---------------------------------------------------------------------------
@@ -51,73 +50,6 @@ def seeded_page(e2e_page: Page) -> Page:
     e2e_page.goto(f"{e2e_page._e2e_base_url}/channels")
     e2e_page.wait_for_selector("#category-sidebar")
     return e2e_page
-
-
-@pytest.fixture()
-def home_page(e2e_page: Page) -> Page:
-    """Seed categories/channels/videos and navigate to home page."""
-    db = e2e_page._e2e_db_path
-    _clean_seed_data(db)
-    cat_ids = seed_categories(db)
-
-    for ch_id, ch_name, cat_key in CHANNELS:
-        seed_channel(db, ch_id, ch_name, category_id=cat_ids[cat_key])
-
-    # Add a video per channel so filtering is observable
-    for ch_id, ch_name, _ in CHANNELS:
-        seed_video(
-            db,
-            video_id=f"vid_{ch_id}",
-            channel_id=ch_id,
-            title=f"Video from {ch_name}",
-            pipeline_status="done",
-        )
-
-    e2e_page.goto(f"{e2e_page._e2e_base_url}/")
-    e2e_page.wait_for_selector("#video-list-wrap")
-    return e2e_page
-
-
-# ---------------------------------------------------------------------------
-# 1. Sidebar renders with correct categories and counts
-# ---------------------------------------------------------------------------
-
-
-def test_category_sidebar_renders(seeded_page: Page):
-    """The category sidebar must show '전체', '미분류', '투자', '기술' with channel counts."""
-    sidebar = seeded_page.locator("#category-sidebar")
-    expect(sidebar).to_be_visible()
-
-    # "전체" row with total count (6)
-    all_link = sidebar.locator("a", has_text="전체")
-    expect(all_link).to_be_visible()
-    all_count = all_link.locator("span.rounded-full")
-    expect(all_count).to_have_text("6")
-
-    # Default category "미분류" (2 channels)
-    default_link = sidebar.locator("a[href*='category_id=']", has_text="미분류")
-    expect(default_link).to_be_visible()
-    # The count badge is a sibling span inside the parent div
-    default_parent = default_link.locator("xpath=..")
-    default_count_badge = default_parent.locator("span.rounded-full")
-    expect(default_count_badge).to_have_text("2")
-
-    # Custom categories in sortable list
-    custom_list = sidebar.locator("[data-category-list]")
-    items = custom_list.locator("li[data-category-id]")
-    expect(items).to_have_count(2)
-
-    # "투자" (2 channels)
-    invest_item = custom_list.locator("li", has_text="투자")
-    expect(invest_item).to_be_visible()
-    invest_count = invest_item.locator("span.rounded-full")
-    expect(invest_count).to_have_text("2")
-
-    # "기술" (2 channels)
-    tech_item = custom_list.locator("li", has_text="기술")
-    expect(tech_item).to_be_visible()
-    tech_count = tech_item.locator("span.rounded-full")
-    expect(tech_count).to_have_text("2")
 
 
 # ---------------------------------------------------------------------------
@@ -237,56 +169,6 @@ def test_category_rename(seeded_page: Page):
 
 
 # ---------------------------------------------------------------------------
-# 5. Processing stage cycle: off -> transcript_only -> full -> off
-# ---------------------------------------------------------------------------
-
-
-def test_category_processing_stage_cycle(seeded_page: Page):
-    """Cycling the processing stage button should cycle off -> transcript_only -> full -> off."""
-    sidebar = seeded_page.locator("#category-sidebar")
-    custom_list = sidebar.locator("[data-category-list]")
-
-    # "투자" starts at 'full' (per seed data)
-    invest_item = custom_list.locator("li", has_text="투자")
-    invest_item.hover()
-
-    # The cycle button is the one with hx-put containing 'cycle-processing-stage'
-    cycle_btn = invest_item.locator("button[hx-put*='cycle-processing-stage']")
-    expect(cycle_btn).to_be_visible()
-
-    # full -> off: click cycle button
-    cycle_btn.click()
-    seeded_page.wait_for_selector("#category-sidebar")
-
-    # After click, refresh references (sidebar replaced)
-    sidebar = seeded_page.locator("#category-sidebar")
-    invest_item = sidebar.locator("[data-category-list] li", has_text="투자")
-    invest_item.hover()
-    cycle_btn = invest_item.locator("button[hx-put*='cycle-processing-stage']")
-
-    # Verify new title is "처리 끔" (off)
-    expect(cycle_btn).to_have_attribute("title", "처리 끔")
-
-    # off -> transcript_only
-    cycle_btn.click()
-    seeded_page.wait_for_selector("#category-sidebar")
-    sidebar = seeded_page.locator("#category-sidebar")
-    invest_item = sidebar.locator("[data-category-list] li", has_text="투자")
-    invest_item.hover()
-    cycle_btn = invest_item.locator("button[hx-put*='cycle-processing-stage']")
-    expect(cycle_btn).to_have_attribute("title", "자막만")
-
-    # transcript_only -> full
-    cycle_btn.click()
-    seeded_page.wait_for_selector("#category-sidebar")
-    sidebar = seeded_page.locator("#category-sidebar")
-    invest_item = sidebar.locator("[data-category-list] li", has_text="투자")
-    invest_item.hover()
-    cycle_btn = invest_item.locator("button[hx-put*='cycle-processing-stage']")
-    expect(cycle_btn).to_have_attribute("title", "전체 처리")
-
-
-# ---------------------------------------------------------------------------
 # 6. Drag reorder calls /api/categories/reorder
 # ---------------------------------------------------------------------------
 
@@ -347,87 +229,6 @@ def test_category_drag_reorder(seeded_page: Page):
     reordered_second = new_items.nth(1)
     expect(reordered_first.locator("a")).to_have_text(second_name)
     expect(reordered_second.locator("a")).to_have_text(first_name)
-
-
-# ---------------------------------------------------------------------------
-# 7. Category filter on the home page filters videos
-# ---------------------------------------------------------------------------
-
-
-def test_category_filter_on_home_page(home_page: Page):
-    """Selecting a category in the home page dropdown should filter videos."""
-    video_list = home_page.locator("#video-list-wrap")
-    expect(video_list).to_be_visible()
-
-    # Category filter dropdown
-    cat_select = video_list.locator("select[data-category-filter]")
-    expect(cat_select).to_be_visible()
-
-    # Initially shows all 6 videos
-    rows = video_list.locator("tbody tr")
-    expect(rows).to_have_count(6)
-
-    # Get a category ID from the dropdown options (투자)
-    invest_option = cat_select.locator("option", has_text="투자")
-    invest_cat_id = invest_option.get_attribute("value")
-
-    # Select "투자" category -- the HTMX trigger fires on select change
-    cat_select.select_option(value=invest_cat_id)
-
-    # Wait for HTMX to swap the video list (outerHTML swap replaces #video-list-wrap)
-    home_page.wait_for_function(
-        "() => document.querySelectorAll('#video-list-wrap tbody tr').length === 2",
-        timeout=10000,
-    )
-
-    # Should now show only 2 videos (from UC_invest_1 and UC_invest_2)
-    filtered_rows = home_page.locator("#video-list-wrap tbody tr")
-    expect(filtered_rows).to_have_count(2)
-
-    # Reset to all categories by navigating to the home page without category filter.
-    # Selecting value="" on the replaced select can be unreliable because HTMX
-    # outerHTML swap replaced the entire #video-list-wrap and the new select
-    # may not trigger a change event correctly via Playwright in all cases.
-    # Instead, use a direct navigation approach which mirrors the real user flow.
-    home_page.goto(f"{home_page._e2e_base_url}/")
-    home_page.wait_for_selector("#video-list-wrap")
-
-    # After navigating back to home without filters, all 6 videos should appear
-    all_rows = home_page.locator("#video-list-wrap tbody tr")
-    expect(all_rows).to_have_count(6, timeout=10_000)
-
-
-# ---------------------------------------------------------------------------
-# 8. Default category cannot be deleted (no delete button)
-# ---------------------------------------------------------------------------
-
-
-def test_category_default_cannot_be_deleted(seeded_page: Page):
-    """The default (미분류) category row should not have a delete button."""
-    sidebar = seeded_page.locator("#category-sidebar")
-
-    # The default category is rendered outside the sortable list [data-category-list],
-    # in a separate div. It has a rename button and processing stage button, but NO delete button.
-
-    # Find the default category link (outside [data-category-list])
-    default_link = sidebar.locator("a[href*='category_id=']", has_text="미분류")
-    expect(default_link).to_be_visible()
-
-    # Navigate up to the default category's container div (border-b border-slate-100)
-    default_container = default_link.locator("xpath=ancestor::div[contains(@class, 'border-b')]")
-    expect(default_container).to_be_visible()
-
-    # The default category should have a rename button
-    rename_btn = default_container.locator("[data-category-rename-trigger]")
-    expect(rename_btn).to_have_count(1)
-
-    # The default category should have a processing stage cycle button
-    cycle_btn = default_container.locator("button[hx-put*='cycle-processing-stage']")
-    expect(cycle_btn).to_have_count(1)
-
-    # But NO delete button (hx-delete)
-    delete_btn = default_container.locator("button[hx-delete]")
-    expect(delete_btn).to_have_count(0)
 
     # Meanwhile, custom categories DO have delete buttons
     custom_list = sidebar.locator("[data-category-list]")

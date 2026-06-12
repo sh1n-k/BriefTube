@@ -13,16 +13,17 @@ def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient
     assert response.status_code == 200
     html = response.text
 
+    assert "<html" not in html.lower()
+    assert "<body" not in html.lower()
     assert 'href="/channels?status=active"' in html
     assert 'href="/channels?status=inactive"' in html
     assert "data-channel-search" in html
     assert "data-channel-search-input" in html
     assert "data-channel-search-prev" in html
     assert "data-channel-search-next" in html
-    assert "max-h-[560px] overflow-y-auto overscroll-contain" in html
-    assert "shrink-0 whitespace-nowrap" in html
     assert "data-channel-manage-form" in html
     assert "data-channel-select-all" in html
+    assert 'hx-target="#channel-list-wrap"' in html
     assert 'hx-post="/views/channels/delete-selected"' in html
     assert 'name="status" value="active"' in html
     assert 'data-channel-list-auto-refresh="0"' in html

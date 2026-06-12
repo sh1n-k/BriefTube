@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -113,84 +112,6 @@ def _goto_video_detail(page: Page, video_id: str) -> None:
     base = page._e2e_base_url
     page.goto(f"{base}/videos/{video_id}")
     page.wait_for_load_state("networkidle")
-
-
-# ---------------------------------------------------------------------------
-# 1. test_downloads_page_loads
-# ---------------------------------------------------------------------------
-def test_downloads_page_loads(e2e_page: Page, downloads_seeded: dict) -> None:
-    """The /downloads page loads and shows the status filter tabs."""
-    _goto_downloads(e2e_page)
-
-    # Page section with data attribute exists
-    section = e2e_page.locator("[data-download-history-page]")
-    expect(section).to_be_visible()
-
-    # All 5 filter tabs exist (all, pending, running, succeeded, failed)
-    tabs = e2e_page.locator("a[href*='/downloads?status='], a[href='/downloads?status=all']")
-    expect(tabs).to_have_count(5)
-
-
-# ---------------------------------------------------------------------------
-# 3. test_downloads_status_filter_pending
-# ---------------------------------------------------------------------------
-def test_downloads_status_filter_pending(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Filtering by pending shows only pending job."""
-    _goto_downloads(e2e_page, status="pending")
-
-    # The pending tab should be active (bg-indigo-600)
-    active_tab = e2e_page.locator("a[href='/downloads?status=pending']")
-    expect(active_tab).to_have_class(re.compile(r"bg-indigo-600"))
-
-    # Desktop table should show exactly 1 data row
-    rows = e2e_page.locator("table tbody tr")
-    expect(rows).to_have_count(1)
-
-    # The row should contain the pending video title
-    expect(rows.first).to_contain_text(VIDEO_TITLES[0])
-
-    # Status badge should show pending class
-    badge = rows.first.locator(".status-badge--transcript-pending")
-    expect(badge).to_be_visible()
-
-
-# ---------------------------------------------------------------------------
-# 4. test_downloads_status_filter_succeeded
-# ---------------------------------------------------------------------------
-def test_downloads_status_filter_succeeded(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Filtering by succeeded shows the output_path."""
-    _goto_downloads(e2e_page, status="succeeded")
-
-    rows = e2e_page.locator("table tbody tr")
-    expect(rows).to_have_count(1)
-
-    # The row should reference the succeeded video
-    expect(rows.first).to_contain_text(VIDEO_TITLES[2])
-
-    # Output path should be visible in the result column
-    result_cell = rows.first.locator(".text-emerald-700")
-    expect(result_cell).to_be_visible()
-    expect(result_cell).to_have_attribute("title", str(downloads_seeded["succeeded_output_path"]))
-
-
-# ---------------------------------------------------------------------------
-# 5. test_downloads_table_and_mobile_card
-# ---------------------------------------------------------------------------
-def test_downloads_table_and_mobile_card(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Desktop table and mobile cards coexist in the DOM."""
-    _goto_downloads(e2e_page)
-
-    # Desktop table (hidden on mobile, visible md+)
-    desktop_table = e2e_page.locator("table")
-    expect(desktop_table).to_have_count(1)
-
-    # Mobile cards container (visible on mobile, hidden md+)
-    mobile_cards = e2e_page.locator("div.space-y-3.md\\:hidden")
-    expect(mobile_cards).to_have_count(1)
-
-    # Mobile card articles should match job count
-    cards = mobile_cards.locator("article")
-    expect(cards).to_have_count(4)
 
 
 # ---------------------------------------------------------------------------
@@ -330,24 +251,3 @@ def test_download_from_video_detail(e2e_page: Page, downloads_seeded: dict) -> N
 
     # The modal should close after submission
     expect(modal).to_be_hidden(timeout=5_000)
-
-
-# ---------------------------------------------------------------------------
-# 12. test_downloads_empty_state
-# ---------------------------------------------------------------------------
-def test_downloads_empty_state(e2e_page: Page, downloads_seeded: dict) -> None:
-    """When jobs exist, the empty-state placeholder row is absent.
-
-    The template renders a <td colspan="6"> message inside the table only
-    when the job list is empty. With our seeded data the placeholder must
-    not appear, and the table must contain data rows.
-    """
-    _goto_downloads(e2e_page)
-
-    # The empty-state row (colspan=6) should NOT be present
-    empty_td = e2e_page.locator("table tbody td[colspan='6']")
-    expect(empty_td).to_have_count(0)
-
-    # Verify the table actually has data rows
-    data_rows = e2e_page.locator("table tbody tr")
-    assert data_rows.count() >= 4

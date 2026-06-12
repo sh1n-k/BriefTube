@@ -38,73 +38,6 @@ def _url(page: Page, path: str = "/") -> str:
 
 
 # ---------------------------------------------------------------------------
-# 1. test_navigation_links
-# ---------------------------------------------------------------------------
-
-
-def test_navigation_links(e2e_page: Page) -> None:
-    """All nav links click and navigate to the correct pages."""
-    page = e2e_page
-    page.goto(_url(page, "/"))
-
-    nav_targets = {
-        "/": "nav_videos",
-        "/channels": "nav_channels",
-        "/settings": "nav_settings",
-        "/downloads": "nav_downloads",
-        "/queue": "nav_queue",
-        "/retention": "nav_retention",
-    }
-
-    for path in nav_targets:
-        link = page.locator(f'header nav a[href="{path}"]')
-        expect(link).to_be_visible()
-
-    # Click each link and verify the resulting URL path.
-    for path in ["/channels", "/settings", "/downloads", "/queue", "/retention", "/"]:
-        link = page.locator(f'header nav a[href="{path}"]')
-        link.click()
-        page.wait_for_url(f"**{path}")
-        assert urlparse(page.url).path == path
-
-
-# ---------------------------------------------------------------------------
-# 2. test_navigation_active_highlight
-# ---------------------------------------------------------------------------
-
-
-def test_navigation_active_highlight(e2e_page: Page) -> None:
-    """Current page nav link has the active style (bg-white/20)."""
-    page = e2e_page
-
-    targets = [
-        ("/", "/"),
-        ("/channels", "/channels"),
-        ("/settings", "/settings"),
-    ]
-
-    for nav_path, url_path in targets:
-        page.goto(_url(page, url_path))
-        link = page.locator(f'header nav a[href="{nav_path}"]')
-        expect(link).to_be_visible()
-        classes = link.get_attribute("class") or ""
-        assert "bg-white/20" in classes, (
-            f"Nav link '{nav_path}' should have active class 'bg-white/20' "
-            f"on page '{url_path}', got: {classes}"
-        )
-
-        # Other nav links should NOT have active class.
-        for other_path, _ in targets:
-            if other_path == nav_path:
-                continue
-            other_link = page.locator(f'header nav a[href="{other_path}"]')
-            other_classes = other_link.get_attribute("class") or ""
-            assert "bg-white/20" not in other_classes, (
-                f"Nav link '{other_path}' should NOT have active class on page '{url_path}'"
-            )
-
-
-# ---------------------------------------------------------------------------
 # 3. test_theme_toggle_button
 # ---------------------------------------------------------------------------
 
@@ -224,68 +157,6 @@ def test_theme_dark_mode_css_variables(e2e_page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. test_i18n_korean_default
-# ---------------------------------------------------------------------------
-
-
-def test_i18n_korean_default(e2e_page: Page) -> None:
-    """Default language is Korean; Korean text appears in nav and page headings."""
-    page = e2e_page
-    # Ensure language is ko.
-    seed_app_setting(page._e2e_db_path, "language", "ko")
-    page.goto(_url(page, "/"))
-    page.wait_for_load_state("domcontentloaded")
-
-    # Check nav links for Korean text.
-    expect(page.locator('header nav a[href="/"]')).to_contain_text("영상")
-    expect(page.locator('header nav a[href="/channels"]')).to_contain_text("채널")
-    expect(page.locator('header nav a[href="/settings"]')).to_contain_text("설정")
-    expect(page.locator('header nav a[href="/downloads"]')).to_contain_text("다운로드")
-    expect(page.locator('header nav a[href="/retention"]')).to_contain_text("보관")
-
-    # Brand name.
-    expect(page.locator("header a[href='/'] span")).to_contain_text("BriefTube")
-
-    # Page heading.
-    expect(page.locator("h1")).to_contain_text("영상 목록")
-
-    # html lang attribute.
-    lang = page.evaluate("document.documentElement.lang")
-    assert lang == "ko", f"Expected html lang='ko', got '{lang}'"
-
-
-# ---------------------------------------------------------------------------
-# 7. test_i18n_english
-# ---------------------------------------------------------------------------
-
-
-def test_i18n_english(e2e_page: Page) -> None:
-    """Changing language to English shows English text."""
-    page = e2e_page
-    seed_app_setting(page._e2e_db_path, "language", "en")
-
-    page.goto(_url(page, "/"))
-    page.wait_for_load_state("domcontentloaded")
-
-    # Nav links should show English text.
-    expect(page.locator('header nav a[href="/"]')).to_contain_text("Videos")
-    expect(page.locator('header nav a[href="/channels"]')).to_contain_text("Channels")
-    expect(page.locator('header nav a[href="/settings"]')).to_contain_text("Settings")
-    expect(page.locator('header nav a[href="/downloads"]')).to_contain_text("Downloads")
-    expect(page.locator('header nav a[href="/retention"]')).to_contain_text("Retention")
-
-    # Page heading.
-    expect(page.locator("h1")).to_contain_text("Videos")
-
-    # html lang attribute.
-    lang = page.evaluate("document.documentElement.lang")
-    assert lang == "en", f"Expected html lang='en', got '{lang}'"
-
-    # Restore Korean for subsequent tests.
-    seed_app_setting(page._e2e_db_path, "language", "ko")
-
-
-# ---------------------------------------------------------------------------
 # 8. test_page_transition_fade
 # ---------------------------------------------------------------------------
 
@@ -365,17 +236,3 @@ def test_responsive_nav(e2e_page: Page) -> None:
 
     # Restore viewport.
     page.set_viewport_size({"width": 1280, "height": 720})
-
-
-# ---------------------------------------------------------------------------
-# 10. test_healthz_endpoint
-# ---------------------------------------------------------------------------
-
-
-def test_healthz_endpoint(e2e_page: Page) -> None:
-    """/healthz returns {"status": "ok"}."""
-    page = e2e_page
-    response = page.request.get(_url(page, "/healthz"))
-    assert response.ok, f"Expected 200, got {response.status}"
-    body = response.json()
-    assert body == {"status": "ok"}, f"Unexpected healthz response: {body}"

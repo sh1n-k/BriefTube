@@ -5,6 +5,7 @@ import contextlib
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from app.database import init_database, open_database
 from app.workers import notifier_worker
@@ -67,20 +68,8 @@ def _enqueue_sample(state, count: int = 1) -> None:
         )
 
 
-def test_send_with_retry_succeeds_on_first_attempt(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(notifier_worker, "NOTIFIER_BACKOFF_BASE_SECONDS", 0.0)
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", lambda *_a, **_kw: asyncio.sleep(0))
-    notifier = _FakeNotifier(responses=[{"ok": True}])
-
-    async def _run() -> tuple[bool, str, int]:
-        state = SimpleNamespace(telegram_notifier=notifier)
-        ok, reason = await notifier_worker._send_with_retry(state, "hello", 1)
-        return ok, reason, len(notifier.calls)
-
-    ok, reason, call_count = asyncio.run(_run())
-    assert ok is True
-    assert reason == ""
-    assert call_count == 1
+async def _noop_sleep(seconds: float) -> None:
+    return None
 
 
 def test_send_with_retry_handles_429_with_retry_after(tmp_path, monkeypatch) -> None:
@@ -111,20 +100,55 @@ def test_send_with_retry_handles_429_with_retry_after(tmp_path, monkeypatch) -> 
     )
 
 
-def test_send_with_retry_retries_5xx_then_gives_up(tmp_path, monkeypatch) -> None:
-    sleep_log: list[float] = []
-
-    async def _fake_sleep(seconds: float) -> None:
-        sleep_log.append(float(seconds))
-
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
+def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
     request = httpx.Request("POST", "https://api.telegram.org/")
-    err = httpx.HTTPStatusError(
-        "503",
+    return httpx.HTTPStatusError(
+        str(status_code),
         request=request,
-        response=httpx.Response(503, request=request),
+        response=httpx.Response(status_code, request=request),
     )
-    notifier = _FakeNotifier(responses=[], raise_exceptions=[err, err, err])
+
+
+@pytest.mark.parametrize(
+    ("responses", "exceptions", "expected_ok", "expected_reason", "expected_calls"),
+    [
+        ([{"ok": True}], [], True, "", 1),
+        (
+            [],
+            [_http_status_error(503), _http_status_error(503), _http_status_error(503)],
+            False,
+            "http_503",
+            notifier_worker.NOTIFIER_SEND_RETRY_LIMIT,
+        ),
+        ([], [_http_status_error(400)], False, "http_400", 1),
+        (
+            [{"ok": True}],
+            [httpx.ConnectTimeout("connect timed out"), None],
+            True,
+            "",
+            2,
+        ),
+        (
+            [{"ok": False, "description": "Bad Request: chat not found"}],
+            [],
+            False,
+            "Bad Request",
+            1,
+        ),
+        ([], [RuntimeError("boom")], False, "unhandled_RuntimeError", 1),
+        ([["not", "a", "dict"]], [], False, "non_dict_response", 1),
+    ],
+)
+def test_send_with_retry_outcomes(
+    monkeypatch,
+    responses,
+    exceptions,
+    expected_ok,
+    expected_reason,
+    expected_calls,
+) -> None:
+    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _noop_sleep)
+    notifier = _FakeNotifier(responses=responses, raise_exceptions=exceptions)
 
     async def _run() -> tuple[bool, str, int]:
         state = SimpleNamespace(telegram_notifier=notifier)
@@ -132,53 +156,9 @@ def test_send_with_retry_retries_5xx_then_gives_up(tmp_path, monkeypatch) -> Non
         return ok, reason, len(notifier.calls)
 
     ok, reason, call_count = asyncio.run(_run())
-    assert ok is False
-    assert reason == "http_503"
-    assert call_count == notifier_worker.NOTIFIER_SEND_RETRY_LIMIT
-
-
-def test_send_with_retry_does_not_retry_4xx_other_than_429(tmp_path, monkeypatch) -> None:
-    async def _fake_sleep(seconds: float) -> None:
-        return None
-
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
-    request = httpx.Request("POST", "https://api.telegram.org/")
-    err = httpx.HTTPStatusError(
-        "400",
-        request=request,
-        response=httpx.Response(400, request=request),
-    )
-    notifier = _FakeNotifier(responses=[], raise_exceptions=[err])
-
-    async def _run() -> tuple[bool, str, int]:
-        state = SimpleNamespace(telegram_notifier=notifier)
-        ok, reason = await notifier_worker._send_with_retry(state, "msg", 1)
-        return ok, reason, len(notifier.calls)
-
-    ok, reason, call_count = asyncio.run(_run())
-    assert ok is False
-    assert reason == "http_400"
-    assert call_count == 1  # no retry
-
-
-def test_send_with_retry_retries_network_errors(tmp_path, monkeypatch) -> None:
-    async def _fake_sleep(seconds: float) -> None:
-        return None
-
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
-    notifier = _FakeNotifier(
-        responses=[{"ok": True}],
-        raise_exceptions=[httpx.ConnectTimeout("connect timed out"), None],
-    )
-
-    async def _run() -> tuple[bool, int]:
-        state = SimpleNamespace(telegram_notifier=notifier)
-        ok, _ = await notifier_worker._send_with_retry(state, "msg", 1)
-        return ok, len(notifier.calls)
-
-    ok, call_count = asyncio.run(_run())
-    assert ok is True
-    assert call_count == 2
+    assert ok is expected_ok
+    assert expected_reason in reason
+    assert call_count == expected_calls
 
 
 def test_worker_records_alert_on_final_failure(tmp_path, monkeypatch) -> None:
@@ -240,65 +220,3 @@ def test_worker_records_alert_on_final_failure(tmp_path, monkeypatch) -> None:
 
     alert_count = asyncio.run(_run())
     assert alert_count == 1, "telegram_send_failed alert should be recorded once"
-
-
-def test_send_with_retry_terminal_4xx_via_ok_false(tmp_path, monkeypatch) -> None:
-    """Telegram이 200 + ok=false 응답하고 retry_after가 없으면 즉시 종료."""
-
-    async def _fake_sleep(seconds: float) -> None:
-        return None
-
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
-    notifier = _FakeNotifier(
-        responses=[{"ok": False, "description": "Bad Request: chat not found"}]
-    )
-
-    async def _run() -> tuple[bool, str, int]:
-        state = SimpleNamespace(telegram_notifier=notifier)
-        ok, reason = await notifier_worker._send_with_retry(state, "msg", 1)
-        return ok, reason, len(notifier.calls)
-
-    ok, reason, call_count = asyncio.run(_run())
-    assert ok is False
-    assert "Bad Request" in reason
-    assert call_count == 1  # no retry without retry_after
-
-
-def test_send_with_retry_absorbs_unhandled_exception(tmp_path, monkeypatch) -> None:
-    """httpx 외의 예외(JSON 파싱 실패 등)도 흡수해서 (False, reason) 반환."""
-
-    async def _fake_sleep(seconds: float) -> None:
-        return None
-
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
-    notifier = _FakeNotifier(responses=[], raise_exceptions=[RuntimeError("boom")])
-
-    async def _run() -> tuple[bool, str, int]:
-        state = SimpleNamespace(telegram_notifier=notifier)
-        ok, reason = await notifier_worker._send_with_retry(state, "msg", 1)
-        return ok, reason, len(notifier.calls)
-
-    ok, reason, call_count = asyncio.run(_run())
-    assert ok is False
-    assert reason == "unhandled_RuntimeError"
-    assert call_count == 1  # 추가 retry 없이 즉시 종료
-
-
-def test_send_with_retry_rejects_non_dict_response(tmp_path, monkeypatch) -> None:
-    """비-dict 응답은 즉시 종료해 AttributeError를 방지."""
-
-    async def _fake_sleep(seconds: float) -> None:
-        return None
-
-    monkeypatch.setattr(notifier_worker.asyncio, "sleep", _fake_sleep)
-    notifier = _FakeNotifier(responses=[["not", "a", "dict"]])
-
-    async def _run() -> tuple[bool, str, int]:
-        state = SimpleNamespace(telegram_notifier=notifier)
-        ok, reason = await notifier_worker._send_with_retry(state, "msg", 1)
-        return ok, reason, len(notifier.calls)
-
-    ok, reason, call_count = asyncio.run(_run())
-    assert ok is False
-    assert reason == "non_dict_response"
-    assert call_count == 1

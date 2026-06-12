@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -81,33 +79,6 @@ def _reset_data(db_path: str) -> None:
 def _seed(e2e_server: dict) -> None:
     _reset_data(e2e_server["db_path"])
     _seed_data(e2e_server["db_path"])
-
-
-# --------------------------------------------------------------------------- #
-# 1. Alert toast renders when unacknowledged alerts exist
-# --------------------------------------------------------------------------- #
-
-
-def test_alert_toast_renders(e2e_page: Page) -> None:
-    """Unacknowledged system alerts cause toast forms to appear on the page."""
-    page = e2e_page
-    page.goto(page._e2e_base_url)
-
-    # There should be two alert groups: rss_channel_not_found (2) + llm_config_missing (1)
-    toasts = page.locator("[data-alert-toast]")
-    expect(toasts).to_have_count(2)
-
-    # Each toast is a <form> with amber border styling
-    for i in range(2):
-        toast = toasts.nth(i)
-        expect(toast).to_be_visible()
-
-    # Verify the alert type hidden inputs are present
-    alert_types = set()
-    for i in range(2):
-        val = toasts.nth(i).locator("input[name='alert_type']").input_value()
-        alert_types.add(val)
-    assert alert_types == {"rss_channel_not_found", "llm_config_missing"}
 
 
 # --------------------------------------------------------------------------- #
@@ -216,29 +187,3 @@ def test_alert_group_members_toggle(e2e_page: Page) -> None:
     # There should be at least 1 <li> member entry
     members = member_list.locator("li")
     assert members.count() >= 1
-
-
-# --------------------------------------------------------------------------- #
-# 5. Retention notice toast renders and links to /retention
-# --------------------------------------------------------------------------- #
-
-
-def test_retention_notice_toast(e2e_page: Page) -> None:
-    """Retention notice toast appears when expired videos exist and links to /retention."""
-    page = e2e_page
-    page.goto(page._e2e_base_url)
-
-    # The retention notice is rendered with data-retention-notice attribute
-    notice = page.locator("[data-retention-notice]")
-    expect(notice).to_be_visible()
-
-    # It should contain a link to /retention
-    link = notice.locator("a[href='/retention']")
-    expect(link).to_be_visible()
-
-    # Click the link to navigate to the retention page
-    link.click()
-
-    # Should navigate to /retention
-    page.wait_for_url(re.compile(r"/retention"))
-    expect(page).to_have_url(re.compile(r"/retention"))

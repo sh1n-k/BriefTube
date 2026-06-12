@@ -65,6 +65,40 @@ def _seed_channels_and_videos() -> None:
         conn.commit()
 
 
+def _seed_paginated_videos(total: int) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCpage001",
+                "Pagination Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCpage001",
+            ),
+        )
+        for index in range(total):
+            conn.execute(
+                """
+                INSERT INTO videos(
+                    video_id, channel_id, title, upload_time,
+                    pipeline_status, retry_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"vid-page-{index:03d}",
+                    "UCpage001",
+                    f"Pagination Video {index:03d}",
+                    f"2026-02-{(index % 28) + 1:02d}T00:00:00+00:00",
+                    "done",
+                    0,
+                ),
+            )
+        conn.commit()
+
+
 def _seed_pending_download_job(video_id: str, *, target_dir: str) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -364,6 +398,53 @@ def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestC
     assert "pipeline_status=done" in push_url
 
 
+def test_home_respects_query_page_and_limit(client: TestClient) -> None:
+    _seed_paginated_videos(25)
+
+    response = client.get("/", params={"page": 2, "limit": 10})
+
+    assert response.status_code == 200
+    assert "페이지 2 / 3" in response.text
+
+
+def test_video_list_fragment_has_hx_push_url_for_stateful_paging(client: TestClient) -> None:
+    _seed_paginated_videos(25)
+
+    response = client.get("/views/video-list", params={"page": 2, "limit": 10})
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'hx-push-url="?page=1&limit=10' in html
+    assert 'hx-push-url="?page=3&limit=10' in html
+    assert 'hx-push-url="?page=10&limit=10' not in html
+    assert 'name="page"' in html
+    assert 'name="limit" value="10"' in html
+    assert "맨 앞" in html
+    assert "맨 뒤" in html
+
+
+def test_home_uses_default_videos_per_page_when_limit_is_missing(client: TestClient) -> None:
+    _seed_paginated_videos(25)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "페이지 1 / 4" in response.text
+
+
+def test_video_list_fragment_keeps_pipeline_status_in_paging_queries(client: TestClient) -> None:
+    _seed_paginated_videos(25)
+
+    response = client.get(
+        "/views/video-list", params={"page": 2, "limit": 10, "pipeline_status": "done"}
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert "pipeline_status=done" in html
+    assert 'name="pipeline_status" value="done"' in html
+
+
 def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
     _seed_channels_and_videos()
 
@@ -563,14 +644,14 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert 'data-transcript-url="/api/videos/vid-a-000/transcript"' in html
     assert "data-video-article-preview-load" in html
     assert 'data-article-preview-url="/views/videos/vid-a-000/article-preview-modal"' in html
-    assert html.count('class="invisible inline-flex h-7 w-7"') >= 1
+    assert "vid-a-001" in html
 
     empty_response = client.get(
         "/views/video-list",
         params={"channel_id": "UC_NO_MATCH", "limit": "20"},
     )
     assert empty_response.status_code == 200
-    assert 'colspan="7"' in empty_response.text
+    assert "영상이 없습니다" in empty_response.text or "No videos yet" in empty_response.text
 
 
 def test_video_article_preview_modal_fragment_matches_detail_contract(

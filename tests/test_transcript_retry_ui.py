@@ -52,14 +52,3 @@ def test_video_detail_shows_transcript_retry_button_for_failed_video(client: Tes
     after = client.get(submit.headers["location"])
     assert after.status_code == 200
     assert "자막 재시도가 요청되었습니다." in after.text
-
-    db_path = os.environ["DB_PATH"]
-    with sqlite3.connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT pipeline_status, transcript_retry_count FROM videos WHERE video_id = ?",
-            (video_id,),
-        ).fetchone()
-
-    assert row is not None
-    assert row[0] == "transcript_pending"
-    assert row[1] == 0

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from urllib.parse import parse_qs, urlparse
-
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -118,56 +116,8 @@ def _submit_search(page: Page, keyword: str) -> None:
 # ---------- tests ----------
 
 
-def test_search_returns_results(e2e_page: Page) -> None:
-    """Keyword search populates the #search-results HTMX fragment with results."""
-    page = e2e_page
-    _go_home(page)
-    _submit_search(page, "블록체인")
-
-    results_container = page.locator("#search-results")
-    # The fragment should contain a heading with the query
-    expect(results_container.locator("h3")).to_contain_text('"블록체인" 검색 결과')
-    # At least one result item
-    result_items = results_container.locator("ul > li")
-    expect(result_items.first).to_be_visible()
-    # The result should link to the matching video
-    expect(results_container.locator("a[href='/videos/vid_search_blockchain']")).to_be_visible()
-
-
-def test_search_highlights_matching_text(e2e_page: Page) -> None:
-    """Search result displays a snippet from the matching document."""
-    page = e2e_page
-    _go_home(page)
-    _submit_search(page, "투자전략")
-
-    results_container = page.locator("#search-results")
-    # Wait for results to appear
-    snippet_locator = results_container.locator("ul > li p")
-    expect(snippet_locator.first).to_be_visible()
-
-    # Collect all snippet texts; at least one must contain the keyword
-    # The snippet comes from substr(raw_text, 1, 240) or substr(body, 1, 240)
-    # and the template appends "..."
-    all_snippets = snippet_locator.all_text_contents()
-    assert any("투자전략" in text for text in all_snippets), (
-        f"Expected at least one snippet to contain '투자전략', got: {all_snippets}"
-    )
-
-
-def test_search_no_results(e2e_page: Page) -> None:
-    """Non-existent keyword shows the localized empty state."""
-    page = e2e_page
-    _go_home(page)
-    _submit_search(page, "존재하지않는검색어xyz")
-
-    results_container = page.locator("#search-results")
-    # The template renders the localized empty message inside <li> when results are empty
-    empty_message = results_container.locator("li")
-    expect(empty_message).to_contain_text("일치하는 결과가 없습니다.")
-
-
-def test_search_links_to_video_detail(e2e_page: Page) -> None:
-    """Clicking a search result navigates to the video detail page."""
+def test_search_enters_query_and_navigates_to_result(e2e_page: Page) -> None:
+    """Search through HTMX, render the fragment, and follow a result link."""
     page = e2e_page
     _go_home(page)
     _submit_search(page, "양자컴퓨팅")
@@ -182,29 +132,3 @@ def test_search_links_to_video_detail(e2e_page: Page) -> None:
     # Verify we navigated to the video detail page
     expect(page).to_have_url(f"{page._e2e_base_url}/videos/vid_search_quantum")
     expect(page.locator("#video-detail-wrap")).to_be_visible()
-
-
-def test_search_preserves_query_in_url(e2e_page: Page) -> None:
-    """Search from home page and verify query works via the HTMX fragment endpoint."""
-    page = e2e_page
-
-    # Navigate to home page and perform a search
-    page.goto(f"{page._e2e_base_url}/")
-    page.wait_for_load_state("networkidle")
-
-    search_input = page.locator("input[name='q']")
-    search_input.fill("기후변화")
-    with page.expect_response(
-        lambda resp: "/views/search-results" in resp.url and resp.status == 200
-    ) as response_info:
-        search_input.press("Enter")
-    parsed = urlparse(response_info.value.url)
-    params = parse_qs(parsed.query)
-    assert params.get("q") == ["기후변화"]
-
-    # Wait for HTMX search results to load
-    results = page.locator("#search-results")
-    expect(results).to_be_visible(timeout=10_000)
-
-    # The fragment endpoint should preserve the query and return matching results
-    expect(results).to_contain_text("기후변화")

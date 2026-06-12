@@ -53,15 +53,11 @@ def test_retention_page_shows_expired_only(client: TestClient) -> None:
     assert "data-retention-select-all" not in html
     assert "data-retention-select-toggle" in html
     assert "data-retention-select-item" in html
-    assert "w-28 whitespace-nowrap" in html
-    assert "w-52 whitespace-nowrap p-3 text-left" in html
-    assert "w-52 whitespace-nowrap p-3 text-slate-600" in html
 
     home = client.get("/")
     assert home.status_code == 200
     assert "보관 알림" in home.text
     assert "data-retention-notice" in home.text
-    assert "fixed bottom-4 right-4" in home.text
     assert "data-retention-notice-dismiss" in home.text
     assert "/static/js/main-ui.js" in home.text
 

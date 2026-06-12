@@ -78,6 +78,18 @@ def _seed_download_jobs(db_path: str) -> None:
         conn.commit()
 
 
+def _seed_pending_download_job(db_path: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO download_jobs(video_id, video_title, status, quality, overwrite)
+            VALUES (?, ?, 'pending', '1080', 0)
+            """,
+            ("vid-download-view-pending", "Pending View Video"),
+        )
+        conn.commit()
+
+
 def test_downloads_page_renders_failed_status_with_retry(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -116,6 +128,30 @@ def test_downloads_page_summary_and_mobile_card_contract(client: TestClient) -> 
     assert (
         'data-download-history-refresh-url="/views/downloads/table?status=all&amp;page=1"' in html
     )
+
+
+def test_downloads_page_status_filter_limits_rows(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_download_jobs(db_path)
+    _seed_pending_download_job(db_path)
+
+    response = client.get("/views/downloads/table?status=pending")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "대기" in html
+    assert "Pending View Video" in html
+    assert "View Video 1" not in html
+
+
+def test_downloads_page_empty_state_for_missing_filter(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_download_jobs(db_path)
+
+    response = client.get("/views/downloads/table?status=running")
+
+    assert response.status_code == 200
+    assert "다운로드 이력이 없습니다." in response.text
 
 
 def test_download_history_fragment_view_returns_partial_markup(client: TestClient) -> None:
