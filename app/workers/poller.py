@@ -526,7 +526,7 @@ async def _insert_feed_entries(
     channel_id = channel["channel_id"]
     watermark = channel.get("last_seen_published_at")
     max_published = watermark
-    channel_inserted = 0
+    candidates: list[tuple[str, str, str, str]] = []
 
     for entry in entries:
         published = entry["published"]
@@ -539,18 +539,13 @@ async def _insert_feed_entries(
         if not is_newer_published(published, watermark):
             continue
 
-        inserted = await videos_repo.insert_video_if_absent(
-            state.db,
-            video_id=entry["video_id"],
-            channel_id=channel_id,
-            title=entry["title"],
-            upload_time=published,
-        )
-        if inserted:
-            channel_inserted += 1
-
+        candidates.append((entry["video_id"], channel_id, entry["title"], published))
         if max_published is None or is_newer_published(published, max_published):
             max_published = published
+
+    channel_inserted = 0
+    if candidates:
+        channel_inserted = await videos_repo.insert_videos_if_absent_batch(state.db, candidates)
 
     if max_published and max_published != watermark:
         await channels_repo.update_channel_watermark(state.db, channel_id, max_published)

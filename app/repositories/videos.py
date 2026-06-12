@@ -3,6 +3,7 @@
 from app.repositories import _videos as repository
 
 insert_video_if_absent = repository.insert_video_if_absent
+insert_videos_if_absent_batch = repository.insert_videos_if_absent_batch
 list_videos = repository.list_videos
 count_videos = repository.count_videos
 normalize_pipeline_status_filter = repository.normalize_pipeline_status_filter

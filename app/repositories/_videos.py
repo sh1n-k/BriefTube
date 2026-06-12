@@ -114,6 +114,69 @@ async def insert_video_if_absent(
     return cursor.rowcount > 0
 
 
+_INSERT_VIDEO_BATCH_SQL = """
+    INSERT INTO videos (
+        video_id,
+        channel_id,
+        title,
+        upload_time,
+        pipeline_status,
+        processing_stage_snapshot,
+        sync_dirty,
+        origin_device_id
+    )
+    SELECT
+        ?,
+        ?,
+        ?,
+        ?,
+        CASE
+            WHEN lower(trim(coalesce(cat.processing_stage, ''))) = 'off'
+            THEN 'auto_paused'
+            ELSE 'transcript_pending'
+        END,
+        CASE lower(trim(coalesce(cat.processing_stage, '')))
+            WHEN 'off' THEN 'off'
+            WHEN 'transcript_only' THEN 'transcript_only'
+            WHEN 'full' THEN 'full'
+            ELSE 'full'
+        END,
+        1,
+        COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')
+    FROM channels ch
+    LEFT JOIN categories cat ON cat.id = ch.category_id
+    WHERE ch.channel_id = ?
+      AND ch.deleted_at IS NULL
+    ON CONFLICT(video_id) DO NOTHING
+"""
+
+
+async def insert_videos_if_absent_batch(
+    db: aiosqlite.Connection,
+    rows: Iterable[tuple[str, str, str, str]],
+) -> int:
+    """여러 RSS entry를 단일 ``executemany`` + 1 ``commit``으로 삽입한다.
+
+    반환값은 실제로 INSERT된 행 수(``ON CONFLICT DO NOTHING``로 무시된 행은
+    제외)다. ``rows``는 ``(video_id, channel_id, title, upload_time)`` 튜플
+    이터러블이며 빈 이터러블은 no-op.
+    """
+    rows_list = [
+        (str(video_id).strip(), str(channel_id).strip(), title, upload_time)
+        for video_id, channel_id, title, upload_time in rows
+        if str(video_id).strip() and str(channel_id).strip()
+    ]
+    if not rows_list:
+        return 0
+    params = [
+        (video_id, channel_id, title, upload_time, channel_id)
+        for video_id, channel_id, title, upload_time in rows_list
+    ]
+    cursor = await db.executemany(_INSERT_VIDEO_BATCH_SQL, params)
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
 async def list_videos(
     db: aiosqlite.Connection,
     channel_id: str | None,

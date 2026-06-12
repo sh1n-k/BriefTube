@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
+
+import aiosqlite
 
 # The library exposes these typed exception classes from a private module.
 from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImports]
@@ -24,6 +29,7 @@ from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImp
 )
 
 from app.repositories import transcripts as transcripts_repo
+from app.state import AppState
 
 
 class TranscriptErrorCategory(StrEnum):
@@ -177,7 +183,14 @@ class TranscriptGuardState:
             consecutive_hard_errors=max(0, int(payload.get("consecutive_hard_errors") or 0)),
             consecutive_successes=max(0, int(payload.get("consecutive_successes") or 0)),
             breaker_state=TranscriptBreakerState(state_raw),
-            half_open_probe_remaining=max(1, int(payload.get("half_open_probe_remaining") or 1)),
+            half_open_probe_remaining=max(
+                0,
+                int(
+                    payload["half_open_probe_remaining"]
+                    if payload.get("half_open_probe_remaining") is not None
+                    else 1
+                ),
+            ),
             last_channel_id=str(payload.get("last_channel_id") or "").strip() or None,
             last_channel_attempt_at=_parse_cooldown(payload.get("last_channel_attempt_at")),
         )
@@ -210,6 +223,87 @@ async def _save_guard_state(db, guard: TranscriptGuardState) -> None:
         last_channel_id=payload["last_channel_id"],
         last_channel_attempt_at=payload["last_channel_attempt_at"],
     )
+
+
+@asynccontextmanager
+async def transcript_guard_mutation(
+    state: AppState, db: aiosqlite.Connection
+) -> AsyncIterator[TranscriptGuardState]:
+    """``TranscriptGuardState``를 ``state.transcript_guard_lock`` 안에서
+    ``DB → in-memory mutate → DB`` 순으로 다룬다.
+
+    background transcript, manual transcript, manual article 워커가 같은
+    lock을 공유하므로 동시 가드 mutation이 lost update로 깨지지 않는다.
+    lock 안에서는 항상 DB의 최신 가드를 다시 읽기 때문에 다른 워커의
+    mutation 결과를 즉시 반영한다.
+
+    영상 상태 write(``save_transcript``, ``schedule_transcript_retry``,
+    ``defer_channel_transcript_retries`` 등)는 guard write와 같은
+    트랜잭션에 묶지 않는다. 공유 ``state.db`` 연결에서 두 종류의 write를
+    한 commit으로 합치면 다른 워커 write가 끼어들 여지가 생긴다.
+    ``state.transcript_guard_lock`` 필드가 없으면(테스트 등) lock 없이
+    동작한다.
+    """
+    lock = getattr(state, "transcript_guard_lock", None)
+    cm = lock if lock is not None else contextlib.nullcontext()
+    async with cm:
+        persisted = await transcripts_repo.get_transcript_guard_state(db)
+        guard = TranscriptGuardState.from_repository(persisted)
+        try:
+            yield guard
+        finally:
+            await _save_guard_state(db, guard)
+
+
+async def read_transcript_guard(state: AppState, db: aiosqlite.Connection) -> TranscriptGuardState:
+    """``state.transcript_guard_lock`` 안에서 DB의 최신 가드를 읽어 반환한다
+    (저장 없음). 사이클 상단의 분기 결정에 사용한다.
+
+    ``half_open_probe_remaining``은 half-open 상태에서 probe를 모두 소진했음을
+    나타내기 위해 0 저장/로드를 허용한다.
+    """
+    lock = getattr(state, "transcript_guard_lock", None)
+    cm = lock if lock is not None else contextlib.nullcontext()
+    async with cm:
+        persisted = await transcripts_repo.get_transcript_guard_state(db)
+        return TranscriptGuardState.from_repository(persisted)
+
+
+async def claim_transcript_fetch_permit(
+    state: AppState,
+    db: aiosqlite.Connection,
+    *,
+    channel_id: str,
+    half_open_probe_count: int,
+) -> tuple[bool, TranscriptGuardState]:
+    """최신 guard 상태로 transcript fetch 허용 여부를 판정하고 저장한다.
+
+    외부 fetch 직전에 호출해야 한다. lock 안에서 최신 상태를 다시 읽은 뒤,
+    ``OPEN`` cooldown이면 fetch를 거부하고, ``HALF_OPEN``이면 probe 잔여분이
+    있을 때만 하나를 소비한다. 허용된 경우 마지막 채널 시도 시각도 같은
+    save로 기록한다.
+    """
+    lock = getattr(state, "transcript_guard_lock", None)
+    cm = lock if lock is not None else contextlib.nullcontext()
+    async with cm:
+        persisted = await transcripts_repo.get_transcript_guard_state(db)
+        guard = TranscriptGuardState.from_repository(persisted)
+        now = datetime.now(UTC)
+        if guard.breaker_state == TranscriptBreakerState.OPEN:
+            if guard.cooldown_until and now < guard.cooldown_until:
+                return False, guard
+            mark_transcript_guard_half_open(
+                guard,
+                half_open_probe_count=half_open_probe_count,
+            )
+        if guard.breaker_state == TranscriptBreakerState.HALF_OPEN:
+            if guard.half_open_probe_remaining <= 0:
+                return False, guard
+            guard.half_open_probe_remaining -= 1
+        guard.last_channel_id = channel_id or guard.last_channel_id
+        guard.last_channel_attempt_at = now
+        await _save_guard_state(db, guard)
+        return True, guard
 
 
 def _open_breaker(
