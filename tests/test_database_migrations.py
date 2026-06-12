@@ -75,3 +75,69 @@ def test_legacy_video_rebuild_preserves_remote_sync_metadata(tmp_path: Path) -> 
         "sync_last_pushed_at": "2026-06-01T00:00:02.000Z",
         "origin_device_id": "device-a",
     }
+
+
+def test_legacy_channels_gain_adaptive_rss_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-adaptive-rss.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE channels (
+                channel_id TEXT PRIMARY KEY,
+                channel_name TEXT NOT NULL,
+                rss_url TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                last_seen_published_at TEXT,
+                rss_last_polled_at TEXT,
+                deleted_at TEXT
+            );
+            INSERT INTO channels(
+                channel_id, channel_name, rss_url, is_active,
+                last_seen_published_at, rss_last_polled_at
+            )
+            VALUES
+                (
+                    'UCrecent001',
+                    'Recent',
+                    'https://example.test/recent',
+                    1,
+                    datetime('now', '-1 day'),
+                    NULL
+                ),
+                (
+                    'UCold001',
+                    'Old',
+                    'https://example.test/old',
+                    1,
+                    datetime('now', '-90 days'),
+                    datetime('now', '-2 hours')
+                );
+            """
+        )
+
+    async def _run() -> dict[str, dict[str, object]]:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            cursor = await db.execute(
+                """
+                SELECT channel_id, rss_priority, rss_poll_interval_seconds,
+                       rss_next_poll_at, rss_last_etag, rss_last_modified,
+                       rss_cache_feed_mode
+                FROM channels
+                ORDER BY channel_id
+                """
+            )
+            rows = await cursor.fetchall()
+            return {row["channel_id"]: {key: row[key] for key in row.keys()} for row in rows}
+        finally:
+            await db.close()
+
+    rows = asyncio.run(_run())
+    assert rows["UCrecent001"]["rss_priority"] == "normal"
+    assert rows["UCrecent001"]["rss_poll_interval_seconds"] == 450
+    assert rows["UCrecent001"]["rss_next_poll_at"] is not None
+    assert rows["UCrecent001"]["rss_last_etag"] is None
+    assert rows["UCrecent001"]["rss_last_modified"] is None
+    assert rows["UCrecent001"]["rss_cache_feed_mode"] is None
+    assert rows["UCold001"]["rss_poll_interval_seconds"] == 3600

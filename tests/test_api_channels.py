@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
@@ -50,6 +51,64 @@ def test_create_channel_form_and_list(client: TestClient) -> None:
     assert list_response.status_code == 200
     channels = list_response.json()
     assert any(channel["channel_id"] == "UCform001" for channel in channels)
+
+
+def test_update_channel_rss_priority(client: TestClient) -> None:
+    response = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UCpriority001",
+            "channel_name": "Priority Channel",
+        },
+    )
+    assert response.status_code == 200
+    with sqlite3.connect(client.app.state.runtime.config.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE channels
+            SET rss_next_poll_at = datetime('now', '+6 hours')
+            WHERE channel_id = ?
+            """,
+            ("UCpriority001",),
+        )
+        conn.commit()
+
+    update = client.patch(
+        "/api/channels/UCpriority001/rss-priority",
+        json={"priority": "pinned"},
+    )
+
+    assert update.status_code == 200
+    assert update.json()["rss_priority"] == "pinned"
+    next_poll_at = datetime.fromisoformat(update.json()["rss_next_poll_at"])
+    assert abs((datetime.now(UTC) - next_poll_at.replace(tzinfo=UTC)).total_seconds()) < 5
+
+    list_response = client.get("/api/channels")
+    assert list_response.status_code == 200
+    channels = list_response.json()
+    assert any(
+        channel["channel_id"] == "UCpriority001" and channel["rss_priority"] == "pinned"
+        for channel in channels
+    )
+
+
+def test_update_channel_rss_priority_rejects_invalid_value(client: TestClient) -> None:
+    response = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UCprioritybad001",
+            "channel_name": "Priority Bad Channel",
+        },
+    )
+    assert response.status_code == 200
+
+    update = client.patch(
+        "/api/channels/UCprioritybad001/rss-priority",
+        json={"priority": "urgent"},
+    )
+
+    assert update.status_code == 400
+    assert update.json()["detail"] == "invalid rss priority"
 
 
 def test_create_channel_json_accepts_metadata_fields(client: TestClient) -> None:

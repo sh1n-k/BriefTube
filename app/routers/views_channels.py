@@ -50,7 +50,16 @@ async def _probe_channel_reactivation(
     channel_id: str,
     feed_mode: str,
 ) -> tuple[bool, str]:
-    cache = request.app.state.runtime.rss_cache.get(channel_id, {})
+    channel = await channels_repo.get_channel_by_id(request.app.state.runtime.db, channel_id)
+    cache = {}
+    if channel is not None and str(channel.get("rss_cache_feed_mode") or "") == feed_mode:
+        cache = {
+            "etag": str(channel.get("rss_last_etag") or ""),
+            "last_modified": str(channel.get("rss_last_modified") or ""),
+            "feed_mode": feed_mode,
+        }
+    if not cache:
+        cache = request.app.state.runtime.rss_cache.get(channel_id, {})
     if cache.get("feed_mode", "") != feed_mode:
         etag, last_modified = None, None
     else:
@@ -108,6 +117,13 @@ async def _probe_channel_reactivation(
         "last_modified": new_last_modified or "",
         "feed_mode": feed_mode,
     }
+    await channels_repo.update_rss_cache(
+        request.app.state.runtime.db,
+        channel_id,
+        etag=new_etag,
+        last_modified=new_last_modified,
+        feed_mode=feed_mode,
+    )
     logger.debug(
         "event=channels.reactivate_probe_ok channel_id=%s feed_mode=%s new_etag=%s new_last_modified=%s",
         channel_id,

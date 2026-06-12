@@ -99,6 +99,12 @@ async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
             rss_url,
             is_active,
             last_seen_published_at,
+            rss_priority,
+            rss_poll_interval_seconds,
+            rss_next_poll_at,
+            rss_last_etag,
+            rss_last_modified,
+            rss_cache_feed_mode,
             channel_handle,
             channel_url_canonical,
             channel_thumbnail_url,
@@ -148,6 +154,12 @@ async def list_channels_for_management(
             c.rss_url,
             c.is_active,
             c.last_seen_published_at,
+            c.rss_priority,
+            c.rss_poll_interval_seconds,
+            c.rss_next_poll_at,
+            c.rss_last_etag,
+            c.rss_last_modified,
+            c.rss_cache_feed_mode,
             c.category_id,
             c.channel_handle,
             c.channel_url_canonical,
@@ -366,6 +378,12 @@ async def add_channel(
             is_active,
             last_seen_published_at,
             category_id,
+            rss_priority,
+            rss_poll_interval_seconds,
+            rss_next_poll_at,
+            rss_last_etag,
+            rss_last_modified,
+            rss_cache_feed_mode,
             channel_handle,
             channel_url_canonical,
             channel_thumbnail_url,
@@ -401,6 +419,12 @@ async def get_channel_by_id(db: aiosqlite.Connection, channel_id: str) -> dict[s
             is_active,
             last_seen_published_at,
             category_id,
+            rss_priority,
+            rss_poll_interval_seconds,
+            rss_next_poll_at,
+            rss_last_etag,
+            rss_last_modified,
+            rss_cache_feed_mode,
             channel_handle,
             channel_url_canonical,
             channel_thumbnail_url,
@@ -445,6 +469,7 @@ async def reactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
         SET
             is_active = 1,
             rss_fail_streak = 0,
+            rss_next_poll_at = datetime('now'),
             {sync_dirty_set_clause()}
         WHERE channel_id = ?
           AND deleted_at IS NULL
@@ -466,6 +491,7 @@ async def reactivate_channels(db: aiosqlite.Connection, channel_ids: list[str]) 
         SET
             is_active = 1,
             rss_fail_streak = 0,
+            rss_next_poll_at = datetime('now'),
             {sync_dirty_set_clause()}
         WHERE channel_id IN ({placeholders})
           AND deleted_at IS NULL
@@ -488,6 +514,12 @@ async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]
             metadata_fetched_at,
             metadata_fetch_status,
             metadata_next_fetch_at,
+            rss_priority,
+            rss_poll_interval_seconds,
+            rss_next_poll_at,
+            rss_last_etag,
+            rss_last_modified,
+            rss_cache_feed_mode,
             created_at
         FROM channels
         WHERE is_active = 1

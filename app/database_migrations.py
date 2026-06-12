@@ -635,6 +635,10 @@ async def _ensure_manual_transcript_jobs_table(db: aiosqlite.Connection) -> None
 async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
     if not await _column_exists(db, "channels", "last_seen_published_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN last_seen_published_at TEXT")
+    if not await _column_exists(db, "channels", "is_active"):
+        await db.execute("ALTER TABLE channels ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+    if not await _column_exists(db, "channels", "deleted_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN deleted_at TEXT")
     if not await _column_exists(db, "channels", "created_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN created_at TEXT")
     await db.execute(
@@ -672,6 +676,22 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         )
     if not await _column_exists(db, "channels", "rss_last_polled_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN rss_last_polled_at TEXT")
+    if not await _column_exists(db, "channels", "rss_priority"):
+        await db.execute(
+            "ALTER TABLE channels ADD COLUMN rss_priority TEXT NOT NULL DEFAULT 'normal'"
+        )
+    if not await _column_exists(db, "channels", "rss_poll_interval_seconds"):
+        await db.execute(
+            "ALTER TABLE channels ADD COLUMN rss_poll_interval_seconds INTEGER NOT NULL DEFAULT 900"
+        )
+    if not await _column_exists(db, "channels", "rss_next_poll_at"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_next_poll_at TEXT")
+    if not await _column_exists(db, "channels", "rss_last_etag"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_last_etag TEXT")
+    if not await _column_exists(db, "channels", "rss_last_modified"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_last_modified TEXT")
+    if not await _column_exists(db, "channels", "rss_cache_feed_mode"):
+        await db.execute("ALTER TABLE channels ADD COLUMN rss_cache_feed_mode TEXT")
 
     await db.execute(
         """
@@ -703,6 +723,44 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
     )
     await db.execute(
         """
+        UPDATE channels
+        SET rss_priority = CASE lower(trim(coalesce(rss_priority, 'normal')))
+            WHEN 'pinned' THEN 'pinned'
+            WHEN 'low' THEN 'low'
+            ELSE 'normal'
+        END
+        """
+    )
+    await db.execute(
+        """
+        UPDATE channels
+        SET rss_poll_interval_seconds = CASE
+            WHEN last_seen_published_at IS NOT NULL
+             AND datetime(last_seen_published_at) >= datetime('now', '-2 days') THEN 450
+            WHEN last_seen_published_at IS NOT NULL
+             AND datetime(last_seen_published_at) >= datetime('now', '-14 days') THEN 900
+            ELSE 3600
+        END
+        WHERE rss_poll_interval_seconds IS NULL
+           OR rss_poll_interval_seconds < 300
+           OR rss_poll_interval_seconds > 86400
+           OR (rss_next_poll_at IS NULL AND rss_poll_interval_seconds = 900)
+        """
+    )
+    await db.execute(
+        """
+        UPDATE channels
+        SET rss_next_poll_at = CASE
+            WHEN rss_last_polled_at IS NULL OR trim(rss_last_polled_at) = '' THEN datetime('now')
+            ELSE datetime(rss_last_polled_at, '+' || rss_poll_interval_seconds || ' seconds')
+        END
+        WHERE is_active = 1
+          AND deleted_at IS NULL
+          AND (rss_next_poll_at IS NULL OR trim(rss_next_poll_at) = '')
+        """
+    )
+    await db.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_channels_metadata_next_fetch
         ON channels(metadata_next_fetch_at, metadata_fetch_status)
         """
@@ -711,5 +769,12 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_channels_metadata_status
         ON channels(metadata_fetch_status)
+        """
+    )
+    await db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_channels_rss_next_poll
+        ON channels(is_active, rss_next_poll_at, rss_priority)
+        WHERE deleted_at IS NULL
         """
     )

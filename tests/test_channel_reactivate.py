@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import UTC, datetime
 
 import httpx
 from fastapi.testclient import TestClient
@@ -184,6 +185,15 @@ def test_reactivate_selected_channels_partial_success_single_toast(
     _seed_channel(db_path, "UCinactive201", "Inactive 201", is_active=0)
     _seed_channel(db_path, "UCinactive202", "Inactive 202", is_active=0)
     _seed_channel(db_path, "UCinactive203", "Inactive 203", is_active=0)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE channels
+            SET rss_next_poll_at = datetime('now', '+6 hours')
+            WHERE channel_id IN ('UCinactive201', 'UCinactive203')
+            """
+        )
+        conn.commit()
 
     async def fake_fetch_channel_feed(
         channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
@@ -215,7 +225,7 @@ def test_reactivate_selected_channels_partial_success_single_toast(
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT channel_id, is_active
+            SELECT channel_id, is_active, rss_next_poll_at
             FROM channels
             WHERE channel_id IN ('UCinactive201', 'UCinactive202', 'UCinactive203')
             ORDER BY channel_id
@@ -226,6 +236,9 @@ def test_reactivate_selected_channels_partial_success_single_toast(
         ("UCinactive202", 0),
         ("UCinactive203", 1),
     ]
+    for row in (rows[0], rows[2]):
+        next_poll_at = datetime.fromisoformat(str(row[2])).replace(tzinfo=UTC)
+        assert abs((datetime.now(UTC) - next_poll_at).total_seconds()) < 5
 
 
 def test_reactivate_selected_channels_requires_selection(client: TestClient) -> None:
@@ -305,9 +318,10 @@ def test_reactivate_resets_rss_fail_streak(
                 channel_name,
                 rss_url,
                 is_active,
-                rss_fail_streak
+                rss_fail_streak,
+                rss_next_poll_at
             )
-            VALUES (?, ?, ?, 0, 3)
+            VALUES (?, ?, ?, 0, 3, datetime('now', '+6 hours'))
             """,
             (
                 "UCstreakreset001",
@@ -334,7 +348,7 @@ def test_reactivate_resets_rss_fail_streak(
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT is_active, rss_fail_streak
+            SELECT is_active, rss_fail_streak, rss_next_poll_at
             FROM channels
             WHERE channel_id='UCstreakreset001'
             """
@@ -342,6 +356,8 @@ def test_reactivate_resets_rss_fail_streak(
     assert row is not None
     assert int(row[0]) == 1
     assert int(row[1]) == 0, "rss_fail_streak must reset on reactivation"
+    next_poll_at = datetime.fromisoformat(str(row[2])).replace(tzinfo=UTC)
+    assert abs((datetime.now(UTC) - next_poll_at).total_seconds()) < 5
 
 
 def test_reactivate_selected_delete_action_removes_channels(client: TestClient) -> None:

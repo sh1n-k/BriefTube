@@ -39,6 +39,22 @@ async def get_channels(request: Request):
     return await channels_repo.list_channels(request.app.state.runtime.db)
 
 
+@router.patch("/channels/{channel_id}/rss-priority")
+async def update_channel_rss_priority(channel_id: str, request: Request):
+    payload = await _read_json_object(request)
+    raw_priority = str(payload.get("priority", "")).strip().lower()
+    if raw_priority not in channels_repo.RSS_PRIORITY_OPTIONS:
+        raise HTTPException(status_code=400, detail="invalid rss priority")
+    updated = await channels_repo.update_rss_priority(
+        request.app.state.runtime.db,
+        channel_id.strip(),
+        raw_priority,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="channel not found")
+    return updated
+
+
 @router.post("/channels")
 async def create_channel(request: Request):
     channel_id = ""

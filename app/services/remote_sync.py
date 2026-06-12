@@ -13,7 +13,7 @@ from app.repositories import remote_sync as local_sync_repo
 
 logger = logging.getLogger(__name__)
 
-REMOTE_SYNC_SCHEMA_VERSION = "1"
+REMOTE_SYNC_SCHEMA_VERSION = "2"
 
 
 class RemoteSyncError(Exception):
@@ -297,6 +297,7 @@ def _channel_args(row: Mapping[str, Any]) -> tuple[object, ...]:
         row.get("channel_language_hint"),
         row.get("metadata_fetched_at"),
         row.get("metadata_fetch_status"),
+        row.get("rss_priority") or "normal",
         row.get("created_at"),
         row.get("updated_at"),
         row.get("deleted_at"),
@@ -386,6 +387,7 @@ CREATE TABLE IF NOT EXISTS sync_channels (
     channel_language_hint text,
     metadata_fetched_at text,
     metadata_fetch_status text NOT NULL DEFAULT 'never',
+    rss_priority text NOT NULL DEFAULT 'normal',
     created_at text,
     updated_at text NOT NULL,
     deleted_at text,
@@ -473,10 +475,10 @@ UPSERT_CHANNEL = """
     INSERT INTO sync_channels(
         channel_id, channel_name, rss_url, is_active, category_uid, last_seen_published_at,
         channel_handle, channel_url_canonical, channel_thumbnail_url, channel_description,
-        channel_language_hint, metadata_fetched_at, metadata_fetch_status, created_at,
-        updated_at, deleted_at, origin_device_id
+        channel_language_hint, metadata_fetched_at, metadata_fetch_status, rss_priority,
+        created_at, updated_at, deleted_at, origin_device_id
     )
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
     ON CONFLICT(channel_id) DO UPDATE SET
         channel_name=excluded.channel_name,
         rss_url=excluded.rss_url,
@@ -490,6 +492,7 @@ UPSERT_CHANNEL = """
         channel_language_hint=excluded.channel_language_hint,
         metadata_fetched_at=excluded.metadata_fetched_at,
         metadata_fetch_status=excluded.metadata_fetch_status,
+        rss_priority=excluded.rss_priority,
         created_at=COALESCE(sync_channels.created_at, excluded.created_at),
         updated_at=excluded.updated_at,
         deleted_at=excluded.deleted_at,

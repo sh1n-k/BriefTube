@@ -145,8 +145,9 @@ async def list_dirty_rows(
         SELECT c.channel_id, c.channel_name, c.rss_url, c.is_active, cat.category_uid,
                c.last_seen_published_at, c.channel_handle, c.channel_url_canonical,
                c.channel_thumbnail_url, c.channel_description, c.channel_language_hint,
-               c.metadata_fetched_at, c.metadata_fetch_status, c.created_at, c.updated_at,
-               c.deleted_at, c.sync_dirty, c.sync_last_pushed_at, c.origin_device_id
+               c.metadata_fetched_at, c.metadata_fetch_status, c.rss_priority,
+               c.created_at, c.updated_at, c.deleted_at, c.sync_dirty,
+               c.sync_last_pushed_at, c.origin_device_id
         FROM channels c
         LEFT JOIN categories cat ON cat.id = c.category_id
         WHERE c.sync_dirty = 1
@@ -324,10 +325,10 @@ async def _apply_channel(db: aiosqlite.Connection, row: Mapping[str, Any]) -> in
             channel_id, channel_name, rss_url, is_active, category_id,
             last_seen_published_at, channel_handle, channel_url_canonical,
             channel_thumbnail_url, channel_description, channel_language_hint,
-            metadata_fetched_at, metadata_fetch_status, created_at, updated_at,
+            metadata_fetched_at, metadata_fetch_status, rss_priority, created_at, updated_at,
             deleted_at, sync_dirty, sync_last_pushed_at, origin_device_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, 0, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, 0, ?, ?)
         ON CONFLICT(channel_id) DO UPDATE SET
             channel_name=excluded.channel_name,
             rss_url=excluded.rss_url,
@@ -341,6 +342,7 @@ async def _apply_channel(db: aiosqlite.Connection, row: Mapping[str, Any]) -> in
             channel_language_hint=excluded.channel_language_hint,
             metadata_fetched_at=excluded.metadata_fetched_at,
             metadata_fetch_status=excluded.metadata_fetch_status,
+            rss_priority=excluded.rss_priority,
             updated_at=excluded.updated_at,
             deleted_at=excluded.deleted_at,
             sync_dirty=0,
@@ -362,6 +364,7 @@ async def _apply_channel(db: aiosqlite.Connection, row: Mapping[str, Any]) -> in
             row.get("channel_language_hint"),
             row.get("metadata_fetched_at"),
             row.get("metadata_fetch_status") or "never",
+            row.get("rss_priority") or "normal",
             row.get("created_at"),
             row.get("updated_at"),
             row.get("deleted_at"),

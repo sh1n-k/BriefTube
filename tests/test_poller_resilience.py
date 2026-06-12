@@ -12,6 +12,7 @@ import httpx
 
 from app.config import AppConfig
 from app.database import open_database
+from app.repositories import channels as channels_repo
 from app.services.rss import RSSParseError
 from app.services.yt_dlp_feed import YtDlpFeedError, YtDlpFeedService
 from app.workers.poller import poll_once
@@ -181,6 +182,320 @@ def test_rss_fail_streak_resets_on_success(client) -> None:
     assert streak == 0, "Fail streak should reset to 0 after successful poll"
 
 
+def test_poll_once_schedules_active_channel_sooner_after_new_video(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCschednew001",
+                "Schedule New Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCschednew001",
+            ),
+        )
+        conn.commit()
+
+    class FakeRSSService:
+        async def fetch_channel_feed(
+            self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+        ):
+            return (
+                [
+                    {
+                        "video_id": "vid-sched-new",
+                        "title": "New schedule video",
+                        "published": "2026-02-25T00:00:00+00:00",
+                        "thumbnail_url": "",
+                    }
+                ],
+                "etag-new",
+                "Wed, 25 Feb 2026 00:00:00 GMT",
+            )
+
+    async def _run() -> tuple[int, str, str, str | None]:
+        db = await open_database(db_path)
+        try:
+            state = SimpleNamespace(
+                db=db,
+                rss_cache={},
+                rss_service=FakeRSSService(),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
+            )
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                """
+                SELECT rss_poll_interval_seconds, rss_last_etag, rss_last_modified,
+                       rss_next_poll_at
+                FROM channels
+                WHERE channel_id = ?
+                """,
+                ("UCschednew001",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return (
+                int(row["rss_poll_interval_seconds"]),
+                row["rss_last_etag"],
+                row["rss_last_modified"],
+                row["rss_next_poll_at"],
+            )
+        finally:
+            await db.close()
+
+    interval, etag, last_modified, next_poll_at = asyncio.run(_run())
+    assert interval == 450
+    assert etag == "etag-new"
+    assert last_modified == "Wed, 25 Feb 2026 00:00:00 GMT"
+    assert next_poll_at
+
+
+def test_poll_once_uses_persisted_rss_cache_after_restart_and_backs_off_304(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(
+                channel_id,
+                channel_name,
+                rss_url,
+                is_active,
+                rss_last_etag,
+                rss_last_modified,
+                rss_cache_feed_mode
+            )
+            VALUES (?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                "UCcachepersist001",
+                "Cache Persist Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCcachepersist001",
+                "etag-old",
+                "Wed, 25 Feb 2026 00:00:00 GMT",
+                "long_form_only",
+            ),
+        )
+        conn.commit()
+
+    seen_headers: list[tuple[str | None, str | None]] = []
+
+    class FakeRSSService:
+        async def fetch_channel_feed(
+            self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+        ):
+            seen_headers.append((etag, last_modified))
+            return ([], etag, last_modified)
+
+    async def _run() -> tuple[int, int, str, str]:
+        db = await open_database(db_path)
+        try:
+            state = SimpleNamespace(
+                db=db,
+                rss_cache={},
+                rss_service=FakeRSSService(),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
+            )
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                """
+                SELECT rss_fail_streak, rss_poll_interval_seconds,
+                       rss_last_etag, rss_last_modified
+                FROM channels
+                WHERE channel_id = ?
+                """,
+                ("UCcachepersist001",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return (
+                int(row["rss_fail_streak"]),
+                int(row["rss_poll_interval_seconds"]),
+                row["rss_last_etag"],
+                row["rss_last_modified"],
+            )
+        finally:
+            await db.close()
+
+    streak, interval, etag, last_modified = asyncio.run(_run())
+    assert seen_headers == [("etag-old", "Wed, 25 Feb 2026 00:00:00 GMT")]
+    assert streak == 0
+    assert interval == 1800
+    assert etag == "etag-old"
+    assert last_modified == "Wed, 25 Feb 2026 00:00:00 GMT"
+
+
+def test_poll_once_schedules_temporary_error_without_cache_update(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(
+                channel_id,
+                channel_name,
+                rss_url,
+                is_active,
+                rss_last_etag,
+                rss_cache_feed_mode
+            )
+            VALUES (?, ?, ?, 1, ?, ?)
+            """,
+            (
+                "UCtemperror001",
+                "Temporary Error Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCtemperror001",
+                "etag-keep",
+                "long_form_only",
+            ),
+        )
+        conn.commit()
+
+    class FakeRSSService:
+        async def fetch_channel_feed(
+            self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+        ):
+            request = httpx.Request("GET", "https://www.youtube.com/feeds/videos.xml")
+            response = httpx.Response(503, request=request)
+            raise httpx.HTTPStatusError("503", request=request, response=response)
+
+    async def _run() -> tuple[int, str]:
+        db = await open_database(db_path)
+        try:
+            state = SimpleNamespace(
+                db=db,
+                rss_cache={},
+                rss_service=FakeRSSService(),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
+            )
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                """
+                SELECT rss_poll_interval_seconds, rss_last_etag
+                FROM channels
+                WHERE channel_id = ?
+                """,
+                ("UCtemperror001",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return int(row["rss_poll_interval_seconds"]), row["rss_last_etag"]
+        finally:
+            await db.close()
+
+    interval, etag = asyncio.run(_run())
+    assert interval == 1800
+    assert etag == "etag-keep"
+
+
+def test_poll_once_schedules_404_backoff_before_deactivation(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCsched404001",
+                "Schedule 404 Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCsched404001",
+            ),
+        )
+        conn.commit()
+
+    class FakeRSSService:
+        async def fetch_channel_feed(
+            self, channel_id: str, etag=None, last_modified=None, feed_mode="long_form_only"
+        ):
+            _raise_http_404()
+
+    async def _run() -> tuple[int, int, int]:
+        db = await open_database(db_path)
+        try:
+            state = SimpleNamespace(
+                db=db,
+                rss_cache={},
+                rss_service=FakeRSSService(),
+                started_at=datetime(2026, 3, 1, tzinfo=UTC),
+            )
+            await poll_once(state)  # type: ignore[arg-type]
+            cursor = await db.execute(
+                """
+                SELECT is_active, rss_fail_streak, rss_poll_interval_seconds
+                FROM channels
+                WHERE channel_id = ?
+                """,
+                ("UCsched404001",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return (
+                int(row["is_active"]),
+                int(row["rss_fail_streak"]),
+                int(row["rss_poll_interval_seconds"]),
+            )
+        finally:
+            await db.close()
+
+    is_active, streak, interval = asyncio.run(_run())
+    assert is_active == 1
+    assert streak == 1
+    assert interval == 3600
+
+
+def test_pick_next_rss_channel_returns_only_due_channel(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(
+                channel_id, channel_name, rss_url, is_active, rss_next_poll_at
+            )
+            VALUES (?, ?, ?, 1, datetime('now', '+1 hour'))
+            """,
+            (
+                "UCnotdue001",
+                "Not Due Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCnotdue001",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO channels(
+                channel_id, channel_name, rss_url, is_active, rss_next_poll_at
+            )
+            VALUES (?, ?, ?, 1, datetime('now', '-1 minute'))
+            """,
+            (
+                "UCdue001",
+                "Due Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdue001",
+            ),
+        )
+        conn.commit()
+
+    async def _run() -> tuple[str | None, str | None]:
+        db = await open_database(db_path)
+        try:
+            due = await channels_repo.pick_next_rss_channel(db)
+            manual = await channels_repo.pick_next_rss_channel(
+                db,
+                include_not_due=True,
+                exclude_channel_ids=["UCdue001"],
+            )
+            return (
+                due["channel_id"] if due else None,
+                manual["channel_id"] if manual else None,
+            )
+        finally:
+            await db.close()
+
+    due_channel_id, manual_channel_id = asyncio.run(_run())
+    assert due_channel_id == "UCdue001"
+    assert manual_channel_id == "UCnotdue001"
+
+
 def test_rss_then_yt_dlp_does_not_call_fallback_when_rss_succeeds(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -250,14 +565,18 @@ def test_rss_then_yt_dlp_inserts_longform_after_rss_404(client) -> None:
                 channel_name,
                 rss_url,
                 is_active,
-                rss_fail_streak
+                rss_fail_streak,
+                rss_last_etag,
+                rss_cache_feed_mode
             )
-            VALUES (?, ?, ?, 1, 2)
+            VALUES (?, ?, ?, 1, 2, ?, ?)
             """,
             (
                 "UCfallback001",
                 "Fallback Channel",
                 "https://www.youtube.com/feeds/videos.xml?channel_id=UCfallback001",
+                "etag-preserve",
+                "long_form_only",
             ),
         )
         conn.commit()
@@ -279,7 +598,7 @@ def test_rss_then_yt_dlp_inserts_longform_after_rss_404(client) -> None:
                 }
             ]
 
-    async def _run() -> tuple[int, int, int, int, str | None]:
+    async def _run() -> tuple[int, int, int, int, str | None, str]:
         db = await open_database(db_path)
         try:
             state = SimpleNamespace(
@@ -293,7 +612,7 @@ def test_rss_then_yt_dlp_inserts_longform_after_rss_404(client) -> None:
             inserted = await poll_once(state)  # type: ignore[arg-type]
             cursor = await db.execute(
                 """
-                SELECT is_active, rss_fail_streak, last_seen_published_at
+                SELECT is_active, rss_fail_streak, last_seen_published_at, rss_last_etag
                 FROM channels
                 WHERE channel_id = ?
                 """,
@@ -313,16 +632,18 @@ def test_rss_then_yt_dlp_inserts_longform_after_rss_404(client) -> None:
                 int(channel_row["rss_fail_streak"]),
                 int(video_row["cnt"]),
                 channel_row["last_seen_published_at"],
+                channel_row["rss_last_etag"],
             )
         finally:
             await db.close()
 
-    inserted, is_active, streak, video_count, watermark = asyncio.run(_run())
+    inserted, is_active, streak, video_count, watermark, etag = asyncio.run(_run())
     assert inserted == 1
     assert is_active == 1
     assert streak == 0
     assert video_count == 1
     assert watermark == "2026-02-25T00:00:00+00:00"
+    assert etag == "etag-preserve"
 
 
 def test_rss_then_yt_dlp_suppresses_404_deactivation_when_fallback_fails(client) -> None:

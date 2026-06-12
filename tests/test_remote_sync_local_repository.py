@@ -23,10 +23,13 @@ def test_remote_sync_metadata_and_dirty_rows(tmp_path: Path) -> None:
                 "Sync Channel",
                 category_id=int(category["id"]),
             )
+            await channels_repo.update_rss_priority(db, "UCsync001", "pinned")
             rows = await remote_sync_repo.list_dirty_rows(db, batch_size=100)
             return {
                 "category_uids": [row["category_uid"] for row in rows["categories"]],
                 "channel_category_uid": rows["channels"][0]["category_uid"],
+                "channel_rss_priority": rows["channels"][0]["rss_priority"],
+                "has_scheduler_state": "rss_next_poll_at" in rows["channels"][0],
                 "has_device_id": all(
                     str(row["origin_device_id"] or "")
                     for table_rows in rows.values()
@@ -40,6 +43,8 @@ def test_remote_sync_metadata_and_dirty_rows(tmp_path: Path) -> None:
 
     assert "default" in result["category_uids"]
     assert result["channel_category_uid"] != ""
+    assert result["channel_rss_priority"] == "pinned"
+    assert result["has_scheduler_state"] is False
     assert result["has_device_id"] is True
 
 
@@ -79,6 +84,7 @@ def test_remote_sync_applies_remote_rows_with_category_mapping(tmp_path: Path) -
                             "channel_language_hint": None,
                             "metadata_fetched_at": None,
                             "metadata_fetch_status": "never",
+                            "rss_priority": "low",
                             "created_at": "2026-06-01T00:00:00.000Z",
                             "updated_at": "2026-06-01T00:00:02.000Z",
                             "deleted_at": None,
@@ -89,20 +95,24 @@ def test_remote_sync_applies_remote_rows_with_category_mapping(tmp_path: Path) -
             )
             cursor = await db.execute(
                 """
-                SELECT cat.category_uid
+                SELECT cat.category_uid, ch.rss_priority
                 FROM channels ch
                 JOIN categories cat ON cat.id = ch.category_id
                 WHERE ch.channel_id = 'UCremote001'
                 """
             )
             row = await cursor.fetchone()
-            return {"category_uid": None if row is None else str(row["category_uid"])}
+            return {
+                "category_uid": None if row is None else str(row["category_uid"]),
+                "rss_priority": None if row is None else str(row["rss_priority"]),
+            }
         finally:
             await db.close()
 
     result = asyncio.run(_run())
 
     assert result["category_uid"] == "category-remote"
+    assert result["rss_priority"] == "low"
 
 
 def test_remote_sync_runtime_enabled_uses_tombstones(tmp_path: Path) -> None:

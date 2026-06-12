@@ -14,9 +14,14 @@ CHANNEL_METADATA_STATUS_RUNNING = repository.CHANNEL_METADATA_STATUS_RUNNING
 CHANNEL_METADATA_STATUS_SUCCESS = repository.CHANNEL_METADATA_STATUS_SUCCESS
 CHANNEL_METADATA_STATUS_FAILED = repository.CHANNEL_METADATA_STATUS_FAILED
 CHANNEL_METADATA_STATUS_RATE_LIMITED = repository.CHANNEL_METADATA_STATUS_RATE_LIMITED
+RSS_PRIORITY_PINNED = polling_repository.RSS_PRIORITY_PINNED
+RSS_PRIORITY_NORMAL = polling_repository.RSS_PRIORITY_NORMAL
+RSS_PRIORITY_LOW = polling_repository.RSS_PRIORITY_LOW
+RSS_PRIORITY_OPTIONS = polling_repository.RSS_PRIORITY_OPTIONS
 
 normalize_channel_management_status = repository.normalize_channel_management_status
 normalize_channel_metadata_status = repository.normalize_channel_metadata_status
+normalize_rss_priority = polling_repository.normalize_rss_priority
 
 list_channels = repository.list_channels
 list_channels_for_management = repository.list_channels_for_management
@@ -45,5 +50,8 @@ pick_next_rss_channel = polling_repository.pick_next_rss_channel
 mark_rss_poll_success = polling_repository.mark_rss_poll_success
 increment_rss_fail_streak = polling_repository.increment_rss_fail_streak
 touch_rss_last_polled_at = polling_repository.touch_rss_last_polled_at
+update_rss_cache = polling_repository.update_rss_cache
+get_seconds_until_next_rss_poll = polling_repository.get_seconds_until_next_rss_poll
+update_rss_priority = polling_repository.update_rss_priority
 count_active_channels = polling_repository.count_active_channels
 is_newer_published = polling_repository.is_newer_published
