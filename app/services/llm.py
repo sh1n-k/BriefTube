@@ -22,7 +22,7 @@ from app.services.llm_invocation import (
     CommandRunner,
     default_command_exists,
     default_command_runner,
-    provider_command_name,
+    resolve_provider_command,
     run_claude_provider_command,
     run_codex_provider_command,
 )
@@ -179,7 +179,7 @@ class UnifiedLlmClient:
         return self.resolve_runtime_plan(settings).blocking_reason
 
     def _provider_command(self, provider: str) -> str:
-        return provider_command_name(provider)
+        return resolve_provider_command(provider, command_exists=self._command_exists)
 
     async def restructure(
         self,

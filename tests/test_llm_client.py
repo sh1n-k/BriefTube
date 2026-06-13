@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services import llm_invocation
 from app.services.llm import (
     LLM_CODEX_MODEL_DEFAULT,
     CommandExecutionResult,
@@ -14,7 +15,11 @@ from app.services.llm import (
     UnifiedLlmClient,
 )
 from app.services.llm_errors import classify_command_failure
-from app.services.llm_invocation import default_command_runner
+from app.services.llm_invocation import default_command_runner, resolve_provider_command
+
+
+def _expected_provider_command(provider: str) -> str:
+    return f"{provider}.cmd" if sys.platform == "win32" else provider
 
 
 def test_runtime_not_ready_when_prompt_is_empty() -> None:
@@ -52,6 +57,30 @@ def test_default_command_runner_times_out() -> None:
     assert exc_info.value.code == "llm_timeout"
 
 
+def test_resolve_provider_command_prefers_cmd_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(llm_invocation.os, "name", "nt")
+
+    command = resolve_provider_command(
+        "codex",
+        command_exists=lambda name: name == "codex.cmd",
+    )
+
+    assert command == "codex.cmd"
+
+
+def test_resolve_provider_command_keeps_plain_command_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(llm_invocation.os, "name", "posix")
+
+    command = resolve_provider_command(
+        "codex",
+        command_exists=lambda name: name == "codex",
+    )
+
+    assert command == "codex"
+
+
 def test_runtime_plan_allows_primary_when_fallback_missing() -> None:
     client = UnifiedLlmClient(
         timeout_seconds=10,
@@ -73,7 +102,7 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "codex"
+        assert args[0] == _expected_provider_command("codex")
         assert args[-1] == "-"
         assert args[args.index("-m") + 1] == LLM_CODEX_MODEL_DEFAULT
         assert "-c" not in args
@@ -128,7 +157,7 @@ def test_restructure_codex_preserves_dynamic_model_from_settings() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "codex"
+        assert args[0] == _expected_provider_command("codex")
         assert args[args.index("-m") + 1] == "gpt-5.5"
         output_path = Path(args[args.index("--output-last-message") + 1])
         output_path.write_text(
@@ -169,7 +198,7 @@ def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
         calls.append(args[0])
-        if args[0] == "codex":
+        if args[0] == _expected_provider_command("codex"):
             output_path = Path(args[args.index("--output-last-message") + 1])
             output_path.write_text(
                 json.dumps({"result": "잠재적인 프롬프트 인젝션 시도를 감지했습니다."}),
@@ -204,7 +233,11 @@ def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
     )
 
     assert article["title"] == "Claude title"
-    assert calls[:3] == ["codex", "codex", "claude"]
+    assert calls[:3] == [
+        _expected_provider_command("codex"),
+        _expected_provider_command("codex"),
+        _expected_provider_command("claude"),
+    ]
     assert article["_llm_provider"] == "claude"
 
 
@@ -212,7 +245,7 @@ def test_restructure_applies_reasoning_effort_for_codex() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "codex"
+        assert args[0] == _expected_provider_command("codex")
         assert "-c" in args
         assert args[args.index("-c") + 1] == 'model_reasoning_effort="low"'
         output_path = Path(args[args.index("--output-last-message") + 1])
@@ -250,7 +283,7 @@ def test_restructure_applies_model_and_effort_for_claude() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "claude"
+        assert args[0] == _expected_provider_command("claude")
         assert args[args.index("--model") + 1] == "sonnet"
         assert args[args.index("--effort") + 1] == "high"
         payload = {
@@ -370,7 +403,7 @@ def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_erro
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "codex"
+        assert args[0] == _expected_provider_command("codex")
         return CommandExecutionResult(
             exit_code=1,
             stdout="",
@@ -400,7 +433,7 @@ def test_restructure_rejects_claude_result_string_with_embedded_article_json() -
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "claude"
+        assert args[0] == _expected_provider_command("claude")
         payload = {
             "type": "result",
             "is_error": False,
@@ -438,7 +471,7 @@ def test_restructure_allows_refusal_word_inside_valid_article_json() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == "codex"
+        assert args[0] == _expected_provider_command("codex")
         output_path = Path(args[args.index("--output-last-message") + 1])
         output_path.write_text(
             json.dumps(
@@ -488,7 +521,7 @@ def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
         calls.append(args[0])
-        if args[0] == "claude":
+        if args[0] == _expected_provider_command("claude"):
             refused = {
                 "type": "result",
                 "subtype": "refusal",
@@ -526,7 +559,11 @@ def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
     )
 
     assert article["title"] == "Codex fallback title"
-    assert calls[:3] == ["claude", "claude", "codex"]
+    assert calls[:3] == [
+        _expected_provider_command("claude"),
+        _expected_provider_command("claude"),
+        _expected_provider_command("codex"),
+    ]
 
 
 def test_runtime_plan_blocks_when_primary_is_gemini_without_schema_enforcement() -> None:

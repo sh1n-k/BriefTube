@@ -117,14 +117,33 @@ def provider_command_name(provider: str) -> str:
     )
 
 
+def provider_command_candidates(provider: str) -> tuple[str, ...]:
+    command = provider_command_name(provider)
+    if os.name != "nt":
+        return (command,)
+    return (f"{command}.cmd", command)
+
+
+def resolve_provider_command(
+    provider: str,
+    *,
+    command_exists: CommandExists,
+) -> str:
+    candidates = provider_command_candidates(provider)
+    for command in candidates:
+        if command_exists(command):
+            return command
+    return candidates[0]
+
+
 def _ensure_provider_command(
     provider: str,
     *,
     command_exists: CommandExists,
-) -> None:
-    command = provider_command_name(provider)
+) -> str:
+    command = resolve_provider_command(provider, command_exists=command_exists)
     if command_exists(command):
-        return
+        return command
     raise LlmClientError(
         f"llm_provider_unavailable_{provider}",
         f"LLM provider command is not available: {command}",
@@ -143,7 +162,7 @@ async def run_codex_provider_command(
     runner: CommandRunner,
     command_exists: CommandExists,
 ) -> ProviderCommandResult:
-    _ensure_provider_command(LLM_PROVIDER_CODEX, command_exists=command_exists)
+    command = _ensure_provider_command(LLM_PROVIDER_CODEX, command_exists=command_exists)
 
     with tempfile.TemporaryDirectory(prefix="brieftube-llm-codex-") as tmpdir:
         schema_file = Path(tmpdir) / "article.schema.json"
@@ -151,7 +170,7 @@ async def run_codex_provider_command(
         schema_file.write_text(schema_json, encoding="utf-8")
 
         args = [
-            "codex",
+            command,
             "exec",
             "--skip-git-repo-check",
             "-m",
@@ -190,10 +209,10 @@ async def run_claude_provider_command(
     runner: CommandRunner,
     command_exists: CommandExists,
 ) -> ProviderCommandResult:
-    _ensure_provider_command(LLM_PROVIDER_CLAUDE, command_exists=command_exists)
+    command = _ensure_provider_command(LLM_PROVIDER_CLAUDE, command_exists=command_exists)
 
     args = [
-        "claude",
+        command,
         "-p",
         "--output-format",
         "json",

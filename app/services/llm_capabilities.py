@@ -10,8 +10,10 @@ from typing import Any
 
 from app.llm_policy import (
     LLM_CODEX_MODEL_OPTIONS,
+    LLM_PROVIDER_CODEX,
     LLM_REASONING_EFFORT_OPTIONS,
 )
+from app.services.llm_invocation import resolve_provider_command
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,13 +81,14 @@ class LlmCapabilityProbe:
         return result
 
     async def _probe_codex(self) -> CodexCapabilityResult:
-        if not self._command_exists("codex"):
+        command = resolve_provider_command(LLM_PROVIDER_CODEX, command_exists=self._command_exists)
+        if not self._command_exists(command):
             return _fallback_codex_result(source="fallback", error="codex command not found")
 
         first_error = ""
         for args, source in (
-            (["codex", "debug", "models"], "codex-debug-models"),
-            (["codex", "debug", "models", "--bundled"], "codex-debug-models-bundled"),
+            ([command, "debug", "models"], "codex-debug-models"),
+            ([command, "debug", "models", "--bundled"], "codex-debug-models-bundled"),
         ):
             try:
                 exit_code, stdout, _stderr = await self._runner(args, self.timeout_seconds)
