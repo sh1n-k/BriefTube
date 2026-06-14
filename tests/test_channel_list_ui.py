@@ -129,6 +129,35 @@ def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestCl
     assert "자세히" in html
 
 
+def test_channel_list_renders_rss_priority_selector(client: TestClient) -> None:
+    created = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UCpriorityui12345678901",
+            "channel_name": "Priority UI",
+        },
+    )
+    assert created.status_code == 200
+    updated = client.patch(
+        "/api/channels/UCpriorityui12345678901/rss-priority",
+        json={"priority": "pinned"},
+    )
+    assert updated.status_code == 200
+
+    response = client.get("/views/channel-list?status=active")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "RSS 우선순위" in html
+    assert 'hx-patch="/api/channels/UCpriorityui12345678901/rss-priority"' in html
+    assert 'hx-swap="none"' in html
+    assert 'hx-params="priority"' in html
+    assert 'data-save-toast="RSS 우선순위 저장 완료"' in html
+    assert re.search(r'<option value="pinned"\s+selected>고정</option>', html)
+    assert '<option value="normal" >보통</option>' in html
+    assert '<option value="low" >낮음</option>' in html
+
+
 def test_channel_list_displays_decoded_handle_but_keeps_raw_in_db(client: TestClient) -> None:
     raw_handle = "@%ED%95%9C%EA%B8%80"
     created = client.post(

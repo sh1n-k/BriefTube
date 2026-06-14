@@ -34,6 +34,14 @@ async def _read_json_object(request: Request) -> dict:
     return payload
 
 
+async def _read_json_or_form_object(request: Request) -> dict:
+    content_type = request.headers.get("content-type", "")
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        return {key: form.get(key) for key in form.keys()}
+    return await _read_json_object(request)
+
+
 @router.get("/channels")
 async def get_channels(request: Request):
     return await channels_repo.list_channels(request.app.state.runtime.db)
@@ -41,7 +49,7 @@ async def get_channels(request: Request):
 
 @router.patch("/channels/{channel_id}/rss-priority")
 async def update_channel_rss_priority(channel_id: str, request: Request):
-    payload = await _read_json_object(request)
+    payload = await _read_json_or_form_object(request)
     raw_priority = str(payload.get("priority", "")).strip().lower()
     if raw_priority not in channels_repo.RSS_PRIORITY_OPTIONS:
         raise HTTPException(status_code=400, detail="invalid rss priority")

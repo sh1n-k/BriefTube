@@ -241,6 +241,27 @@
                   </div>
                 </div>
                 <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {% set rss_priority = (channel.rss_priority or "normal")|lower %}
+                {% if rss_priority not in ["pinned", "normal", "low"] %}
+                {% set rss_priority = "normal" %}
+                {% endif %}
+                <label class="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
+                  <span>{{ txt.channel_rss_priority_label }}</span>
+                  <select
+                    name="priority"
+                    aria-label="{{ txt.channel_rss_priority_label }}: {{ channel.channel_name }}"
+                    hx-patch="/api/channels/{{ channel.channel_id }}/rss-priority"
+                    hx-trigger="change"
+                    hx-swap="none"
+                    hx-params="priority"
+                    data-save-toast="{{ txt.channel_rss_priority_saved }}"
+                    class="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  >
+                    <option value="pinned" {% if rss_priority == "pinned" %}selected{% endif %}>{{ txt.channel_rss_priority_pinned }}</option>
+                    <option value="normal" {% if rss_priority == "normal" %}selected{% endif %}>{{ txt.channel_rss_priority_normal }}</option>
+                    <option value="low" {% if rss_priority == "low" %}selected{% endif %}>{{ txt.channel_rss_priority_low }}</option>
+                  </select>
+                </label>
                 {% set meta_status = (channel.metadata_fetch_status or "never")|lower %}
                 {% if meta_status not in ["never", "pending", "running", "success", "failed", "rate_limited"] %}
                 {% set meta_status = "never" %}

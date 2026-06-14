@@ -92,6 +92,26 @@ def test_update_channel_rss_priority(client: TestClient) -> None:
     )
 
 
+def test_update_channel_rss_priority_accepts_htmx_form_payload(client: TestClient) -> None:
+    response = client.post(
+        "/api/channels",
+        json={
+            "channel_id": "UCpriorityform001",
+            "channel_name": "Priority Form Channel",
+        },
+    )
+    assert response.status_code == 200
+
+    update = client.patch(
+        "/api/channels/UCpriorityform001/rss-priority",
+        data={"priority": "low"},
+        headers={"HX-Request": "true"},
+    )
+
+    assert update.status_code == 200
+    assert update.json()["rss_priority"] == "low"
+
+
 def test_update_channel_rss_priority_rejects_invalid_value(client: TestClient) -> None:
     response = client.post(
         "/api/channels",
