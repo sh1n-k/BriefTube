@@ -59,11 +59,19 @@ export BRIEFTUBE_REMOTE_SYNC_DSN='postgresql://user:password@host:5432/dbname'
 ```
 
 ```powershell
+$env:BRIEFTUBE_REMOTE_SYNC_DSN = "postgresql://user:password@host:5432/dbname"
+.\run-dev-remote-sync.ps1
+.\run-prod-remote-sync.ps1
+```
+
+원격 동기화 없이 Windows에서 실행:
+
+```powershell
 .\run-dev.ps1
 .\run-prod.ps1
 ```
 
-PowerShell 스크립트는 `uv`를 우선 사용하고, 없으면 `.venv\Scripts\python.exe` → `python` → `py` 순으로 fallback 합니다.
+PowerShell 스크립트는 `uv`를 우선 사용하고, 없으면 `.venv\Scripts\python.exe` → `python` → `py` 순으로 fallback 합니다. Remote sync 전용 스크립트는 `BRIEFTUBE_REMOTE_SYNC_DSN`이 없으면 시작하지 않습니다.
 
 macOS LaunchAgent 운영:
 
@@ -87,9 +95,17 @@ uv run python scripts/init_remote_sync_db.py
 ./run-dev-remote-sync.sh
 ```
 
-운영 설정으로 실행하려면 `./run-prod-remote-sync.sh`를 사용합니다.
+Windows PowerShell:
 
-`BRIEFTUBE_REMOTE_SYNC_DSN`이 없으면 원격 동기화는 꺼집니다. DSN이 잘못됐거나 원격 DB에 접속할 수 없어도 앱은 로컬 모드로 계속 실행됩니다. 상태는 `/api/settings`의 `remote_sync`에서 `requested`, `active`, `last_failure_code`로 확인할 수 있습니다.
+```powershell
+$env:BRIEFTUBE_REMOTE_SYNC_DSN = "postgresql://user:password@host:5432/dbname"
+uv run python .\scripts\init_remote_sync_db.py
+.\run-dev-remote-sync.ps1
+```
+
+운영 설정으로 실행하려면 macOS/Linux는 `./run-prod-remote-sync.sh`, Windows는 `.\run-prod-remote-sync.ps1`를 사용합니다.
+
+Remote sync 전용 실행 스크립트는 `BRIEFTUBE_REMOTE_SYNC_DSN`을 전제로 하며, 값이 없으면 즉시 중단합니다. 일반 실행 스크립트에서 `BRIEFTUBE_REMOTE_SYNC_DSN`이 없으면 원격 동기화는 꺼집니다. DSN이 잘못됐거나 원격 DB에 접속할 수 없어도 앱은 로컬 모드로 계속 실행됩니다. 상태는 `/api/settings`의 `remote_sync`에서 `requested`, `active`, `last_failure_code`로 확인할 수 있습니다.
 
 ## 구조
 
