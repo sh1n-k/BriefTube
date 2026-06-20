@@ -63,3 +63,6 @@ output/
 playwright-report/
 test-results/
 repomix.config.json
+repomix-output.*
+repomix-output-*/
+.repomix-cache/
