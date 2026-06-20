@@ -52,33 +52,54 @@ def _seed_queue_rows() -> None:
         conn.commit()
 
 
-def test_queue_page_renders_counts_and_status_indicators(client: TestClient) -> None:
+def test_queue_page_renders_js_contract_anchors(client: TestClient) -> None:
     _seed_queue_rows()
 
     response = client.get("/queue")
 
     assert response.status_code == 200
     html = response.text
-    assert "data-queue-page" in html
-    assert "data-queue-transcript-chips" in html
-    assert "data-queue-llm-chips" in html
-    assert "data-queue-transcript-count" in html
-    assert "data-queue-llm-count" in html
-    assert "queue-tf1" in html
-    assert "queue-lf1" in html
-    assert "data-queue-transcript-worker-indicator" in html
-    assert "data-queue-llm-worker-indicator" in html
-    assert "data-queue-guard-indicator" in html
-    assert "정상" in html or "Closed" in html
+    for marker in (
+        "data-queue-page",
+        "data-queue-content",
+        "data-queue-transcript-list",
+        "data-queue-llm-list",
+        "data-queue-transcript-count",
+        "data-queue-llm-count",
+        "data-queue-transcript-worker-indicator",
+        "data-queue-llm-worker-indicator",
+        "data-queue-guard-indicator",
+    ):
+        assert marker in html
 
 
-def test_queue_page_renders_empty_state(client: TestClient) -> None:
+def test_queue_poll_api_returns_counts_and_runtime_state(client: TestClient) -> None:
+    _seed_queue_rows()
+
+    response = client.get("/api/queue/poll")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["transcript_items"]) == 4
+    assert len(payload["llm_items"]) == 4
+    assert payload["counts"]["transcript_pending"] == 2
+    assert payload["counts"]["transcript_processing"] == 1
+    assert payload["counts"]["transcript_failed"] == 1
+    assert payload["counts"]["llm_pending"] == 2
+    assert payload["counts"]["llm_processing"] == 1
+    assert payload["counts"]["llm_failed"] == 1
+    assert payload["badge_count"] == 6
+    assert payload["workers"] == {"transcript": True, "llm": True}
+    assert payload["transcript_guard"]["breaker_state"] == "closed"
+
+
+def test_queue_page_renders_empty_js_contract_anchors(client: TestClient) -> None:
     response = client.get("/queue")
 
     assert response.status_code == 200
     html = response.text
+    assert "data-queue-page" in html
+    assert "data-queue-transcript-list" in html
+    assert "data-queue-llm-list" in html
     assert "data-queue-transcript-count" in html
     assert "data-queue-llm-count" in html
-    assert ">0</span>" in html
-    assert "Transcript" in html
-    assert "LLM" in html

@@ -66,43 +66,6 @@ def _seed_video(
         conn.commit()
 
 
-def _extract_summary(payload: dict) -> dict[str, int]:
-    summary = payload.get("summary")
-    if isinstance(summary, dict):
-        return summary
-    if all(key in payload for key in ("new", "retry", "skip", "failed")):
-        return {
-            "new": int(payload.get("new", 0) or 0),
-            "retry": int(payload.get("retry", 0) or 0),
-            "skip": int(payload.get("skip", 0) or 0),
-            "failed": int(payload.get("failed", 0) or 0),
-        }
-    return {}
-
-
-def _extract_waiting_flag(payload: dict) -> bool | None:
-    candidates = (
-        "waiting",
-        "llm_waiting",
-        "llm_worker_waiting",
-        "waiting_for_llm",
-        "queued_waiting_for_llm",
-        "llm_pending_waiting",
-    )
-    for key in candidates:
-        value = payload.get(key)
-        if isinstance(value, bool):
-            return value
-
-    runtime = payload.get("runtime")
-    if isinstance(runtime, dict):
-        for key in candidates:
-            value = runtime.get(key)
-            if isinstance(value, bool):
-                return value
-    return None
-
-
 def test_article_request_api_rejects_when_more_than_ten_selected(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     video_ids = [f"vid-manual-max-{idx:02d}" for idx in range(11)]
@@ -162,12 +125,11 @@ def test_article_request_api_returns_new_retry_skip_failed_summary(client: TestC
 
     assert response.status_code == 200
     payload = response.json()
-    summary = _extract_summary(payload)
-    assert set(summary.keys()) == {"new", "retry", "skip", "failed"}
-    assert summary["new"] >= 1
-    assert summary["retry"] >= 1
-    assert summary["skip"] >= 1
-    assert summary["failed"] >= 1
+    assert set(payload.keys()) == {"ok", "requested_count", "summary", "llm_worker_waiting"}
+    assert payload["ok"] is True
+    assert payload["requested_count"] == 4
+    assert payload["summary"] == {"new": 1, "retry": 1, "skip": 1, "failed": 1}
+    assert payload["llm_worker_waiting"] is False
     assert wake_probe.called is True
 
 
@@ -207,12 +169,11 @@ def test_article_request_api_allows_when_llm_worker_disabled_and_marks_waiting(
 
     assert response.status_code == 200
     payload = response.json()
-    summary = _extract_summary(payload)
-    assert set(summary.keys()) == {"new", "retry", "skip", "failed"}
-    assert summary["new"] + summary["retry"] >= 1
-
-    waiting = _extract_waiting_flag(payload)
-    assert waiting is True
+    assert set(payload.keys()) == {"ok", "requested_count", "summary", "llm_worker_waiting"}
+    assert payload["ok"] is True
+    assert payload["requested_count"] == 1
+    assert payload["summary"] == {"new": 0, "retry": 1, "skip": 0, "failed": 0}
+    assert payload["llm_worker_waiting"] is True
     assert wake_probe.called is True
 
     with sqlite3.connect(db_path) as conn:

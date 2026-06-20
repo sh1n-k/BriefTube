@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -23,7 +24,7 @@ def test_header_navigation_links_render(client: TestClient) -> None:
     html = response.text
     for href in ("/", "/channels", "/settings", "/downloads", "/queue", "/retention"):
         assert f'href="{href}"' in html
-    assert "bg-white/20 text-white" in html
+    assert re.search(r'<a href="/"\s+data-nav-transition\s+aria-current="page"', html)
 
 
 def test_home_renders_korean_by_default(client: TestClient) -> None:

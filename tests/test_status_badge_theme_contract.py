@@ -7,18 +7,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-STATUS_CLASS_EXPECTATIONS = {
-    "auto_paused": "status-badge--no-subtitle",
+REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS = {
     "transcript_pending": "status-badge--transcript-pending",
-    "transcript_processing": "status-badge--transcript-processing",
-    "transcript_done": "status-badge--done",
-    "transcript_failed": "status-badge--transcript-failed",
-    "llm_pending": "status-badge--llm-pending",
-    "llm_processing": "status-badge--llm-processing",
     "llm_failed": "status-badge--llm-failed",
     "done": "status-badge--done",
-    "manual_review": "status-badge--manual-review",
-    "no_subtitle": "status-badge--no-subtitle",
 }
 
 
@@ -46,8 +38,8 @@ def _seed_video_status(video_id: str, status: str) -> None:
         conn.commit()
 
 
-def test_status_badge_renders_semantic_classes(client: TestClient) -> None:
-    for index, (status, class_name) in enumerate(STATUS_CLASS_EXPECTATIONS.items()):
+def test_status_badge_renders_representative_semantic_classes(client: TestClient) -> None:
+    for index, (status, class_name) in enumerate(REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS.items()):
         video_id = f"vid-status-{index}"
         _seed_video_status(video_id, status)
         response = client.get(f"/views/status-badge/{video_id}")

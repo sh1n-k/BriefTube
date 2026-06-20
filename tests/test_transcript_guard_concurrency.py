@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.database import init_database, open_database
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
@@ -410,6 +412,7 @@ def test_poller_worker_disabled_is_observed_after_wait_loop(
 
 def test_poller_worker_disabled_breaks_wait_loop_after_cycle(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """RSS poller는 사이클 종료 후 wait loop의 5초 step에서 ``is_worker_enabled``를
     재확인한다. 채널 1개를 즉시 처리(304 응답)한 뒤 worker를 disabled로
@@ -419,6 +422,7 @@ def test_poller_worker_disabled_breaks_wait_loop_after_cycle(
     ``enabled=False``로 토글 → poller의 5초 step 안에서 wait loop를 빠져나옴.
     """
     db_path = tmp_path / "poller-disabled-wait-loop.db"
+    monkeypatch.setattr("app.workers.poller.RSS_WORKER_ENABLED_CHECK_STEP_SECONDS", 0.1)
 
     async def _seed() -> None:
         db = await open_database(str(db_path))
@@ -502,7 +506,7 @@ def test_poller_worker_disabled_breaks_wait_loop_after_cycle(
         first_count = state.rss_service.call_count
         assert first_count == 1, "first cycle should have polled exactly one channel"
         await _toggle_off()
-        await asyncio.sleep(6.5)
+        await asyncio.sleep(0.3)
         second_count = state.rss_service.call_count
         poller_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
