@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -258,6 +259,29 @@ def test_channel_metadata_accordion(page: Page) -> None:
     # Second should open, first should close (mutual exclusion)
     expect(panel_2).to_be_visible()
     expect(panel_1).to_be_hidden()
+
+
+@pytest.mark.e2e
+def test_channel_category_filter_keeps_full_page_url_after_reload(page: Page) -> None:
+    """Category HTMX filter must push /channels, not the fragment URL."""
+    _goto_channels(page)
+    category_id = str(page._e2e_server["categories"]["투자"])
+    category_link = page.locator(f"#category-sidebar a[href*='category_id={category_id}']").first
+
+    category_link.click()
+
+    expect(page).to_have_url(re.compile(r"/channels\?.*category_id="))
+    parsed = urlparse(page.url)
+    query = parse_qs(parsed.query)
+    assert parsed.path == "/channels"
+    assert "/views/" not in page.url
+    assert query.get("status") == ["active"]
+    assert query.get("category_id") == [category_id]
+
+    page.reload()
+    page.wait_for_selector("#category-sidebar")
+    expect(page.locator("#channel-list-wrap")).to_be_visible()
+    expect(page.locator("body")).to_contain_text("투자채널A")
 
 
 @pytest.mark.e2e

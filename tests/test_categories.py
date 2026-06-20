@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 
 def _add_channel(client: TestClient, channel_id: str, channel_name: str) -> dict:
     resp = client.post(
@@ -150,7 +152,7 @@ def test_channel_management_page_with_category_filter(client: TestClient) -> Non
 
 
 def test_category_sidebar_fragment_contract(client: TestClient) -> None:
-    response = client.get("/views/category-sidebar?status=active")
+    response = client.get("/views/category-sidebar?status=active", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
     assert "<html" not in html.lower()

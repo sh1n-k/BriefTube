@@ -7,6 +7,8 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 LONG_ERROR = (
     "this is a very long failure message to verify one-line summary truncation "
     "and readability improvements in download history"
@@ -135,7 +137,7 @@ def test_downloads_page_status_filter_limits_rows(client: TestClient) -> None:
     _seed_download_jobs(db_path)
     _seed_pending_download_job(db_path)
 
-    response = client.get("/views/downloads/table?status=pending")
+    response = client.get("/views/downloads/table?status=pending", headers=FRAGMENT_HEADERS)
 
     assert response.status_code == 200
     html = response.text
@@ -148,7 +150,7 @@ def test_downloads_page_empty_state_for_missing_filter(client: TestClient) -> No
     db_path = os.environ["DB_PATH"]
     _seed_download_jobs(db_path)
 
-    response = client.get("/views/downloads/table?status=running")
+    response = client.get("/views/downloads/table?status=running", headers=FRAGMENT_HEADERS)
 
     assert response.status_code == 200
     assert "다운로드 이력이 없습니다." in response.text
@@ -158,7 +160,10 @@ def test_download_history_fragment_view_returns_partial_markup(client: TestClien
     db_path = os.environ["DB_PATH"]
     _seed_download_jobs(db_path)
 
-    response = client.get("/views/downloads/table?status=failed&page=1")
+    response = client.get(
+        "/views/downloads/table?status=failed&page=1",
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     html = response.text

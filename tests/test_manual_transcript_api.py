@@ -6,6 +6,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 
 def _seed_video(
     *,
@@ -134,7 +136,10 @@ def test_manual_transcript_detail_ui_shows_active_state_and_auto_refresh(
     _seed_video(video_id="vid-manual-tx-ui-002")
     client.post("/api/videos/vid-manual-tx-ui-002/transcript-request")
 
-    response = client.get("/views/videos/vid-manual-tx-ui-002/dynamic-fragment")
+    response = client.get(
+        "/views/videos/vid-manual-tx-ui-002/dynamic-fragment",
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     assert 'data-manual-transcript-status="pending"' in response.text

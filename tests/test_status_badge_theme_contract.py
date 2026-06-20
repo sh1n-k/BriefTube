@@ -7,6 +7,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS = {
     "transcript_pending": "status-badge--transcript-pending",
     "llm_failed": "status-badge--llm-failed",
@@ -42,7 +44,7 @@ def test_status_badge_renders_representative_semantic_classes(client: TestClient
     for index, (status, class_name) in enumerate(REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS.items()):
         video_id = f"vid-status-{index}"
         _seed_video_status(video_id, status)
-        response = client.get(f"/views/status-badge/{video_id}")
+        response = client.get(f"/views/status-badge/{video_id}", headers=FRAGMENT_HEADERS)
         assert response.status_code == 200
         html = response.text
         assert "status-badge" in html
@@ -50,7 +52,7 @@ def test_status_badge_renders_representative_semantic_classes(client: TestClient
 
 
 def test_status_badge_unknown_fallback_class(client: TestClient) -> None:
-    response = client.get("/views/status-badge/not-found")
+    response = client.get("/views/status-badge/not-found", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     assert "status-badge--unknown" in response.text
 

@@ -6,6 +6,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 
 def _seed_video(
     *,
@@ -104,6 +106,13 @@ def test_detail_youtube_link(client: TestClient) -> None:
     response = client.get("/videos/vid-001")
     html = response.text
     assert "https://www.youtube.com/watch?v=vid-001" in html
+
+
+def test_detail_page_missing_video_returns_404_with_not_found_ui(client: TestClient) -> None:
+    response = client.get("/videos/missing-video-id")
+
+    assert response.status_code == 404
+    assert "영상을 찾을 수 없습니다." in response.text
 
 
 def test_detail_youtube_embed_card_order(client: TestClient) -> None:
@@ -245,7 +254,7 @@ def test_detail_fragment_fact_box_json_renders_as_structured_content(client: Tes
         fact_box='{"named_examples":["A","B"],"explicit_uncertainties":"기억이 불완전하다."}'
     )
 
-    response = client.get("/views/videos/vid-001/dynamic-fragment")
+    response = client.get("/views/videos/vid-001/dynamic-fragment", headers=FRAGMENT_HEADERS)
 
     assert response.status_code == 200
     html = response.text
@@ -305,7 +314,10 @@ def test_detail_fragment_enables_auto_refresh_for_incomplete_article(client: Tes
         raw_text="Pending transcript",
     )
 
-    response = client.get("/views/videos/vid-pending-001/dynamic-fragment")
+    response = client.get(
+        "/views/videos/vid-pending-001/dynamic-fragment",
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     html = response.text
@@ -326,7 +338,10 @@ def test_detail_fragment_disables_auto_refresh_for_terminal_failed_status(
         source_type=None,
     )
 
-    response = client.get("/views/videos/vid-failed-001/dynamic-fragment")
+    response = client.get(
+        "/views/videos/vid-failed-001/dynamic-fragment",
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     assert 'data-video-detail-auto-refresh="0"' in response.text

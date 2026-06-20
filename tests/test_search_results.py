@@ -5,6 +5,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 
 def _seed_search_video(
     *,
@@ -60,7 +62,7 @@ def test_search_results_fragment_returns_matching_results(client: TestClient) ->
         article_body="블록체인 기술은 거래 기록을 분산 저장합니다.",
     )
 
-    response = client.get("/views/search-results?q=블록체인")
+    response = client.get("/views/search-results?q=블록체인", headers=FRAGMENT_HEADERS)
 
     assert response.status_code == 200
     html = response.text
@@ -81,7 +83,10 @@ def test_search_results_fragment_renders_empty_state(client: TestClient) -> None
         article_body="리스크 관리와 포트폴리오 다변화를 다룹니다.",
     )
 
-    response = client.get("/views/search-results?q=존재하지않는검색어xyz")
+    response = client.get(
+        "/views/search-results?q=존재하지않는검색어xyz",
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     assert "일치하는 결과가 없습니다." in response.text

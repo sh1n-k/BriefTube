@@ -3,14 +3,18 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 
 def test_channel_list_fragment_has_scroll_and_search_controls(client: TestClient) -> None:
-    response = client.get("/views/channel-list")
+    response = client.get("/views/channel-list", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
+    assert response.headers["HX-Push-Url"] == "/channels?status=active"
     html = response.text
 
     assert "<html" not in html.lower()
@@ -59,7 +63,7 @@ def test_channel_list_fragment_renders_rss_poll_preview(client: TestClient) -> N
         )
         conn.commit()
 
-    response = client.get("/views/channel-list")
+    response = client.get("/views/channel-list", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
 
@@ -72,8 +76,9 @@ def test_channel_list_fragment_renders_rss_poll_preview(client: TestClient) -> N
 
 
 def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: TestClient) -> None:
-    response = client.get("/views/channel-list?status=inactive")
+    response = client.get("/views/channel-list?status=inactive", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
+    assert response.headers["HX-Push-Url"] == "/channels?status=inactive"
     html = response.text
 
     assert 'hx-post="/views/channels/reactivate-selected"' in html
@@ -93,7 +98,10 @@ def test_channel_list_move_dropdown_selects_current_category(client: TestClient)
     assert created.status_code == 200
     category_id = int(created.json()["id"])
 
-    response = client.get(f"/views/channel-list?status=active&category_id={category_id}")
+    response = client.get(
+        f"/views/channel-list?status=active&category_id={category_id}",
+        headers=FRAGMENT_HEADERS,
+    )
     assert response.status_code == 200
     html = response.text
 
@@ -101,6 +109,18 @@ def test_channel_list_move_dropdown_selects_current_category(client: TestClient)
         rf'<option value="{category_id}"\s+selected>선택카테고리</option>',
         html,
     )
+
+
+def test_channel_list_direct_access_redirects_to_channels_page(client: TestClient) -> None:
+    response = client.get(
+        "/views/channel-list?status=inactive&category_id=7",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = urlparse(response.headers["location"])
+    assert location.path == "/channels"
+    assert parse_qs(location.query) == {"status": ["inactive"], "category_id": ["7"]}
 
 
 def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestClient) -> None:
@@ -116,7 +136,7 @@ def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestCl
     )
     assert created.status_code == 200
 
-    response = client.get("/views/channel-list?status=active")
+    response = client.get("/views/channel-list?status=active", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
     assert "data-channel-meta-root" in html
@@ -144,7 +164,7 @@ def test_channel_list_renders_rss_priority_selector(client: TestClient) -> None:
     )
     assert updated.status_code == 200
 
-    response = client.get("/views/channel-list?status=active")
+    response = client.get("/views/channel-list?status=active", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
 
@@ -170,7 +190,7 @@ def test_channel_list_displays_decoded_handle_but_keeps_raw_in_db(client: TestCl
     )
     assert created.status_code == 200
 
-    response = client.get("/views/channel-list?status=active")
+    response = client.get("/views/channel-list?status=active", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
     assert "@한글" in html

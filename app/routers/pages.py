@@ -218,8 +218,12 @@ async def video_page(video_id: str, request: Request):
         transcript_retry_done=request.query_params.get("transcript_retry") == "1",
         mark_viewed=True,
     )
+    status_code = 200 if context.get("video") else 404
     return request.app.state.templates.TemplateResponse(
-        request=request, name="video_detail.html", context=context
+        request=request,
+        name="video_detail.html",
+        context=context,
+        status_code=status_code,
     )
 
 

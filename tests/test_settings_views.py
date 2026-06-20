@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 from app.services.llm_capabilities import LlmCapabilityProbe
 
 
@@ -312,7 +314,7 @@ def test_settings_llm_resume_view_returns_runtime_fragment_and_toast(client: Tes
 
 
 def test_settings_llm_runtime_status_fragment_renders(client: TestClient) -> None:
-    response = client.get("/views/settings/llm/runtime-status")
+    response = client.get("/views/settings/llm/runtime-status", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     assert 'id="llm-runtime-status"' in response.text
     assert 'data-llm-runtime-refresh-url="/views/settings/llm/runtime-status"' in response.text
