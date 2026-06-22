@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 import httpx
 from fastapi.testclient import TestClient
 
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+
 
 def _seed_channel(
     db_path: str,
@@ -96,7 +98,7 @@ def test_inactive_tab_renders_unknown_when_alert_missing(client: TestClient) -> 
     db_path = os.environ["DB_PATH"]
     _seed_channel(db_path, "UCinactive002", "Inactive Two", is_active=0)
 
-    response = client.get("/views/channel-list?status=inactive")
+    response = client.get("/views/channel-list?status=inactive", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     assert response.text.count("알 수 없음") >= 1
 

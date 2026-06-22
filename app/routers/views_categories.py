@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
-from app.routers.helpers import parse_optional_int, request_texts
+from app.routers.helpers import (
+    full_page_redirect_for_non_fragment_request,
+    parse_optional_int,
+    request_texts,
+)
 from app.routers.views_common import _render_category_sidebar
 
 router = APIRouter(tags=["views"])
@@ -16,6 +22,15 @@ async def category_sidebar(
     category_id: int | None = Query(default=None),
     status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
 ):
+    params: dict[str, str] = {"status": channels_repo.normalize_channel_management_status(status)}
+    if category_id is not None:
+        params["category_id"] = str(category_id)
+    redirect = full_page_redirect_for_non_fragment_request(
+        request,
+        "/channels?" + urlencode(params),
+    )
+    if redirect is not None:
+        return redirect
     return await _render_category_sidebar(
         request, selected_category_id=category_id, channel_status=status
     )

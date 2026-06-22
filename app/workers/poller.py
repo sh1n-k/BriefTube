@@ -37,6 +37,7 @@ RSS_POLL_OUTCOME_MULTIPLIERS = {
     "error": 2.0,
     "not_found": 4.0,
 }
+RSS_WORKER_ENABLED_CHECK_STEP_SECONDS = 5.0
 
 
 def _parse_iso_datetime(value: str) -> datetime | None:
@@ -99,7 +100,7 @@ async def run_rss_poller(state: AppState) -> None:
     deactivate_threshold = state.config.rss_channel_deactivate_after_fails
     abort_threshold = state.config.rss_consecutive_error_abort_threshold
     jitter_ratio = 0.3
-    check_step_seconds = 5
+    check_step_seconds = RSS_WORKER_ENABLED_CHECK_STEP_SECONDS
 
     logger.info(
         "event=rss.poller_started worker=rss interval=%sm deactivate_after=%s abort_after=%s fetcher=%s",

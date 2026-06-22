@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -10,7 +11,13 @@ from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
-from app.routers.helpers import htmx_trigger_header, parse_optional_int, request_texts, safe_int
+from app.routers.helpers import (
+    full_page_redirect_for_non_fragment_request,
+    htmx_trigger_header,
+    parse_optional_int,
+    request_texts,
+    safe_int,
+)
 from app.routers.pages_downloads import build_download_history_context
 from app.routers.template_context import build_template_context
 
@@ -25,6 +32,11 @@ async def download_history_fragment(
     status: str = "all",
     page: int = 1,
 ):
+    params = urlencode({"status": status, "page": str(max(1, int(page)))})
+    redirect = full_page_redirect_for_non_fragment_request(request, "/downloads?" + params)
+    if redirect is not None:
+        return redirect
+
     context = await build_download_history_context(
         request,
         status=status,

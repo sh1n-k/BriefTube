@@ -5,10 +5,13 @@ import os
 import re
 import sqlite3
 from html import unescape
+from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 
 from app.domains.downloads import service as downloads_service
+
+FRAGMENT_HEADERS = {"HX-Request": "true"}
 
 
 def _seed_channels_and_videos() -> None:
@@ -244,7 +247,11 @@ def test_video_list_channel_filter(client: TestClient) -> None:
     """channel_id 파라미터 -> 해당 채널 영상만 반환"""
     _seed_channels_and_videos()
 
-    response = client.get("/views/video-list", params={"channel_id": "UC_BBB", "limit": "20"})
+    response = client.get(
+        "/views/video-list",
+        params={"channel_id": "UC_BBB", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
     assert response.status_code == 200
     html = response.text
     assert "vid-b-000" in html
@@ -265,7 +272,11 @@ def test_video_list_and_detail_ignore_tombstoned_outputs(client: TestClient) -> 
         )
         conn.commit()
 
-    list_response = client.get("/views/video-list", params={"limit": "20"})
+    list_response = client.get(
+        "/views/video-list",
+        params={"limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
     assert list_response.status_code == 200
     list_html = list_response.text
     assert "vid-a-000" in list_html
@@ -288,6 +299,7 @@ def test_video_list_channel_name_links_to_channel_filter(client: TestClient) -> 
     response = client.get(
         "/views/video-list",
         params={"limit": "20", "pipeline_status": "done"},
+        headers=FRAGMENT_HEADERS,
     )
 
     assert response.status_code == 200
@@ -311,7 +323,11 @@ def test_video_list_pipeline_status_filter(client: TestClient) -> None:
         )
         conn.commit()
 
-    response = client.get("/views/video-list", params={"pipeline_status": "done", "limit": "20"})
+    response = client.get(
+        "/views/video-list",
+        params={"pipeline_status": "done", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
     assert response.status_code == 200
     html = response.text
     assert 'name="pipeline_status"' in html
@@ -346,6 +362,7 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
             "pipeline_status": "manual_review",
             "limit": "20",
         },
+        headers=FRAGMENT_HEADERS,
     )
     assert response.status_code == 200
     html = response.text
@@ -366,6 +383,7 @@ def test_video_list_sets_home_push_url_header(client: TestClient) -> None:
             "sort": "upload_time",
             "order": "desc",
         },
+        headers=FRAGMENT_HEADERS,
     )
     assert response.status_code == 200
     push_url = response.headers.get("HX-Push-Url")
@@ -391,11 +409,28 @@ def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestC
             "sort": "upload_time",
             "order": "desc",
         },
+        headers=FRAGMENT_HEADERS,
     )
     assert response.status_code == 200
     push_url = response.headers.get("HX-Push-Url")
     assert push_url is not None
     assert "pipeline_status=done" in push_url
+
+
+def test_video_list_direct_access_redirects_to_home_page(client: TestClient) -> None:
+    response = client.get(
+        "/views/video-list?page=2&limit=10&pipeline_status=done",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = urlparse(response.headers["location"])
+    assert location.path == "/"
+    assert parse_qs(location.query) == {
+        "page": ["2"],
+        "limit": ["10"],
+        "pipeline_status": ["done"],
+    }
 
 
 def test_home_respects_query_page_and_limit(client: TestClient) -> None:
@@ -410,7 +445,11 @@ def test_home_respects_query_page_and_limit(client: TestClient) -> None:
 def test_video_list_fragment_has_hx_push_url_for_stateful_paging(client: TestClient) -> None:
     _seed_paginated_videos(25)
 
-    response = client.get("/views/video-list", params={"page": 2, "limit": 10})
+    response = client.get(
+        "/views/video-list",
+        params={"page": 2, "limit": 10},
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     html = response.text
@@ -436,7 +475,9 @@ def test_video_list_fragment_keeps_pipeline_status_in_paging_queries(client: Tes
     _seed_paginated_videos(25)
 
     response = client.get(
-        "/views/video-list", params={"page": 2, "limit": 10, "pipeline_status": "done"}
+        "/views/video-list",
+        params={"page": 2, "limit": 10, "pipeline_status": "done"},
+        headers=FRAGMENT_HEADERS,
     )
 
     assert response.status_code == 200
@@ -448,7 +489,11 @@ def test_video_list_fragment_keeps_pipeline_status_in_paging_queries(client: Tes
 def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
     _seed_channels_and_videos()
 
-    response = client.get("/views/video-list", params={"category_id": "", "limit": "20"})
+    response = client.get(
+        "/views/video-list",
+        params={"category_id": "", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
     assert response.status_code == 200
     html = response.text
     assert "Channel A" in html
@@ -493,13 +538,19 @@ def test_video_list_category_then_all_restores_all_channel_options(client: TestC
         conn.commit()
 
     filtered = client.get(
-        "/views/video-list", params={"category_id": str(category_id), "limit": "20"}
+        "/views/video-list",
+        params={"category_id": str(category_id), "limit": "20"},
+        headers=FRAGMENT_HEADERS,
     )
     assert filtered.status_code == 200
     assert "Channel B" in filtered.text
     assert "Channel A" not in filtered.text
 
-    restored = client.get("/views/video-list", params={"category_id": "", "limit": "20"})
+    restored = client.get(
+        "/views/video-list",
+        params={"category_id": "", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
     assert restored.status_code == 200
     assert "Channel A" in restored.text
     assert "Channel B" in restored.text
@@ -512,6 +563,7 @@ def test_video_list_sort_order(client: TestClient) -> None:
     response = client.get(
         "/views/video-list",
         params={"sort": "upload_time", "order": "asc", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
     )
     assert response.status_code == 200
     html = response.text
@@ -523,7 +575,7 @@ def test_video_list_sort_order(client: TestClient) -> None:
 def test_video_list_renders_cdn_thumbnail_for_missing_local_path(client: TestClient) -> None:
     _seed_channels_and_videos()
 
-    response = client.get("/views/video-list", params={"limit": "20"})
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
     assert "https://i.ytimg.com/vi/vid-a-000/hqdefault.jpg" in html
@@ -533,7 +585,7 @@ def test_video_list_renders_cdn_thumbnail_for_missing_local_path(client: TestCli
 def test_video_list_renders_download_selected_button(client: TestClient) -> None:
     _seed_channels_and_videos()
 
-    response = client.get("/views/video-list", params={"limit": "20"})
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     assert "data-video-download-selected" in response.text
     assert "data-busy-label=" in response.text
@@ -622,7 +674,7 @@ def test_video_download_selected_uses_single_batch_query(client: TestClient, mon
 def test_video_list_renders_article_selected_button(client: TestClient) -> None:
     _seed_channels_and_videos()
 
-    response = client.get("/views/video-list", params={"limit": "20"})
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
     assert "data-video-article-request-selected" in html
@@ -635,7 +687,7 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     _seed_video_outputs("vid-a-000", transcript=True, article=True)
     _seed_video_outputs("vid-a-001", transcript=True, article=False)
 
-    response = client.get("/views/video-list", params={"limit": "20"})
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
 
     assert response.status_code == 200
     html = response.text
@@ -649,6 +701,7 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     empty_response = client.get(
         "/views/video-list",
         params={"channel_id": "UC_NO_MATCH", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
     )
     assert empty_response.status_code == 200
     assert "영상이 없습니다" in empty_response.text or "No videos yet" in empty_response.text
@@ -660,7 +713,10 @@ def test_video_article_preview_modal_fragment_matches_detail_contract(
     _seed_channels_and_videos()
     _seed_video_outputs("vid-a-000", transcript=True, article=True)
 
-    response = client.get("/views/videos/vid-a-000/article-preview-modal")
+    response = client.get(
+        "/views/videos/vid-a-000/article-preview-modal",
+        headers=FRAGMENT_HEADERS,
+    )
 
     assert response.status_code == 200
     html = response.text

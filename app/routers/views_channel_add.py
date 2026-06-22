@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
 
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
-from app.routers.helpers import parse_optional_int, request_texts
+from app.routers.helpers import (
+    full_page_redirect_for_non_fragment_request,
+    parse_optional_int,
+    request_texts,
+)
 from app.routers.template_context import build_template_context
 from app.routers.views_common import (
     _channel_management_ui_context,
@@ -29,12 +34,24 @@ def _unpack_candidate(value: str) -> tuple[str, str] | None:
     return normalized_id, normalized_name
 
 
+def _channel_list_page_url(status: str, category_id: int | None) -> str:
+    params: dict[str, str] = {"status": channels_repo.normalize_channel_management_status(status)}
+    if category_id is not None:
+        params["category_id"] = str(category_id)
+    return "/channels?" + urlencode(params)
+
+
 @router.get("/channel-list")
 async def channel_list(
     request: Request,
     status: str = Query(default=channels_repo.CHANNEL_MANAGEMENT_STATUS_ACTIVE),
     category_id: int | None = Query(default=None),
 ):
+    page_url = _channel_list_page_url(status, category_id)
+    redirect = full_page_redirect_for_non_fragment_request(request, page_url)
+    if redirect is not None:
+        return redirect
+
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
         status,
@@ -54,6 +71,7 @@ async def channel_list(
         request=request,
         name="fragments/channel_list_result.html",
         context=context,
+        headers={"HX-Push-Url": _channel_list_page_url(channel_status, category_id)},
     )
 
 

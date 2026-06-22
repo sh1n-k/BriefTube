@@ -13,6 +13,7 @@ from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import (
     cleanup_thumbnail_files,
+    full_page_redirect_for_non_fragment_request,
     htmx_trigger_header,
     parse_optional_int,
     request_texts,
@@ -49,6 +50,11 @@ def _video_list_push_url(
     if pipeline_status:
         params["pipeline_status"] = pipeline_status
     return "/?" + urlencode(params)
+
+
+def _page_url_with_request_query(path: str, request: Request) -> str:
+    query = request.url.query
+    return f"{path}?{query}" if query else path
 
 
 def _video_article_request_toast_header(message: str, tone: str) -> dict[str, str]:
@@ -129,6 +135,14 @@ async def video_list(
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
+    if request.method == "GET":
+        redirect = full_page_redirect_for_non_fragment_request(
+            request,
+            _page_url_with_request_query("/", request),
+        )
+        if redirect is not None:
+            return redirect
+
     normalized_category_id = parse_optional_int(category_id)
     normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
 
@@ -462,21 +476,35 @@ async def article_request_single_video(video_id: str, request: Request):
 
 @router.get("/video-detail/{video_id}")
 async def video_detail(video_id: str, request: Request):
+    if request.method == "GET":
+        redirect = full_page_redirect_for_non_fragment_request(request, f"/videos/{video_id}")
+        if redirect is not None:
+            return redirect
+
     context = await build_video_detail_context(
         request,
         video_id=video_id,
         transcript_retry_done=False,
         mark_viewed=True,
     )
+    status_code = 200 if context.get("video") else 404
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/video_detail.html",
         context=context,
+        status_code=status_code,
     )
 
 
 @router.get("/search-results")
 async def search_results(request: Request, q: str = Query(default="")):
+    redirect = full_page_redirect_for_non_fragment_request(
+        request,
+        _page_url_with_request_query("/", request),
+    )
+    if redirect is not None:
+        return redirect
+
     results = await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
     context = await build_template_context(request, results=results, q=q)
     return request.app.state.templates.TemplateResponse(
@@ -488,6 +516,10 @@ async def search_results(request: Request, q: str = Query(default="")):
 
 @router.get("/status-badge/{video_id}")
 async def status_badge(video_id: str, request: Request):
+    redirect = full_page_redirect_for_non_fragment_request(request, f"/videos/{video_id}")
+    if redirect is not None:
+        return redirect
+
     video = await videos_repo.get_video(request.app.state.runtime.db, video_id)
     status = video["pipeline_status"] if video else "unknown"
     context = await build_template_context(request, status=status)

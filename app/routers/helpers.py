@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from fastapi import Request
+from fastapi.responses import RedirectResponse
 
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.repositories import settings as settings_repo
@@ -80,6 +81,18 @@ def build_rss_poll_preview(
 
 def htmx_trigger_header(event_name: str, payload: dict[str, object]) -> dict[str, str]:
     return {"HX-Trigger": json.dumps({event_name: payload}, ensure_ascii=True)}
+
+
+def full_page_redirect_for_non_fragment_request(
+    request: Request,
+    redirect_url: str,
+) -> RedirectResponse | None:
+    if (
+        request.headers.get("HX-Request", "").strip().lower() == "true"
+        or request.headers.get("X-Requested-With", "").strip() == "BriefTubePoll"
+    ):
+        return None
+    return RedirectResponse(redirect_url, status_code=303)
 
 
 async def request_texts(request: Request) -> dict[str, str]:
