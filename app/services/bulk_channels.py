@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
+from fastapi import HTTPException
+
 from app.services.channel_resolver import ChannelResolverService
 from app.services.takeout_parser import (
     ParsedTakeout,
@@ -135,7 +137,7 @@ def parse_takeout_entries(filename: str, content: bytes) -> ParsedTakeout:
             len(content),
             MAX_TAKEOUT_IMPORT_BYTES,
         )
-        return ParsedTakeout(direct_channels=[], inputs=[])
+        raise HTTPException(status_code=413, detail="takeout file is too large")
     try:
         return parse_takeout_file_details(filename=filename, content=content)
     except Exception as exc:
