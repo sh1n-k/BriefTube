@@ -50,16 +50,12 @@ async def resolve_llm_capabilities_payload(
     request: Request, *, refresh: bool = False
 ) -> dict[str, Any]:
     codex = await resolve_codex_capabilities(request.app.state.runtime, refresh=refresh)
-    return {
-        "codex": codex.as_payload(),
-    }
+    return {"codex": codex.as_payload()}
 
 
 @router.put("/settings/llm")
 async def set_llm_settings(request: Request):
     content_type = request.headers.get("content-type", "")
-    provider_primary: str | None = None
-    provider_fallback: str | None = None
     prompt_template: str | None = None
     llm_model: dict[str, str] | None = None
     llm_reasoning_effort: dict[str, str] | None = None
@@ -69,10 +65,10 @@ async def set_llm_settings(request: Request):
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="llm payload must be object")
-        if "provider_primary" in payload:
-            provider_primary = str(payload.get("provider_primary", "")).strip().lower()
-        if "provider_fallback" in payload:
-            provider_fallback = str(payload.get("provider_fallback", "")).strip().lower()
+        if "provider_primary" in payload and str(payload.get("provider_primary", "codex")).strip().lower() != "codex":
+            raise HTTPException(status_code=400, detail="only codex provider is supported")
+        if "provider_fallback" in payload and str(payload.get("provider_fallback", "none")).strip().lower() != "none":
+            raise HTTPException(status_code=400, detail="fallback provider is not supported")
         if "prompt_template" in payload:
             prompt_template = str(payload.get("prompt_template", ""))
         if "max_concurrent" in payload:
@@ -81,51 +77,31 @@ async def set_llm_settings(request: Request):
             llm_model_payload = payload.get("llm_model")
             if not isinstance(llm_model_payload, dict):
                 raise HTTPException(status_code=400, detail="llm_model must be object")
-            llm_model = {key: str(value or "") for key, value in llm_model_payload.items()}
+            llm_model = {"codex": str(llm_model_payload.get("codex") or "")}
         if "llm_reasoning_effort" in payload:
-            llm_reasoning_effort_payload = payload.get("llm_reasoning_effort")
-            if not isinstance(llm_reasoning_effort_payload, dict):
+            effort_payload = payload.get("llm_reasoning_effort")
+            if not isinstance(effort_payload, dict):
                 raise HTTPException(status_code=400, detail="llm_reasoning_effort must be object")
-            llm_reasoning_effort = {
-                key: str(value or "") for key, value in llm_reasoning_effort_payload.items()
-            }
+            llm_reasoning_effort = {"codex": str(effort_payload.get("codex") or "")}
     else:
         form = await request.form()
-        if "llm_provider_primary" in form:
-            provider_primary = str(form.get("llm_provider_primary", "")).strip().lower()
-        if "llm_provider_fallback" in form:
-            provider_fallback = str(form.get("llm_provider_fallback", "")).strip().lower()
+        if "llm_provider_primary" in form and str(form.get("llm_provider_primary", "codex")).strip().lower() != "codex":
+            raise HTTPException(status_code=400, detail="only codex provider is supported")
+        if "llm_provider_fallback" in form and str(form.get("llm_provider_fallback", "none")).strip().lower() != "none":
+            raise HTTPException(status_code=400, detail="fallback provider is not supported")
         if "llm_prompt_template" in form:
             prompt_template = str(form.get("llm_prompt_template", ""))
         if "llm_max_concurrent" in form:
             max_concurrent = str(form.get("llm_max_concurrent", "")).strip()
-        model_keys = ("llm_model_codex", "llm_model_claude", "llm_model_gemini")
-        if any(key in form for key in model_keys):
-            llm_model = {}
-            if "llm_model_codex" in form:
-                llm_model["codex"] = str(form.get("llm_model_codex", ""))
-            if "llm_model_claude" in form:
-                llm_model["claude"] = str(form.get("llm_model_claude", ""))
-            if "llm_model_gemini" in form:
-                llm_model["gemini"] = str(form.get("llm_model_gemini", ""))
-        reasoning_keys = (
-            "llm_reasoning_effort_codex",
-            "llm_reasoning_effort_claude",
-            "llm_reasoning_effort_gemini",
-        )
-        if any(key in form for key in reasoning_keys):
-            llm_reasoning_effort = {}
-            if "llm_reasoning_effort_codex" in form:
-                llm_reasoning_effort["codex"] = str(form.get("llm_reasoning_effort_codex", ""))
-            if "llm_reasoning_effort_claude" in form:
-                llm_reasoning_effort["claude"] = str(form.get("llm_reasoning_effort_claude", ""))
-            if "llm_reasoning_effort_gemini" in form:
-                llm_reasoning_effort["gemini"] = str(form.get("llm_reasoning_effort_gemini", ""))
+        if "llm_model_codex" in form:
+            llm_model = {"codex": str(form.get("llm_model_codex", ""))}
+        if "llm_reasoning_effort_codex" in form:
+            llm_reasoning_effort = {
+                "codex": str(form.get("llm_reasoning_effort_codex", ""))
+            }
 
     if (
-        provider_primary is None
-        and provider_fallback is None
-        and prompt_template is None
+        prompt_template is None
         and llm_model is None
         and llm_reasoning_effort is None
         and max_concurrent is None
@@ -136,8 +112,8 @@ async def set_llm_settings(request: Request):
         current = await settings_repo.get_llm_settings(request.app.state.runtime.db)
         candidate = await settings_repo.set_llm_settings(
             request.app.state.runtime.db,
-            provider_primary=provider_primary,
-            provider_fallback=provider_fallback,
+            provider_primary="codex",
+            provider_fallback="none",
             prompt_template=prompt_template,
             llm_model=llm_model,
             llm_reasoning_effort=llm_reasoning_effort,
@@ -181,8 +157,8 @@ async def set_llm_settings(request: Request):
 
     saved = await settings_repo.set_llm_settings(
         request.app.state.runtime.db,
-        provider_primary=provider_primary,
-        provider_fallback=provider_fallback,
+        provider_primary="codex",
+        provider_fallback="none",
         prompt_template=prompt_template,
         llm_model=llm_model,
         llm_reasoning_effort=llm_reasoning_effort,
@@ -195,10 +171,7 @@ async def set_llm_settings(request: Request):
         await llm_repo.clear_llm_runtime_issue(request.app.state.runtime.db)
     await llm_repo.clear_llm_schema_invalid_alert_flag(request.app.state.runtime.db)
 
-    return {
-        "ok": True,
-        "llm_settings": saved,
-    }
+    return {"ok": True, "llm_settings": saved}
 
 
 @router.get("/settings/llm/runtime-status")
@@ -250,10 +223,6 @@ async def resume_llm_runtime(request: Request):
         tone = "info"
     return JSONResponse(
         status_code=200,
-        content={
-            "ok": True,
-            "resumed_count": pending_count,
-            "status": status_payload,
-        },
+        content={"ok": True, "resumed_count": pending_count, "status": status_payload},
         headers=_llm_runtime_toast_header(message, tone),
     )
