@@ -4,11 +4,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from app.llm_policy import (
-    LLM_PROVIDER_CODEX,
-    LLM_PROVIDER_GEMINI,
-    normalize_llm_provider,
-)
+from app.llm_policy import LLM_PROVIDER_CODEX, normalize_llm_provider
 from app.services.llm_errors import LlmClientError, schema_error_code
 
 ARTICLE_FIELD_KEYS: tuple[str, ...] = ("title", "lead", "body", "fact_box", "timestamps")
@@ -26,7 +22,7 @@ ARTICLE_JSON_SCHEMA_COMPACT = json.dumps(
 
 
 def build_provider_schema(provider: str) -> dict[str, Any]:
-    del provider  # schema is currently provider-agnostic; signature kept for future divergence
+    del provider
     required = list(ARTICLE_FIELD_KEYS)
     return {
         "type": "object",
@@ -42,13 +38,6 @@ def validate_provider_schema(
     schema_builder: Callable[[str], dict[str, Any]],
 ) -> None:
     normalized = normalize_llm_provider(provider, allow_none=False)
-    if normalized == LLM_PROVIDER_GEMINI:
-        raise LlmClientError(
-            schema_error_code(normalized),
-            "Gemini CLI does not support strict output schema enforcement",
-            provider=normalized,
-            retryable=False,
-        )
     schema = schema_builder(normalized)
     properties = schema.get("properties")
     required = schema.get("required")

@@ -16,9 +16,7 @@ from app import llm_policy as _llm_policy
 from app.services.llm_errors import LlmClientError
 
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
-LLM_PROVIDER_CLAUDE = _llm_policy.LLM_PROVIDER_CLAUDE
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
-LLM_PROVIDER_GEMINI = _llm_policy.LLM_PROVIDER_GEMINI
 normalize_codex_model = _llm_policy.normalize_codex_model
 normalize_llm_provider = _llm_policy.normalize_llm_provider
 
@@ -102,13 +100,9 @@ def default_command_exists(name: str) -> bool:
 
 
 def provider_command_name(provider: str) -> str:
-    normalized = normalize_llm_provider(provider, allow_none=True)
+    normalized = normalize_llm_provider(provider, allow_none=False)
     if normalized == LLM_PROVIDER_CODEX:
         return "codex"
-    if normalized == LLM_PROVIDER_CLAUDE:
-        return "claude"
-    if normalized == LLM_PROVIDER_GEMINI:
-        return "gemini"
     raise LlmClientError(
         "llm_provider_invalid",
         f"Unsupported provider: {provider}",
@@ -196,39 +190,4 @@ async def run_codex_provider_command(
         stdout=result.stdout,
         stderr=result.stderr,
         raw_output=raw_output,
-    )
-
-
-async def run_claude_provider_command(
-    *,
-    prompt: str,
-    model: str,
-    reasoning_effort: str,
-    schema_json: str,
-    timeout_seconds: int,
-    runner: CommandRunner,
-    command_exists: CommandExists,
-) -> ProviderCommandResult:
-    command = _ensure_provider_command(LLM_PROVIDER_CLAUDE, command_exists=command_exists)
-
-    args = [
-        command,
-        "-p",
-        "--output-format",
-        "json",
-        "--json-schema",
-        schema_json,
-        "--no-session-persistence",
-    ]
-    if model:
-        args.extend(["--model", model])
-    if reasoning_effort:
-        args.extend(["--effort", reasoning_effort])
-
-    result = await runner(args, timeout_seconds, prompt)
-    return ProviderCommandResult(
-        exit_code=result.exit_code,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        raw_output=result.stdout,
     )
