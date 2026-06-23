@@ -1,5 +1,9 @@
 """Video-related repository accessors."""
 
+from typing import Any
+
+import aiosqlite
+
 from app.repositories import _videos as repository
 
 insert_video_if_absent = repository.insert_video_if_absent
@@ -14,9 +18,19 @@ mark_video_viewed = repository.mark_video_viewed
 get_video_detail = repository.get_video_detail
 get_transcript = repository.get_transcript
 get_article = repository.get_article
-search_documents = repository.search_documents
 mark_video_retry = repository.mark_video_retry
 requeue_done_video_for_manual_article_retry = repository.requeue_done_video_for_manual_article_retry
 update_video_thumbnail = repository.update_video_thumbnail
 
 delete_videos_by_ids = repository.delete_videos_by_ids
+
+
+async def search_documents(
+    db: aiosqlite.Connection,
+    query: str,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    try:
+        return await repository.search_documents(db, query=query, limit=limit)
+    except aiosqlite.OperationalError:
+        return []
