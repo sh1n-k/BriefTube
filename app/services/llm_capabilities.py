@@ -10,8 +10,8 @@ from typing import Any
 
 from app.llm_policy import (
     LLM_CODEX_MODEL_OPTIONS,
+    LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_PROVIDER_CODEX,
-    LLM_REASONING_EFFORT_OPTIONS,
 )
 from app.services.llm_invocation import resolve_provider_command
 
@@ -110,9 +110,7 @@ class LlmCapabilityProbe:
         return _fallback_codex_result(source="fallback", error=first_error)
 
 
-async def resolve_codex_capabilities(
-    runtime: Any, *, refresh: bool = False
-) -> CodexCapabilityResult:
+async def resolve_codex_capabilities(runtime: Any, *, refresh: bool = False) -> CodexCapabilityResult:
     probe = getattr(runtime, "llm_capability_probe", None)
     if not isinstance(probe, LlmCapabilityProbe):
         probe = LlmCapabilityProbe(command_exists=lambda _name: False)
@@ -216,7 +214,7 @@ def _fallback_codex_result(*, source: str, error: str) -> CodexCapabilityResult:
         source=source,
         error=error,
         models=models,
-        reasoning_efforts=_sort_efforts(LLM_REASONING_EFFORT_OPTIONS),
+        reasoning_efforts=_sort_efforts(LLM_CODEX_REASONING_EFFORT_OPTIONS),
     )
 
 

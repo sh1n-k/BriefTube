@@ -224,6 +224,17 @@ async def enqueue_bulk_downloads(
     return result
 
 
+def _resolve_child_file(base_dir: Path, filename: str) -> Path | None:
+    try:
+        resolved_base = base_dir.expanduser().resolve(strict=False)
+        target = (resolved_base / filename).resolve(strict=False)
+    except OSError:
+        return None
+    if target.parent != resolved_base:
+        return None
+    return target
+
+
 async def resolve_download_file_target(
     db: aiosqlite.Connection,
     *,
@@ -239,26 +250,43 @@ async def resolve_download_file_target(
             message="invalid filename",
         )
 
-    target_base = Path(default_download_dir)
-    if job_id is not None:
-        job = await downloads_repo.get_download_job(db, int(job_id))
-        if not job:
-            return DownloadFileTargetResult(
-                ok=False,
-                code="download_job_not_found",
-                message="download job not found",
-            )
-        raw_target_dir = str(job.get("target_dir") or "").strip() or default_download_dir
-        try:
-            target_base = Path(raw_target_dir).expanduser().resolve(strict=False)
-        except OSError:
-            return DownloadFileTargetResult(
-                ok=False,
-                code="download_dir_not_found",
-                message="download directory not found",
-            )
+    if job_id is None:
+        return DownloadFileTargetResult(
+            ok=False,
+            code="download_job_required",
+            message="download job is required",
+        )
 
-    target = target_base / safe_name
+    job = await downloads_repo.get_download_job(db, int(job_id))
+    if not job:
+        return DownloadFileTargetResult(
+            ok=False,
+            code="download_job_not_found",
+            message="download job not found",
+        )
+    if str(job.get("status") or "").strip().lower() != "succeeded":
+        return DownloadFileTargetResult(
+            ok=False,
+            code="download_job_not_succeeded",
+            message="download job has not succeeded",
+        )
+
+    output_name = Path(str(job.get("output_path") or "")).name
+    if not output_name or output_name != safe_name:
+        return DownloadFileTargetResult(
+            ok=False,
+            code="download_file_not_found",
+            message="download file not found",
+        )
+
+    raw_target_dir = str(job.get("target_dir") or "").strip() or default_download_dir
+    target = _resolve_child_file(Path(raw_target_dir), safe_name)
+    if target is None:
+        return DownloadFileTargetResult(
+            ok=False,
+            code="download_dir_not_found",
+            message="download directory not found",
+        )
     if not target.exists() or not target.is_file():
         return DownloadFileTargetResult(
             ok=False,
