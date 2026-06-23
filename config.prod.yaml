@@ -3,7 +3,7 @@
 #  dev/prod 구분, 저장 위치, 외부 연동처럼 환경마다 달라질 수 있는 값입니다.
 # ============================================================
 env: "prod"
-server_host: "0.0.0.0"
+server_host: "127.0.0.1"
 server_port: 48080
 server_reload: false
 db_path: "./data.prod.db"
