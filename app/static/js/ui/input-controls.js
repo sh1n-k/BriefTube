@@ -41,7 +41,9 @@
 
   function bindCodexOnlyLlmSettings(scope) {
     const root = scope instanceof Element ? scope : document;
-    const form = root.querySelector("#llm-settings-form");
+    const form = root.matches?.("#llm-settings-form")
+      ? root
+      : root.querySelector("#llm-settings-form");
     if (!form || form.dataset.codexOnlyBound === "1") return;
     form.dataset.codexOnlyBound = "1";
     form.setAttribute(
