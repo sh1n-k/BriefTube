@@ -11,6 +11,7 @@ from app.services.takeout_parser import (
 )
 
 logger = logging.getLogger(__name__)
+MAX_TAKEOUT_IMPORT_BYTES = 10 * 1024 * 1024
 
 
 def _unique(values: Iterable[str]) -> list[str]:
@@ -127,6 +128,14 @@ async def resolve_bulk_inputs(
 
 
 def parse_takeout_entries(filename: str, content: bytes) -> ParsedTakeout:
+    if len(content) > MAX_TAKEOUT_IMPORT_BYTES:
+        logger.warning(
+            "event=channels.takeout_parse_rejected filename=%s size=%s limit=%s",
+            filename,
+            len(content),
+            MAX_TAKEOUT_IMPORT_BYTES,
+        )
+        return ParsedTakeout(direct_channels=[], inputs=[])
     try:
         return parse_takeout_file_details(filename=filename, content=content)
     except Exception as exc:
