@@ -1,10 +1,13 @@
 """Video-related repository accessors."""
 
+import logging
 from typing import Any
 
 import aiosqlite
 
 from app.repositories import _videos as repository
+
+logger = logging.getLogger(__name__)
 
 insert_video_if_absent = repository.insert_video_if_absent
 insert_videos_if_absent_batch = repository.insert_videos_if_absent_batch
@@ -25,6 +28,16 @@ update_video_thumbnail = repository.update_video_thumbnail
 delete_videos_by_ids = repository.delete_videos_by_ids
 
 
+def _is_malformed_fts_query_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "syntax error" in message
+        or "fts5" in message and "parse" in message
+        or "unterminated" in message
+        or "malformed" in message and "match" in message
+    )
+
+
 async def search_documents(
     db: aiosqlite.Connection,
     query: str,
@@ -32,5 +45,12 @@ async def search_documents(
 ) -> list[dict[str, Any]]:
     try:
         return await repository.search_documents(db, query=query, limit=limit)
-    except aiosqlite.OperationalError:
+    except aiosqlite.OperationalError as exc:
+        if not _is_malformed_fts_query_error(exc):
+            raise
+        logger.warning(
+            "event=videos.search_query_rejected error_type=%s",
+            exc.__class__.__name__,
+            extra={"event": "videos.search_query_rejected"},
+        )
         return []
