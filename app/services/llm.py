@@ -27,7 +27,6 @@ from app.services.llm_payload import (
     load_json,
     parse_provider_output,
 )
-from app.services.llm_provider_fallback import run_provider_fallback
 from app.services.llm_provider_result import (
     parse_and_capture_provider_result,
     raise_for_provider_command_failure,
@@ -76,7 +75,11 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
     payload = raw or {}
     prompt_template = str(payload.get("prompt_template") or "")
     model_payload = payload.get("llm_model")
-    codex_model_raw = model_payload.get("codex", "") if isinstance(model_payload, Mapping) else payload.get("llm_model_codex", "")
+    codex_model_raw = (
+        model_payload.get("codex", "")
+        if isinstance(model_payload, Mapping)
+        else payload.get("llm_model_codex", "")
+    )
     effort_payload = payload.get("llm_reasoning_effort")
     codex_effort_raw = (
         effort_payload.get("codex", "")
@@ -158,19 +161,12 @@ class UnifiedLlmClient:
             transcript_text=transcript_text,
         )
 
-        async def invoke_provider(provider: str) -> dict[str, str]:
-            return await self._invoke_codex(
-                prompt,
-                source_title=source_title,
-                model=normalized.llm_model.get("codex", LLM_CODEX_MODEL_DEFAULT),
-                reasoning_effort=normalized.llm_reasoning_effort.get("codex", ""),
-            )
-
-        result = await run_provider_fallback(
-            providers_to_try=runtime_plan.providers_to_try,
-            invoke_provider=invoke_provider,
+        article = await self._invoke_codex(
+            prompt,
+            source_title=source_title,
+            model=normalized.llm_model.get("codex", LLM_CODEX_MODEL_DEFAULT),
+            reasoning_effort=normalized.llm_reasoning_effort.get("codex", ""),
         )
-        article = result.article
         article["_llm_provider"] = LLM_PROVIDER_CODEX
         article["_llm_model"] = str(normalized.llm_model.get("codex", "") or "")
         article["_llm_reasoning_effort"] = str(
