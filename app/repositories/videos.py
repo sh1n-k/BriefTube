@@ -32,9 +32,9 @@ def _is_malformed_fts_query_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return (
         "syntax error" in message
-        or "fts5" in message and "parse" in message
+        or ("fts5" in message and "parse" in message)
         or "unterminated" in message
-        or "malformed" in message and "match" in message
+        or ("malformed" in message and "match" in message)
     )
 
 
