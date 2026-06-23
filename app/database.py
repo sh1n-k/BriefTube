@@ -4,7 +4,6 @@ from pathlib import Path
 
 import aiosqlite
 
-from app.database_backup import backup_sqlite_database_if_present
 from app.database_migrations import (
     _ensure_app_settings_table,
     _ensure_article_columns,
@@ -23,7 +22,6 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 
 
 async def open_database(db_path: str) -> aiosqlite.Connection:
-    backup_sqlite_database_if_present(db_path)
     db = await aiosqlite.connect(db_path, timeout=5.0)
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA foreign_keys = ON;")
@@ -48,20 +46,6 @@ async def init_database(db: aiosqlite.Connection) -> None:
     for table in ("categories", "channels", "videos", "transcripts", "articles"):
         await _ensure_sync_metadata_columns(db, table)
     await _ensure_remote_sync_indexes(db)
-    await db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            version     TEXT PRIMARY KEY,
-            applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        """
-    )
-    await db.execute(
-        """
-        INSERT OR IGNORE INTO schema_migrations(version)
-        VALUES ('startup_ensure_schema')
-        """
-    )
     await db.commit()
 
 
