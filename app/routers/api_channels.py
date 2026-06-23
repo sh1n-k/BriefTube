@@ -14,12 +14,15 @@ from starlette.datastructures import UploadFile
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.services.bulk_channels import (
+    MAX_TAKEOUT_IMPORT_BYTES,
+    TakeoutImportTooLargeError,
     collect_inputs_from_sources,
     parse_takeout_entries,
     resolve_bulk_inputs,
 )
 
 logger = logging.getLogger("app.routers.api")
+MAX_CHANNEL_IMPORT_BYTES = 5 * 1024 * 1024
 
 router = APIRouter(tags=["api"])
 
@@ -40,6 +43,13 @@ async def _read_json_or_form_object(request: Request) -> dict:
         form = await request.form()
         return {key: form.get(key) for key in form.keys()}
     return await _read_json_object(request)
+
+
+def _parse_takeout_entries_or_413(filename: str, content: bytes):
+    try:
+        return parse_takeout_entries(filename, content)
+    except TakeoutImportTooLargeError as exc:
+        raise HTTPException(status_code=413, detail="takeout file is too large") from exc
 
 
 @router.get("/channels")
@@ -127,7 +137,7 @@ async def create_channel(request: Request):
 @router.post("/channels/bulk/resolve")
 async def resolve_bulk_channels(request: Request):
     bulk_text = ""
-    takeout_data = parse_takeout_entries("takeout.txt", b"")
+    takeout_data = _parse_takeout_entries_or_413("takeout.txt", b"")
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
@@ -140,18 +150,19 @@ async def resolve_bulk_channels(request: Request):
             raise HTTPException(status_code=400, detail="takeout_entries must be a list")
         raw_entries = [str(item).strip() for item in raw_takeout_entries if str(item).strip()]
         if raw_entries:
-            takeout_data = parse_takeout_entries(
-                "takeout.txt", "\n".join(raw_entries).encode("utf-8")
-            )
+            raw_bytes = "\n".join(raw_entries).encode("utf-8")
+            if len(raw_bytes) > MAX_TAKEOUT_IMPORT_BYTES:
+                raise HTTPException(status_code=413, detail="takeout entries are too large")
+            takeout_data = _parse_takeout_entries_or_413("takeout.txt", raw_bytes)
         else:
-            takeout_data = parse_takeout_entries("takeout.txt", b"")
+            takeout_data = _parse_takeout_entries_or_413("takeout.txt", b"")
     else:
         form = await request.form()
         bulk_text = str(form.get("bulk_text", ""))
         upload = form.get("takeout_file")
         if isinstance(upload, UploadFile):
             file_content = await upload.read()
-            takeout_data = parse_takeout_entries(
+            takeout_data = _parse_takeout_entries_or_413(
                 filename=upload.filename or "takeout.txt",
                 content=file_content,
             )
@@ -302,7 +313,11 @@ async def import_channels(request: Request):
 
     try:
         raw = await upload.read()
+        if len(raw) > MAX_CHANNEL_IMPORT_BYTES:
+            raise HTTPException(status_code=413, detail="import file is too large")
         data = json.loads(raw)
+    except HTTPException:
+        raise
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid json file") from exc
 
