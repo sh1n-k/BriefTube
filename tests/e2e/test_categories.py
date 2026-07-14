@@ -57,8 +57,8 @@ def seeded_page(e2e_page: Page) -> Page:
 # ---------------------------------------------------------------------------
 
 
-def test_category_add(seeded_page: Page):
-    """Typing a name and clicking submit should add a new category via OOB swap."""
+def test_category_crud(seeded_page: Page):
+    """Category add, rename, and delete flows update the sidebar through HTMX."""
     sidebar = seeded_page.locator("#category-sidebar")
     name_input = sidebar.locator("input[name='name']")
     submit_btn = sidebar.locator("button[type='submit']", has_text="추가")
@@ -79,79 +79,13 @@ def test_category_add(seeded_page: Page):
     all_count = all_link.locator("span.rounded-full")
     expect(all_count).to_have_text("6")
 
-
-# ---------------------------------------------------------------------------
-# 3. Deleting a category (with hx-confirm dialog)
-# ---------------------------------------------------------------------------
-
-
-def test_category_delete(seeded_page: Page):
-    """Deleting a custom category should remove it after confirm dialog."""
-    sidebar = seeded_page.locator("#category-sidebar")
-    custom_list = sidebar.locator("[data-category-list]")
-
-    # Before: 2 custom categories
-    expect(custom_list.locator("li[data-category-id]")).to_have_count(2)
-
-    # Find the "투자" item's delete button (rose-500 colored button with hx-delete)
+    custom_list = new_sidebar.locator("[data-category-list]")
     invest_item = custom_list.locator("li", has_text="투자")
 
-    # Accept the upcoming confirm dialog
-    seeded_page.on("dialog", lambda dialog: dialog.accept())
-
-    delete_btn = invest_item.locator("button[hx-delete]")
-    # Force hover to make the button visible (it's hidden behind opacity-0 group-hover)
+    seeded_page.once("dialog", lambda dialog: dialog.accept("주식"))
     invest_item.hover()
-    delete_btn.click()
+    invest_item.locator("[data-category-rename-trigger]").click()
 
-    # Wait for sidebar to be refreshed -- the sidebar gets fully replaced
-    seeded_page.wait_for_function(
-        "() => !document.querySelector('#category-sidebar [data-category-list] li a[href*=\"category_id=\"]')?.textContent?.includes('투자')",
-        timeout=5000,
-    )
-
-    new_sidebar = seeded_page.locator("#category-sidebar")
-    new_list = new_sidebar.locator("[data-category-list]")
-
-    # After: only 1 custom category remains
-    expect(new_list.locator("li[data-category-id]")).to_have_count(1)
-
-    # "투자" should be gone
-    expect(new_list.locator("li", has_text="투자")).to_have_count(0)
-
-    # "미분류" should now have 4 channels (2 original + 2 moved from deleted)
-    default_link = new_sidebar.locator("a[href*='category_id=']", has_text="미분류")
-    default_parent = default_link.locator("xpath=..")
-    default_count = default_parent.locator("span.rounded-full")
-    expect(default_count).to_have_text("4")
-
-
-# ---------------------------------------------------------------------------
-# 4. Renaming a category via window.prompt + API call
-# ---------------------------------------------------------------------------
-
-
-def test_category_rename(seeded_page: Page):
-    """Clicking rename trigger opens a prompt; after submit the sidebar updates."""
-    sidebar = seeded_page.locator("#category-sidebar")
-    custom_list = sidebar.locator("[data-category-list]")
-    invest_item = custom_list.locator("li", has_text="투자")
-
-    # Intercept the window.prompt to return a new name
-    seeded_page.evaluate("window.__promptOverride = '주식'")
-    seeded_page.evaluate("""
-        window._origPrompt = window.prompt;
-        window.prompt = function(title, defaultVal) {
-            return window.__promptOverride;
-        };
-    """)
-
-    # Hover to reveal buttons, then click rename trigger
-    invest_item.hover()
-    rename_btn = invest_item.locator("[data-category-rename-trigger]")
-    rename_btn.click()
-
-    # Wait for the sidebar to refresh via HTMX ajax
     seeded_page.wait_for_function(
         "() => document.querySelector('#category-sidebar [data-category-list]')?.textContent?.includes('주식')",
         timeout=5000,
@@ -164,8 +98,15 @@ def test_category_rename(seeded_page: Page):
     # Old name should be gone
     expect(new_sidebar.locator("[data-category-list] li", has_text="투자")).to_have_count(0)
 
-    # Restore prompt
-    seeded_page.evaluate("window.prompt = window._origPrompt")
+    renamed_item.hover()
+    seeded_page.once("dialog", lambda dialog: dialog.accept())
+    renamed_item.locator("button[hx-delete]").click()
+
+    expect(new_sidebar.locator("[data-category-list] li", has_text="주식")).to_have_count(0)
+    expect(new_sidebar.locator("[data-category-list] li[data-category-id]")).to_have_count(2)
+
+    default_link = new_sidebar.locator("a[href*='category_id=']", has_text="미분류")
+    expect(default_link.locator("xpath=..").locator("span.rounded-full")).to_have_text("4")
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +144,6 @@ def test_category_drag_reorder(seeded_page: Page):
     with seeded_page.expect_request("**/api/categories/reorder"):
         source_handle.drag_to(target_item)
 
-    # Allow route hook to append captured payload
-    seeded_page.wait_for_timeout(200)
     assert len(reorder_requests) >= 1, "Expected at least one reorder request"
 
     payload = reorder_requests[0]
