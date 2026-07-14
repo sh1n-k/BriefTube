@@ -657,26 +657,3 @@ async def delete_channels_with_related_data(
         "deleted_videos": int(videos_cursor.rowcount or 0),
         "thumbnail_paths": thumbnail_paths,
     }
-
-
-# Backwards-compatible re-exports for callers that still reach these functions via
-# ``app.repositories._channels`` directly (e.g. ``_impl``). The imports are placed at
-# the bottom of the module, after every shared constant/helper above is defined, so the
-# sub-modules can import those shared names without a partial-initialization cycle.
-from app.repositories._channels_metadata import (  # noqa: E402, I001
-    claim_next_channel_metadata_target as claim_next_channel_metadata_target,
-    enqueue_channel_metadata_refresh as enqueue_channel_metadata_refresh,
-    enqueue_failed_channel_metadata as enqueue_failed_channel_metadata,
-    mark_channel_metadata_failed as mark_channel_metadata_failed,
-    mark_channel_metadata_succeeded as mark_channel_metadata_succeeded,
-    recover_stuck_channel_metadata_running as recover_stuck_channel_metadata_running,
-    schedule_channel_metadata_backfill as schedule_channel_metadata_backfill,
-)
-from app.repositories._channels_polling import (  # noqa: E402
-    count_active_channels as count_active_channels,
-    increment_rss_fail_streak as increment_rss_fail_streak,
-    is_newer_published as is_newer_published,
-    mark_rss_poll_success as mark_rss_poll_success,
-    pick_next_rss_channel as pick_next_rss_channel,
-    touch_rss_last_polled_at as touch_rss_last_polled_at,
-)

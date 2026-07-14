@@ -12,14 +12,18 @@ from app.repositories import (
 from app.repositories import (
     _settings as settings_repository,
 )
+from app.repositories import (
+    _settings_llm as llm_settings_repository,
+)
 
 LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_review")
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
-LLM_CONFIG_MISSING_ALERT_SENT_KEY = settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY
-LLM_SCHEMA_INVALID_ALERT_SENT_KEY = settings_repository.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
-LLM_RUNTIME_LAST_CODE_KEY = settings_repository.LLM_RUNTIME_LAST_CODE_KEY
-LLM_RUNTIME_LAST_MESSAGE_KEY = settings_repository.LLM_RUNTIME_LAST_MESSAGE_KEY
-LLM_RUNTIME_LAST_SEEN_AT_KEY = settings_repository.LLM_RUNTIME_LAST_SEEN_AT_KEY
+LLM_ARTICLE_PROVIDER_VALUES = {"codex", "claude", "gemini"}
+LLM_CONFIG_MISSING_ALERT_SENT_KEY = llm_settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY
+LLM_SCHEMA_INVALID_ALERT_SENT_KEY = llm_settings_repository.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
+LLM_RUNTIME_LAST_CODE_KEY = llm_settings_repository.LLM_RUNTIME_LAST_CODE_KEY
+LLM_RUNTIME_LAST_MESSAGE_KEY = llm_settings_repository.LLM_RUNTIME_LAST_MESSAGE_KEY
+LLM_RUNTIME_LAST_SEEN_AT_KEY = llm_settings_repository.LLM_RUNTIME_LAST_SEEN_AT_KEY
 
 get_setting = settings_repository.get_setting
 set_setting = settings_repository.set_setting
@@ -33,7 +37,7 @@ def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
 
 def _normalize_article_provider(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in settings_repository.LLM_PROVIDER_OPTIONS:
+    if normalized in LLM_ARTICLE_PROVIDER_VALUES:
         return normalized
     return LLM_ARTICLE_PROVIDER_UNKNOWN
 

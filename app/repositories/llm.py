@@ -2,7 +2,7 @@
 
 from app.repositories import _alerts_retention as alerts_repository
 from app.repositories import _llm as repository
-from app.repositories import _settings as settings_repository
+from app.repositories import _settings_llm as settings_repository
 
 LLM_QUEUE_STATUSES = repository.LLM_QUEUE_STATUSES
 ALERT_TYPE_LLM_CONFIG_MISSING = alerts_repository.ALERT_TYPE_LLM_CONFIG_MISSING

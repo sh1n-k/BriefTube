@@ -521,17 +521,3 @@ async def clear_download_jobs(
         )
     await db.commit()
     return int(cursor.rowcount or 0)
-
-
-# Backwards-compatible re-exports for callers that still reach these read-only accessors
-# via ``app.repositories._downloads`` directly (e.g. ``_impl``). The imports are placed at
-# the bottom of the module, after every shared constant/helper above is defined, so the
-# sub-module can import those shared names without a partial-initialization cycle.
-from app.repositories._downloads_queries import (  # noqa: E402, I001
-    count_download_jobs as count_download_jobs,
-    count_download_jobs_by_status as count_download_jobs_by_status,
-    get_download_progress as get_download_progress,
-    latest_download_event_id as latest_download_event_id,
-    list_download_events_after as list_download_events_after,
-    list_download_jobs as list_download_jobs,
-)

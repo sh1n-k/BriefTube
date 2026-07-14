@@ -66,7 +66,7 @@ def test_project_configs_define_server_runtime(monkeypatch) -> None:
 
     monkeypatch.setenv("APP_CONFIG_FILE", str(root_dir / "config.prod.yaml"))
     prod_cfg = load_config()
-    assert prod_cfg.server_host == "0.0.0.0"
+    assert prod_cfg.server_host == "127.0.0.1"
     assert prod_cfg.server_port == 48080
     assert prod_cfg.server_reload is False
 

@@ -30,7 +30,7 @@ def test_settings_language_default_and_update(client: TestClient) -> None:
     }
     assert payload["policy"]["rss_feed_mode"] == "long_form_only"
     assert payload["llm_settings"]["provider_primary"] == "codex"
-    assert payload["llm_settings"]["provider_fallback"] == "claude"
+    assert payload["llm_settings"]["provider_fallback"] == "none"
     assert payload["llm_settings"]["max_concurrent"] == 1
     assert "codex" in payload["llm_capabilities"]
     assert payload["telegram_settings"]["configured"] is False
@@ -336,24 +336,20 @@ def test_settings_llm_update(client: TestClient) -> None:
     response = client.put(
         "/api/settings/llm",
         json={
-            "provider_primary": "claude",
+            "provider_primary": "codex",
             "provider_fallback": "none",
             "prompt_template": "Title={source_title}\\nBody={transcript_text}",
             "llm_model": {
                 "codex": "gpt-5.4",
-                "claude": "sonnet",
-                "gemini": "gemini-3.1-pro-preview",
             },
             "llm_reasoning_effort": {
                 "codex": "high",
-                "claude": "medium",
-                "gemini": "low",
             },
             "max_concurrent": 4,
         },
     )
     assert response.status_code == 200
-    assert response.json()["llm_settings"]["provider_primary"] == "claude"
+    assert response.json()["llm_settings"]["provider_primary"] == "codex"
     assert response.json()["llm_settings"]["provider_fallback"] == "none"
     assert (
         response.json()["llm_settings"]["prompt_template"]
@@ -361,29 +357,21 @@ def test_settings_llm_update(client: TestClient) -> None:
     )
     assert response.json()["llm_settings"]["llm_model"] == {
         "codex": "gpt-5.4",
-        "claude": "sonnet",
-        "gemini": "gemini-3.1-pro-preview",
     }
     assert response.json()["llm_settings"]["llm_reasoning_effort"] == {
         "codex": "high",
-        "claude": "medium",
-        "gemini": "low",
     }
     assert response.json()["llm_settings"]["max_concurrent"] == 4
 
     after = client.get("/api/settings")
     assert after.status_code == 200
-    assert after.json()["llm_settings"]["provider_primary"] == "claude"
+    assert after.json()["llm_settings"]["provider_primary"] == "codex"
     assert after.json()["llm_settings"]["provider_fallback"] == "none"
     assert after.json()["llm_settings"]["llm_model"] == {
         "codex": "gpt-5.4",
-        "claude": "sonnet",
-        "gemini": "gemini-3.1-pro-preview",
     }
     assert after.json()["llm_settings"]["llm_reasoning_effort"] == {
         "codex": "high",
-        "claude": "medium",
-        "gemini": "low",
     }
     assert after.json()["llm_settings"]["max_concurrent"] == 4
 
@@ -392,10 +380,8 @@ def test_settings_llm_update(client: TestClient) -> None:
     ("payload", "detail"),
     [
         ({"max_concurrent": 5}, "max_concurrent must be between 1 and 4"),
-        (
-            {"provider_primary": "codex", "provider_fallback": "codex"},
-            "provider_fallback must be different from provider_primary",
-        ),
+        ({"provider_primary": "claude"}, "only codex provider is supported"),
+        ({"provider_fallback": "claude"}, "fallback provider is not supported"),
         ({}, "empty llm settings payload"),
         (
             {
@@ -412,8 +398,16 @@ def test_settings_llm_update(client: TestClient) -> None:
             "llm_model.codex is too long (max 200)",
         ),
         (
-            {"llm_reasoning_effort": {"claude": "ultra"}},
-            "reasoning_effort must be one of: high, low, medium",
+            {"llm_model": {"claude": "sonnet"}},
+            "llm_model must contain only codex",
+        ),
+        (
+            {"llm_reasoning_effort": {"gemini": "low"}},
+            "llm_reasoning_effort must contain only codex",
+        ),
+        (
+            {"llm_reasoning_effort": {"codex": "ultra"}},
+            "reasoning_effort must be one of: high, low, medium, xhigh",
         ),
     ],
 )
@@ -503,7 +497,7 @@ def test_settings_llm_capabilities_reports_codex_models(client: TestClient) -> N
     assert calls == 2
 
 
-def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(
+def test_settings_llm_partial_model_update_preserves_reasoning_effort(
     client: TestClient,
 ) -> None:
     first = client.put(
@@ -511,7 +505,6 @@ def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(
         json={
             "llm_reasoning_effort": {
                 "codex": "high",
-                "claude": "low",
             }
         },
     )
@@ -520,16 +513,14 @@ def test_settings_llm_partial_reasoning_effort_update_preserves_other_values(
     second = client.put(
         "/api/settings/llm",
         json={
-            "llm_reasoning_effort": {
-                "claude": "medium",
+            "llm_model": {
+                "codex": "gpt-5.4",
             }
         },
     )
     assert second.status_code == 200
     assert second.json()["llm_settings"]["llm_reasoning_effort"] == {
         "codex": "high",
-        "claude": "medium",
-        "gemini": "none",
     }
 
 
@@ -538,14 +529,10 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
         "/api/settings/llm",
         data={
             "llm_provider_primary": "codex",
-            "llm_provider_fallback": "claude",
+            "llm_provider_fallback": "none",
             "llm_prompt_template": "Body={transcript_text}",
             "llm_model_codex": "gpt-5.4",
-            "llm_model_claude": "sonnet",
-            "llm_model_gemini": "gemini-3.1-pro-preview",
             "llm_reasoning_effort_codex": "medium",
-            "llm_reasoning_effort_claude": "high",
-            "llm_reasoning_effort_gemini": "low",
             "llm_max_concurrent": "3",
         },
     )
@@ -553,13 +540,9 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
     llm_settings = response.json()["llm_settings"]
     assert llm_settings["llm_model"] == {
         "codex": "gpt-5.4",
-        "claude": "sonnet",
-        "gemini": "gemini-3.1-pro-preview",
     }
     assert llm_settings["llm_reasoning_effort"] == {
         "codex": "medium",
-        "claude": "high",
-        "gemini": "low",
     }
     assert llm_settings["max_concurrent"] == 3
 
@@ -581,15 +564,14 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
     response = client.put(
         "/api/settings/llm",
         json={
-            "provider_primary": "claude",
+            "provider_primary": "codex",
             "provider_fallback": "none",
             "prompt_template": "Body={transcript_text}",
             "llm_model": {
-                "claude": "claude-sonnet-4-20250514",
+                "codex": "gpt-5.4",
             },
             "llm_reasoning_effort": {
                 "codex": "high",
-                "claude": "medium",
             },
         },
     )
@@ -603,34 +585,24 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
     after = client.get("/api/settings")
     assert after.status_code == 200
     assert after.json()["llm_settings"]["provider_primary"] == "codex"
-    assert after.json()["llm_settings"]["provider_fallback"] == "claude"
+    assert after.json()["llm_settings"]["provider_fallback"] == "none"
     assert after.json()["llm_settings"]["max_concurrent"] == 1
 
 
-def test_settings_llm_update_blocks_when_primary_provider_is_gemini(client: TestClient) -> None:
+def test_settings_llm_update_rejects_unsupported_provider(client: TestClient) -> None:
     response = client.put(
         "/api/settings/llm",
         json={
             "provider_primary": "gemini",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-            "llm_model": {
-                "gemini": "gemini-3.1-pro-preview",
-            },
-            "llm_reasoning_effort": {
-                "gemini": "none",
-            },
         },
     )
-    assert response.status_code == 409
-    payload = response.json()
-    assert payload["ok"] is False
-    assert payload["code"] == "llm_provider_schema_invalid_gemini"
+    assert response.status_code == 400
+    assert response.json()["detail"] == "only codex provider is supported"
 
     after = client.get("/api/settings")
     assert after.status_code == 200
     assert after.json()["llm_settings"]["provider_primary"] == "codex"
-    assert after.json()["llm_settings"]["provider_fallback"] == "claude"
+    assert after.json()["llm_settings"]["provider_fallback"] == "none"
 
 
 def test_settings_llm_runtime_status_reports_prompt_missing(client: TestClient) -> None:

@@ -25,6 +25,15 @@ def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
     return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
+def _codex_only_setting(payload: dict[str, Any], field: str) -> dict[str, str]:
+    value = payload.get(field)
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail=f"{field} must be object")
+    if set(value) != {"codex"}:
+        raise HTTPException(status_code=400, detail=f"{field} must contain only codex")
+    return {"codex": str(value.get("codex") or "")}
+
+
 async def resolve_llm_runtime_status_payload(request: Request) -> dict[str, Any]:
     llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
     runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
@@ -65,29 +74,35 @@ async def set_llm_settings(request: Request):
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="llm payload must be object")
-        if "provider_primary" in payload and str(payload.get("provider_primary", "codex")).strip().lower() != "codex":
+        if (
+            "provider_primary" in payload
+            and str(payload.get("provider_primary", "codex")).strip().lower() != "codex"
+        ):
             raise HTTPException(status_code=400, detail="only codex provider is supported")
-        if "provider_fallback" in payload and str(payload.get("provider_fallback", "none")).strip().lower() != "none":
+        if (
+            "provider_fallback" in payload
+            and str(payload.get("provider_fallback", "none")).strip().lower() != "none"
+        ):
             raise HTTPException(status_code=400, detail="fallback provider is not supported")
         if "prompt_template" in payload:
             prompt_template = str(payload.get("prompt_template", ""))
         if "max_concurrent" in payload:
             max_concurrent = str(payload.get("max_concurrent", "")).strip()
         if "llm_model" in payload:
-            llm_model_payload = payload.get("llm_model")
-            if not isinstance(llm_model_payload, dict):
-                raise HTTPException(status_code=400, detail="llm_model must be object")
-            llm_model = {"codex": str(llm_model_payload.get("codex") or "")}
+            llm_model = _codex_only_setting(payload, "llm_model")
         if "llm_reasoning_effort" in payload:
-            effort_payload = payload.get("llm_reasoning_effort")
-            if not isinstance(effort_payload, dict):
-                raise HTTPException(status_code=400, detail="llm_reasoning_effort must be object")
-            llm_reasoning_effort = {"codex": str(effort_payload.get("codex") or "")}
+            llm_reasoning_effort = _codex_only_setting(payload, "llm_reasoning_effort")
     else:
         form = await request.form()
-        if "llm_provider_primary" in form and str(form.get("llm_provider_primary", "codex")).strip().lower() != "codex":
+        if (
+            "llm_provider_primary" in form
+            and str(form.get("llm_provider_primary", "codex")).strip().lower() != "codex"
+        ):
             raise HTTPException(status_code=400, detail="only codex provider is supported")
-        if "llm_provider_fallback" in form and str(form.get("llm_provider_fallback", "none")).strip().lower() != "none":
+        if (
+            "llm_provider_fallback" in form
+            and str(form.get("llm_provider_fallback", "none")).strip().lower() != "none"
+        ):
             raise HTTPException(status_code=400, detail="fallback provider is not supported")
         if "llm_prompt_template" in form:
             prompt_template = str(form.get("llm_prompt_template", ""))
@@ -96,9 +111,7 @@ async def set_llm_settings(request: Request):
         if "llm_model_codex" in form:
             llm_model = {"codex": str(form.get("llm_model_codex", ""))}
         if "llm_reasoning_effort_codex" in form:
-            llm_reasoning_effort = {
-                "codex": str(form.get("llm_reasoning_effort_codex", ""))
-            }
+            llm_reasoning_effort = {"codex": str(form.get("llm_reasoning_effort_codex", ""))}
 
     if (
         prompt_template is None
@@ -112,8 +125,6 @@ async def set_llm_settings(request: Request):
         current = await settings_repo.get_llm_settings(request.app.state.runtime.db)
         candidate = await settings_repo.set_llm_settings(
             request.app.state.runtime.db,
-            provider_primary="codex",
-            provider_fallback="none",
             prompt_template=prompt_template,
             llm_model=llm_model,
             llm_reasoning_effort=llm_reasoning_effort,
@@ -157,8 +168,6 @@ async def set_llm_settings(request: Request):
 
     saved = await settings_repo.set_llm_settings(
         request.app.state.runtime.db,
-        provider_primary="codex",
-        provider_fallback="none",
         prompt_template=prompt_template,
         llm_model=llm_model,
         llm_reasoning_effort=llm_reasoning_effort,

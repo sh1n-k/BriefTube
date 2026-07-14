@@ -429,15 +429,3 @@ async def save_transcript_request_header_overrides(
         value=payload,
     )
     return await get_transcript_request_header_overrides(db)
-
-
-# Backwards-compatible re-exports for callers that still reach these names via
-# ``app.repositories._transcripts`` directly (e.g. ``_impl``). The imports are placed at
-# the bottom of the module, after every shared helper above is defined, so the
-# sub-module can import those shared names without a partial-initialization cycle.
-from app.repositories._transcripts_guard import (  # noqa: E402, I001
-    TRANSCRIPT_GUARD_DEFAULTS as TRANSCRIPT_GUARD_DEFAULTS,
-    get_transcript_guard_state as get_transcript_guard_state,
-    reset_transcript_guard_state as reset_transcript_guard_state,
-    save_transcript_guard_state as save_transcript_guard_state,
-)

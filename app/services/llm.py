@@ -47,10 +47,7 @@ LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTI
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = _llm_policy.LLM_PROMPT_TEMPLATE_MAX_LENGTH
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_NONE = _llm_policy.LLM_PROVIDER_NONE
-LLM_PROVIDER_OPTIONS = _llm_policy.LLM_PROVIDER_OPTIONS
-LLM_PROVIDER_FALLBACK_OPTIONS = _llm_policy.LLM_PROVIDER_FALLBACK_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
-normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 _UNTRUSTED_TRANSCRIPT_GUARD = """
 Security and accuracy rules:

@@ -313,7 +313,7 @@
       id="llm-settings-form"
       hx-put="/api/settings/llm"
       hx-swap="none"
-      hx-trigger="change from:select[name='llm_provider_primary'], change from:select[name='llm_provider_fallback'], change from:select[name='llm_max_concurrent'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], change from:select[name='llm_reasoning_effort_claude'], change from:select[name='llm_reasoning_effort_gemini'], input changed delay:1s from:textarea[name='llm_prompt_template'], input changed delay:1s from:input[name='llm_model_claude'], input changed delay:1s from:input[name='llm_model_gemini']"
+      hx-trigger="change from:select[name='llm_max_concurrent'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], input changed delay:1s from:textarea[name='llm_prompt_template']"
       data-save-toast="{{ txt.settings_saved_toast }}"
       data-settings-section="llm"
     >
@@ -327,27 +327,13 @@
 
       <div class="mt-4 grid gap-4 lg:grid-cols-2 lg:items-stretch">
         <div class="flex min-w-0 flex-col gap-4">
-          <section class="rounded-md border border-slate-200 bg-slate-50 p-4 lg:min-h-[260px]">
+          <section class="rounded-md border border-slate-200 bg-slate-50 p-4">
             <h3 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_execution_title }}</h3>
             <div class="mt-3 grid gap-3">
-              <label class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
-                <span class="text-sm text-slate-600">{{ txt.settings_llm_provider_primary_label }}</span>
-                <select name="llm_provider_primary" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
-                  <option value="codex" {% if llm_settings.provider_primary == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
-                  <option value="claude" {% if llm_settings.provider_primary == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
-                  <option value="gemini" {% if llm_settings.provider_primary == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
-                </select>
-              </label>
-
-              <label class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
-                <span class="text-sm text-slate-600">{{ txt.settings_llm_provider_fallback_label }}</span>
-                <select name="llm_provider_fallback" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
-                  <option value="none" {% if llm_settings.provider_fallback == 'none' %}selected{% endif %}>{{ txt.settings_llm_provider_none }}</option>
-                  <option value="codex" {% if llm_settings.provider_fallback == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
-                  <option value="claude" {% if llm_settings.provider_fallback == 'claude' %}selected{% endif %}>{{ txt.settings_llm_provider_claude }}</option>
-                  <option value="gemini" {% if llm_settings.provider_fallback == 'gemini' %}selected{% endif %}>{{ txt.settings_llm_provider_gemini }}</option>
-                </select>
-              </label>
+              <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+                <span class="text-sm text-slate-600">{{ txt.settings_llm_provider_label }}</span>
+                <span class="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
+              </div>
 
               <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start">
                 <label class="pt-2 text-sm text-slate-600" for="llm-max-concurrent">{{ txt.settings_llm_max_concurrent_label }}</label>
@@ -374,7 +360,7 @@
               </a>
             </div>
             <div class="mt-3 flex-1 overflow-hidden rounded-md border border-slate-200 bg-white">
-              <div class="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
+              <div class="grid gap-2 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
                 <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
                 <select
                   name="llm_model_codex"
@@ -397,47 +383,6 @@
                 </select>
               </div>
 
-              <div class="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
-                <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_claude }}</span>
-                <input
-                  type="text"
-                  name="llm_model_claude"
-                  value="{{ llm_settings.llm_model.claude }}"
-                  placeholder="{{ txt.settings_llm_model_claude_placeholder }}"
-                  spellcheck="false"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-                />
-                <select
-                  name="llm_reasoning_effort_claude"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="" {% if not llm_settings.llm_reasoning_effort.claude %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
-                  <option value="low" {% if llm_settings.llm_reasoning_effort.claude == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
-                  <option value="medium" {% if llm_settings.llm_reasoning_effort.claude == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
-                  <option value="high" {% if llm_settings.llm_reasoning_effort.claude == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
-                </select>
-              </div>
-
-              <div class="grid gap-2 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
-                <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_gemini }}</span>
-                <input
-                  type="text"
-                  name="llm_model_gemini"
-                  value="{{ llm_settings.llm_model.gemini }}"
-                  placeholder="{{ txt.settings_llm_model_gemini_placeholder }}"
-                  spellcheck="false"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-                />
-                <select
-                  name="llm_reasoning_effort_gemini"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="none" {% if llm_settings.llm_reasoning_effort.gemini == 'none' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_none }}</option>
-                  <option value="low" {% if llm_settings.llm_reasoning_effort.gemini == 'low' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_low }}</option>
-                  <option value="medium" {% if llm_settings.llm_reasoning_effort.gemini == 'medium' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_medium }}</option>
-                  <option value="high" {% if llm_settings.llm_reasoning_effort.gemini == 'high' %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_high }}</option>
-                </select>
-              </div>
             </div>
             <p class="mt-2 text-xs text-slate-500">{{ txt.settings_llm_model_effort_help }}</p>
           </section>

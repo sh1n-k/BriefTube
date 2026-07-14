@@ -57,7 +57,7 @@ def test_codex_capability_probe_uses_fallback_when_codex_missing() -> None:
     assert ("gpt-5.3-codex", "GPT-5.3 Codex") in [
         (model.value, model.label) for model in result.models
     ]
-    assert result.reasoning_efforts == ("low", "medium", "high")
+    assert result.reasoning_efforts == ("low", "medium", "high", "xhigh")
 
 
 def test_codex_capability_probe_falls_back_to_bundled_catalog() -> None:

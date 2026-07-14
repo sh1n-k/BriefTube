@@ -248,7 +248,7 @@
       const previewKey = button.dataset.articlePreviewUrl || "";
       try {
         const response = await fetch(button.dataset.articlePreviewUrl || "", {
-          headers: { "Accept": "text/html" },
+          headers: { "Accept": "text/html", "HX-Request": "true" },
         });
         if (!response.ok) throw new Error("article preview load failed");
         const html = await response.text();

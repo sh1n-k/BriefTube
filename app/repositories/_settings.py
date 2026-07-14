@@ -4,22 +4,6 @@ from collections.abc import Mapping
 
 import aiosqlite
 
-from app.llm_policy import (
-    LLM_CODEX_MODEL_DEFAULT as LLM_CODEX_MODEL_DEFAULT,
-)
-from app.llm_policy import (
-    LLM_PROMPT_TEMPLATE_MAX_LENGTH as LLM_PROMPT_TEMPLATE_MAX_LENGTH,
-)
-from app.llm_policy import (
-    LLM_PROVIDER_FALLBACK_OPTIONS as LLM_PROVIDER_FALLBACK_OPTIONS,
-)
-from app.llm_policy import (
-    LLM_PROVIDER_NONE as LLM_PROVIDER_NONE,
-)
-from app.llm_policy import (
-    LLM_PROVIDER_OPTIONS as LLM_PROVIDER_OPTIONS,
-)
-
 WORKER_SETTING_KEY_MAP: dict[str, str] = {
     "rss": "worker_rss_enabled",
     "transcript": "worker_transcript_enabled",
@@ -340,31 +324,3 @@ async def set_telegram_settings(
     await set_setting(db, key=TELEGRAM_BOT_TOKEN_KEY, value=next_bot_token)
     await set_setting(db, key=TELEGRAM_CHAT_ID_KEY, value=next_chat_id)
     return await get_telegram_settings(db)
-
-
-# Backwards-compatible re-exports for callers that still reach these names via
-# ``app.repositories._settings`` directly (e.g. ``_impl``). The imports are placed at
-# the bottom of the module, after every shared helper above is defined, so the
-# sub-module can import those shared names without a partial-initialization cycle.
-from app.repositories._settings_llm import (  # noqa: E402, I001
-    LLM_CONFIG_MISSING_ALERT_SENT_KEY as LLM_CONFIG_MISSING_ALERT_SENT_KEY,
-    LLM_MODEL_CLAUDE_KEY as LLM_MODEL_CLAUDE_KEY,
-    LLM_MODEL_CLAUDE_MAX_LENGTH as LLM_MODEL_CLAUDE_MAX_LENGTH,
-    LLM_MODEL_CODEX_KEY as LLM_MODEL_CODEX_KEY,
-    LLM_MODEL_GEMINI_KEY as LLM_MODEL_GEMINI_KEY,
-    LLM_MODEL_GEMINI_MAX_LENGTH as LLM_MODEL_GEMINI_MAX_LENGTH,
-    LLM_PROMPT_TEMPLATE_KEY as LLM_PROMPT_TEMPLATE_KEY,
-    LLM_PROVIDER_FALLBACK_DEFAULT as LLM_PROVIDER_FALLBACK_DEFAULT,
-    LLM_PROVIDER_FALLBACK_KEY as LLM_PROVIDER_FALLBACK_KEY,
-    LLM_PROVIDER_PRIMARY_DEFAULT as LLM_PROVIDER_PRIMARY_DEFAULT,
-    LLM_PROVIDER_PRIMARY_KEY as LLM_PROVIDER_PRIMARY_KEY,
-    LLM_REASONING_EFFORT_CLAUDE_KEY as LLM_REASONING_EFFORT_CLAUDE_KEY,
-    LLM_REASONING_EFFORT_CODEX_KEY as LLM_REASONING_EFFORT_CODEX_KEY,
-    LLM_REASONING_EFFORT_GEMINI_KEY as LLM_REASONING_EFFORT_GEMINI_KEY,
-    LLM_RUNTIME_LAST_CODE_KEY as LLM_RUNTIME_LAST_CODE_KEY,
-    LLM_RUNTIME_LAST_MESSAGE_KEY as LLM_RUNTIME_LAST_MESSAGE_KEY,
-    LLM_RUNTIME_LAST_SEEN_AT_KEY as LLM_RUNTIME_LAST_SEEN_AT_KEY,
-    LLM_SCHEMA_INVALID_ALERT_SENT_KEY as LLM_SCHEMA_INVALID_ALERT_SENT_KEY,
-    get_llm_settings as get_llm_settings,
-    set_llm_settings as set_llm_settings,
-)

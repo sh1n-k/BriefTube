@@ -105,8 +105,8 @@ def _contrast_ratio(foreground: str, background: str) -> float:
 
 
 def test_status_badge_color_tokens_keep_readable_contrast() -> None:
-    base_template = Path(__file__).resolve().parents[1] / "app" / "templates" / "base.html"
-    css_text = base_template.read_text(encoding="utf-8")
+    stylesheet = Path(__file__).resolve().parents[1] / "app" / "static" / "css" / "app.css"
+    css_text = stylesheet.read_text(encoding="utf-8")
 
     selectors = {
         "light": ":root",

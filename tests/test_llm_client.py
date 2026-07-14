@@ -27,7 +27,7 @@ def test_runtime_not_ready_when_prompt_is_empty() -> None:
     reason = client.runtime_not_ready_reason(
         {
             "provider_primary": "codex",
-            "provider_fallback": "claude",
+            "provider_fallback": "none",
             "prompt_template": "",
         }
     )
@@ -81,21 +81,21 @@ def test_resolve_provider_command_keeps_plain_command_on_posix(
     assert command == "codex"
 
 
-def test_runtime_plan_allows_primary_when_fallback_missing() -> None:
+def test_runtime_plan_normalizes_legacy_provider_values_to_codex_only() -> None:
     client = UnifiedLlmClient(
         timeout_seconds=10,
         command_exists=lambda name: name == "codex",
     )
     plan = client.resolve_runtime_plan(
         {
-            "provider_primary": "codex",
-            "provider_fallback": "claude",
+            "provider_primary": "claude",
+            "provider_fallback": "gemini",
             "prompt_template": "{transcript_text}",
         }
     )
     assert plan.blocking_reason is None
     assert plan.providers_to_try == ["codex"]
-    assert plan.warnings == ["llm_provider_unavailable_claude"]
+    assert plan.warnings == []
 
 
 def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
@@ -106,7 +106,9 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
         assert args[-1] == "-"
         assert args[args.index("-m") + 1] == LLM_CODEX_MODEL_DEFAULT
         assert "-c" not in args
-        assert stdin_text == "Title=Source\nBody=Transcript"
+        assert stdin_text is not None
+        assert stdin_text.startswith("Title=Source\nBody=Security and accuracy rules:")
+        assert "<untrusted_transcript>\nTranscript\n</untrusted_transcript>" in stdin_text
 
         schema_path = Path(args[args.index("--output-schema") + 1])
         output_path = Path(args[args.index("--output-last-message") + 1])
@@ -191,56 +193,6 @@ def test_restructure_codex_preserves_dynamic_model_from_settings() -> None:
     assert article["_llm_model"] == "gpt-5.5"
 
 
-def test_restructure_fallbacks_to_claude_when_codex_refuses() -> None:
-    calls: list[str] = []
-
-    async def fake_runner(
-        args: list[str], timeout: int, stdin_text: str | None
-    ) -> CommandExecutionResult:
-        calls.append(args[0])
-        if args[0] == _expected_provider_command("codex"):
-            output_path = Path(args[args.index("--output-last-message") + 1])
-            output_path.write_text(
-                json.dumps({"result": "잠재적인 프롬프트 인젝션 시도를 감지했습니다."}),
-                encoding="utf-8",
-            )
-            return CommandExecutionResult(exit_code=0, stdout="", stderr="")
-
-        payload = {
-            "type": "result",
-            "is_error": False,
-            "structured_output": {
-                "title": "Claude title",
-                "lead": "Claude lead",
-                "body": "Claude body",
-                "fact_box": "{}",
-                "timestamps": "[]",
-            },
-        }
-        return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
-
-    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
-    article = asyncio.run(
-        client.restructure(
-            source_title="Source",
-            transcript_text="Transcript",
-            settings={
-                "provider_primary": "codex",
-                "provider_fallback": "claude",
-                "prompt_template": "{source_title}\n{transcript_text}",
-            },
-        )
-    )
-
-    assert article["title"] == "Claude title"
-    assert calls[:3] == [
-        _expected_provider_command("codex"),
-        _expected_provider_command("codex"),
-        _expected_provider_command("claude"),
-    ]
-    assert article["_llm_provider"] == "claude"
-
-
 def test_restructure_applies_reasoning_effort_for_codex() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
@@ -277,45 +229,6 @@ def test_restructure_applies_reasoning_effort_for_codex() -> None:
         )
     )
     assert article["title"] == "Codex title"
-
-
-def test_restructure_applies_model_and_effort_for_claude() -> None:
-    async def fake_runner(
-        args: list[str], timeout: int, stdin_text: str | None
-    ) -> CommandExecutionResult:
-        assert args[0] == _expected_provider_command("claude")
-        assert args[args.index("--model") + 1] == "sonnet"
-        assert args[args.index("--effort") + 1] == "high"
-        payload = {
-            "type": "result",
-            "is_error": False,
-            "structured_output": {
-                "title": "Claude title",
-                "lead": "Claude lead",
-                "body": "Claude body",
-                "fact_box": "{}",
-                "timestamps": "[]",
-            },
-        }
-        return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
-
-    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
-    article = asyncio.run(
-        client.restructure(
-            source_title="Source",
-            transcript_text="Transcript",
-            settings={
-                "provider_primary": "claude",
-                "provider_fallback": "none",
-                "prompt_template": "{transcript_text}",
-                "llm_model": {"claude": "sonnet"},
-                "llm_reasoning_effort": {"claude": "high"},
-            },
-        )
-    )
-    assert article["title"] == "Claude title"
-    assert article["_llm_model"] == "sonnet"
-    assert article["_llm_reasoning_effort"] == "high"
 
 
 def test_restructure_raises_auth_required_when_provider_not_logged_in() -> None:
@@ -360,14 +273,14 @@ def test_classify_command_failure_reports_generic_retryable_failure() -> None:
 
 def test_classify_command_failure_reports_refusal_as_non_retryable() -> None:
     exc = classify_command_failure(
-        provider="claude",
+        provider="codex",
         stderr="",
         stdout="cannot comply with this prompt injection request",
         exit_code=1,
     )
 
     assert exc.code == "llm_provider_refused"
-    assert exc.provider == "claude"
+    assert exc.provider == "codex"
     assert exc.retryable is False
 
 
@@ -429,25 +342,29 @@ def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_erro
         assert exc.retryable is False
 
 
-def test_restructure_rejects_claude_result_string_with_embedded_article_json() -> None:
+def test_restructure_rejects_result_string_with_embedded_article_json() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
-        assert args[0] == _expected_provider_command("claude")
-        payload = {
-            "type": "result",
-            "is_error": False,
-            "result": json.dumps(
+        assert args[0] == _expected_provider_command("codex")
+        output_path = Path(args[args.index("--output-last-message") + 1])
+        output_path.write_text(
+            json.dumps(
                 {
-                    "title": "From nested string",
-                    "lead": "Lead text",
-                    "body": "Body text",
-                    "fact_box": "{}",
-                    "timestamps": "[]",
+                    "result": json.dumps(
+                        {
+                            "title": "From nested string",
+                            "lead": "Lead text",
+                            "body": "Body text",
+                            "fact_box": "{}",
+                            "timestamps": "[]",
+                        }
+                    )
                 }
             ),
-        }
-        return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
+            encoding="utf-8",
+        )
+        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
 
     client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
     try:
@@ -456,7 +373,7 @@ def test_restructure_rejects_claude_result_string_with_embedded_article_json() -
                 source_title="Source",
                 transcript_text="Transcript",
                 settings={
-                    "provider_primary": "claude",
+                    "provider_primary": "codex",
                     "provider_fallback": "none",
                     "prompt_template": "{transcript_text}",
                 },
@@ -512,86 +429,6 @@ def test_parse_non_json_refusal_text_still_reports_provider_refusal() -> None:
     except LlmClientError as exc:
         assert exc.code == "llm_provider_refused"
         assert exc.retryable is False
-
-
-def test_restructure_fallbacks_to_codex_when_claude_refuses_twice() -> None:
-    calls: list[str] = []
-
-    async def fake_runner(
-        args: list[str], timeout: int, stdin_text: str | None
-    ) -> CommandExecutionResult:
-        calls.append(args[0])
-        if args[0] == _expected_provider_command("claude"):
-            refused = {
-                "type": "result",
-                "subtype": "refusal",
-                "is_error": True,
-                "result": "잠재적인 프롬프트 인젝션 시도를 감지했습니다.",
-            }
-            return CommandExecutionResult(exit_code=0, stdout=json.dumps(refused), stderr="")
-
-        output_path = Path(args[args.index("--output-last-message") + 1])
-        output_path.write_text(
-            json.dumps(
-                {
-                    "title": "Codex fallback title",
-                    "lead": "Codex fallback lead",
-                    "body": "Codex fallback body",
-                    "fact_box": "{}",
-                    "timestamps": "[]",
-                }
-            ),
-            encoding="utf-8",
-        )
-        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
-
-    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
-    article = asyncio.run(
-        client.restructure(
-            source_title="Source",
-            transcript_text="Transcript",
-            settings={
-                "provider_primary": "claude",
-                "provider_fallback": "codex",
-                "prompt_template": "{source_title}\n{transcript_text}",
-            },
-        )
-    )
-
-    assert article["title"] == "Codex fallback title"
-    assert calls[:3] == [
-        _expected_provider_command("claude"),
-        _expected_provider_command("claude"),
-        _expected_provider_command("codex"),
-    ]
-
-
-def test_runtime_plan_blocks_when_primary_is_gemini_without_schema_enforcement() -> None:
-    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
-    reason = client.runtime_not_ready_reason(
-        {
-            "provider_primary": "gemini",
-            "provider_fallback": "none",
-            "prompt_template": "{transcript_text}",
-            "llm_model": {"gemini": "gemini-3.1-pro-preview"},
-            "llm_reasoning_effort": {"gemini": "none"},
-        }
-    )
-    assert reason == "llm_provider_schema_invalid_gemini"
-
-
-def test_runtime_plan_keeps_primary_and_warns_when_fallback_is_gemini() -> None:
-    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
-    plan = client.resolve_runtime_plan(
-        {
-            "provider_primary": "codex",
-            "provider_fallback": "gemini",
-            "prompt_template": "{transcript_text}",
-        }
-    )
-    assert plan.blocking_reason is None
-    assert plan.providers_to_try == ["codex"]
-    assert plan.warnings == ["llm_provider_schema_invalid_gemini"]
 
 
 def test_response_capture_redacts_content_by_default(tmp_path) -> None:

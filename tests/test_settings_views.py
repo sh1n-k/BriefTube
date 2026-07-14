@@ -65,23 +65,20 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'id="llm-runtime-status"' in response.text
     assert 'hx-get="/views/settings/llm/runtime-status"' in response.text
     assert 'hx-post="/views/settings/llm/resume"' in response.text
-    assert 'name="llm_provider_primary"' in response.text
-    assert 'name="llm_provider_fallback"' in response.text
     assert 'name="llm_max_concurrent"' in response.text
     assert "change from:select[name='llm_max_concurrent']" in response.text
     assert 'name="llm_model_codex"' in response.text
     assert 'value="gpt-5.4"' in response.text
-    assert 'name="llm_model_claude"' in response.text
-    assert 'name="llm_model_gemini"' in response.text
     assert 'name="llm_reasoning_effort_codex"' in response.text
-    assert 'name="llm_reasoning_effort_claude"' in response.text
-    assert 'name="llm_reasoning_effort_gemini"' in response.text
+    assert 'name="llm_provider_primary"' not in response.text
+    assert 'name="llm_provider_fallback"' not in response.text
+    assert 'name="llm_model_claude"' not in response.text
+    assert 'name="llm_model_gemini"' not in response.text
+    assert 'name="llm_reasoning_effort_claude"' not in response.text
+    assert 'name="llm_reasoning_effort_gemini"' not in response.text
     assert 'name="llm_prompt_template"' in response.text
     assert response.text.count('name="llm_prompt_template"') == 1
     assert 'hx-put="/api/settings/llm"' in response.text
-    assert response.text.index('name="llm_provider_fallback"') < response.text.index(
-        'name="llm_max_concurrent"'
-    )
     assert 'value="xhigh"' in response.text
     assert 'name="download_output_dir"' in response.text
     assert "data-download-output-dir-error" in response.text

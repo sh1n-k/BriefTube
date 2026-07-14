@@ -21,63 +21,6 @@
         });
       }
 
-      function getThemeState() {
-        if (themeController && typeof themeController.getThemeState === "function") {
-          return themeController.getThemeState();
-        }
-        return { mode: "system", tone: "neutral" };
-      }
-
-      function applyTheme(modeInput, toneInput, options = {}) {
-        if (themeController && typeof themeController.applyTheme === "function") {
-          themeController.applyTheme(modeInput, toneInput, options);
-        }
-      }
-
-      function bindSystemThemeObserver() {
-        if (themeController && typeof themeController.bindSystemThemeObserver === "function") {
-          themeController.bindSystemThemeObserver();
-        }
-      }
-
-      function bindThemeControls(scope) {
-        if (themeController && typeof themeController.bindThemeControls === "function") {
-          themeController.bindThemeControls(scope);
-        }
-      }
-
-      function bindChannelSearch(scope) {
-        channelListControls?.bindChannelSearch(scope);
-      }
-
-      function bindChannelManageForms(scope) {
-        channelListControls?.bindChannelManageForms(scope);
-      }
-
-      function bindChannelMetaAccordion(scope) {
-        channelListControls?.bindChannelMetaAccordion(scope);
-      }
-
-      function bindChannelAvatars(scope) {
-        channelListControls?.bindChannelAvatars(scope);
-      }
-
-      function bindChannelCompose(scope) {
-        channelComposeController?.bindChannelCompose(scope);
-      }
-
-      function bindChannelComposeForms(scope) {
-        channelComposeController?.bindChannelComposeForms(scope);
-      }
-
-      function bindGlobalSearchForms(scope) {
-        globalSearchController?.bindGlobalSearchForms(scope);
-      }
-
-      function bindSearchClearButtons(scope) {
-        globalSearchController?.bindSearchClearButtons(scope);
-      }
-
       function ensureUiToastStack() {
         let stack = document.getElementById("ui-toast-stack");
         if (!stack) {
@@ -415,62 +358,6 @@
         root.querySelectorAll("[data-channel-reactivate-bulk-form]").forEach(initChannelReactivateBulkForm);
       }
 
-      function bindChannelReactivateToasts() {
-        alertToasts?.bindChannelReactivateToasts();
-      }
-
-      function bindChannelMetadataToasts() {
-        alertToasts?.bindChannelMetadataToasts();
-      }
-
-      function bindVideoDownloadBulkToasts() {
-        alertToasts?.bindVideoDownloadBulkToasts();
-      }
-
-      function bindVideoArticleRequestToasts() {
-        alertToasts?.bindVideoArticleRequestToasts();
-      }
-
-      function bindVideoTranscriptRequestToasts() {
-        alertToasts?.bindVideoTranscriptRequestToasts();
-      }
-
-      function bindLlmRuntimeToasts() {
-        alertToasts?.bindLlmRuntimeToasts();
-      }
-
-      function bindVideoDownloadButtons(scope) {
-        downloadControls?.bindVideoDownloadButtons(scope);
-      }
-
-      function bindDownloadDetailButtons(scope) {
-        downloadControls?.bindDownloadDetailButtons(scope);
-      }
-
-      function bindDownloadRetryButtons(scope) {
-        downloadControls?.bindDownloadRetryButtons(scope);
-      }
-
-      function startDownloadProgressPolling() {
-        downloadControls?.startDownloadProgressPolling();
-      }
-
-      function bindDownloadSettingsErrorHandlers() {
-        downloadControls?.bindDownloadSettingsErrorHandlers();
-      }
-
-      function bindQueueRetryButtons(scope) {
-        queueStatus?.bindQueueRetryButtons(scope);
-      }
-
-      function bindQueueClearButtons(scope) {
-        queueStatus?.bindQueueClearButtons(scope);
-      }
-
-      function startQueuePolling() {
-        queueStatus?.startQueuePolling();
-      }
-
       function parseJsonSafe(text) {
         if (!text) return null;
         try {
@@ -481,37 +368,37 @@
       }
 
       function hydrateUiScope(scope) {
-        bindThemeControls(scope);
-        bindChannelCompose(scope);
-        bindChannelComposeForms(scope);
-        bindGlobalSearchForms(scope);
-        bindSearchClearButtons(scope);
-        bindChannelSearch(scope);
-        bindChannelManageForms(scope);
-        bindChannelMetaAccordion(scope);
-        bindChannelAvatars(scope);
+        themeController?.bindThemeControls?.(scope);
+        channelComposeController?.bindChannelCompose?.(scope);
+        channelComposeController?.bindChannelComposeForms?.(scope);
+        globalSearchController?.bindGlobalSearchForms?.(scope);
+        globalSearchController?.bindSearchClearButtons?.(scope);
+        channelListControls?.bindChannelSearch?.(scope);
+        channelListControls?.bindChannelManageForms?.(scope);
+        channelListControls?.bindChannelMetaAccordion?.(scope);
+        channelListControls?.bindChannelAvatars?.(scope);
         bindChannelReactivateBulkForms(scope);
         bindPollTriggerButtons(scope);
-        bindVideoManageForms(scope);
-        bindThumbPreviews(scope);
-        bindDigitsOnlyInputs(scope);
-        bindAlertToasts(scope);
-        bindRetentionForms(scope);
-        bindRetentionNotices(scope);
-        bindCopyButtons(scope);
-        bindCollapsibles(scope);
-        bindYouTubeEmbeds(scope);
-        bindVideoDownloadButtons(scope);
-        bindVideoArticleRequestButtons(scope);
-        bindVideoTranscriptRequestButtons(scope);
-        bindVideoTranscriptCopyButtons(scope);
-        bindVideoArticlePreviewLoadButtons(scope);
-        bindArticlePreviewModals(scope);
-        bindDownloadDetailButtons(scope);
-        bindDownloadRetryButtons(scope);
-        bindCategorySortable(scope);
-        bindChannelMoveCategory(scope);
-        bindCategoryFilterReset(scope);
+        videoControls?.bindVideoManageForms?.(scope);
+        videoControls?.bindThumbPreviews?.(scope);
+        inputControls?.bindDigitsOnlyInputs?.(scope);
+        alertToasts?.bindAlertToasts?.(scope);
+        videoControls?.bindRetentionForms?.(scope);
+        videoControls?.bindRetentionNotices?.(scope);
+        videoControls?.bindCopyButtons?.(scope);
+        videoControls?.bindCollapsibles?.(scope);
+        youtubeEmbed?.bindYouTubeEmbeds?.(scope);
+        downloadControls?.bindVideoDownloadButtons?.(scope);
+        videoControls?.bindVideoArticleRequestButtons?.(scope);
+        videoControls?.bindVideoTranscriptRequestButtons?.(scope);
+        videoControls?.bindVideoTranscriptCopyButtons?.(scope);
+        videoControls?.bindVideoArticlePreviewLoadButtons?.(scope);
+        videoControls?.bindArticlePreviewModals?.(scope);
+        downloadControls?.bindDownloadDetailButtons?.(scope);
+        downloadControls?.bindDownloadRetryButtons?.(scope);
+        categoryControls?.bindCategorySortable?.(scope);
+        categoryControls?.bindChannelMoveCategory?.(scope);
+        categoryControls?.bindCategoryFilterReset?.(scope);
       }
 
       async function refreshVideoDetailFragmentNow() {
@@ -554,62 +441,6 @@
         return pairs;
       }
 
-      function bindDigitsOnlyInputs(scope) {
-        inputControls?.bindDigitsOnlyInputs(scope);
-      }
-
-      function bindAlertToasts(scope) {
-        alertToasts?.bindAlertToasts(scope);
-      }
-
-      function bindRetentionForms(scope) {
-        videoControls?.bindRetentionForms(scope);
-      }
-
-      function bindRetentionNotices(scope) {
-        videoControls?.bindRetentionNotices(scope);
-      }
-
-      function bindVideoManageForms(scope) {
-        videoControls?.bindVideoManageForms(scope);
-      }
-
-      function bindVideoArticleRequestButtons(scope) {
-        videoControls?.bindVideoArticleRequestButtons(scope);
-      }
-
-      function bindVideoTranscriptRequestButtons(scope) {
-        videoControls?.bindVideoTranscriptRequestButtons(scope);
-      }
-
-      function bindVideoTranscriptCopyButtons(scope) {
-        videoControls?.bindVideoTranscriptCopyButtons(scope);
-      }
-
-      function bindVideoArticlePreviewLoadButtons(scope) {
-        videoControls?.bindVideoArticlePreviewLoadButtons(scope);
-      }
-
-      function bindArticlePreviewModals(scope) {
-        videoControls?.bindArticlePreviewModals(scope);
-      }
-
-      function bindCopyButtons(scope) {
-        videoControls?.bindCopyButtons(scope);
-      }
-
-      function bindCollapsibles(scope) {
-        videoControls?.bindCollapsibles(scope);
-      }
-
-      function bindThumbPreviews(scope) {
-        videoControls?.bindThumbPreviews(scope);
-      }
-
-      function bindYouTubeEmbeds(scope) {
-        youtubeEmbed?.bindYouTubeEmbeds(scope);
-      }
-
       function revealPageShell() {
         if (navTransitionController && typeof navTransitionController.revealPageShell === "function") {
           navTransitionController.revealPageShell();
@@ -619,28 +450,6 @@
         if (!(shell instanceof HTMLElement)) return;
         shell.classList.add("is-visible");
         shell.classList.remove("is-leaving");
-      }
-
-      function bindNavTransitions(scope) {
-        if (navTransitionController && typeof navTransitionController.bindNavTransitions === "function") {
-          navTransitionController.bindNavTransitions(scope);
-        }
-      }
-
-      function bindCategorySortable(scope) {
-        categoryControls?.bindCategorySortable(scope);
-      }
-
-      function bindChannelMoveCategory(scope) {
-        categoryControls?.bindChannelMoveCategory(scope);
-      }
-
-      function bindCategoryFilterReset(scope) {
-        categoryControls?.bindCategoryFilterReset(scope);
-      }
-
-      function bindCategoryRename() {
-        categoryControls?.bindCategoryRename();
       }
 
       function initChannelImportForm() {
@@ -709,26 +518,26 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
-        const themeState = getThemeState();
-        applyTheme(themeState.mode, themeState.tone, { persist: false });
-        bindSystemThemeObserver();
+        const themeState = themeController?.getThemeState?.() || { mode: "system", tone: "neutral" };
+        themeController?.applyTheme?.(themeState.mode, themeState.tone, { persist: false });
+        themeController?.bindSystemThemeObserver?.();
         hydrateUiScope(document);
-        bindChannelReactivateToasts();
-        bindChannelMetadataToasts();
-        bindVideoDownloadBulkToasts();
-        bindVideoArticleRequestToasts();
-        bindVideoTranscriptRequestToasts();
-        bindLlmRuntimeToasts();
-        startDownloadProgressPolling();
-        bindDownloadSettingsErrorHandlers();
-        bindQueueRetryButtons(document);
-        bindQueueClearButtons(document);
-        startQueuePolling();
+        alertToasts?.bindChannelReactivateToasts?.();
+        alertToasts?.bindChannelMetadataToasts?.();
+        alertToasts?.bindVideoDownloadBulkToasts?.();
+        alertToasts?.bindVideoArticleRequestToasts?.();
+        alertToasts?.bindVideoTranscriptRequestToasts?.();
+        alertToasts?.bindLlmRuntimeToasts?.();
+        downloadControls?.startDownloadProgressPolling?.();
+        downloadControls?.bindDownloadSettingsErrorHandlers?.();
+        queueStatus?.bindQueueRetryButtons?.(document);
+        queueStatus?.bindQueueClearButtons?.(document);
+        queueStatus?.startQueuePolling?.();
         startVideoDetailAutoRefresh();
         startChannelListAutoRefresh();
         startLlmRuntimeAutoRefresh();
-        bindNavTransitions(document);
-        bindCategoryRename();
+        navTransitionController?.bindNavTransitions?.(document);
+        categoryControls?.bindCategoryRename?.();
         initChannelImportForm();
         revealPageShell();
       });
@@ -762,6 +571,6 @@
       });
       document.addEventListener("htmx:afterSwap", (event) => {
         hydrateUiScope(event.target);
-        bindCategoryRename();
+        categoryControls?.bindCategoryRename?.();
       });
     })();

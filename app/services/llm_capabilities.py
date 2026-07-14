@@ -110,7 +110,9 @@ class LlmCapabilityProbe:
         return _fallback_codex_result(source="fallback", error=first_error)
 
 
-async def resolve_codex_capabilities(runtime: Any, *, refresh: bool = False) -> CodexCapabilityResult:
+async def resolve_codex_capabilities(
+    runtime: Any, *, refresh: bool = False
+) -> CodexCapabilityResult:
     probe = getattr(runtime, "llm_capability_probe", None)
     if not isinstance(probe, LlmCapabilityProbe):
         probe = LlmCapabilityProbe(command_exists=lambda _name: False)

@@ -11,18 +11,13 @@ from app.llm_policy import (
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_PROMPT_TEMPLATE_MAX_LENGTH,
     LLM_PROVIDER_CODEX,
-    LLM_PROVIDER_FALLBACK_OPTIONS,
     LLM_PROVIDER_NONE,
-    LLM_PROVIDER_OPTIONS,
     normalize_codex_model,
-    normalize_llm_provider,
 )
 from app.repositories._settings import get_settings_map, set_setting
 
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = "llm_config_missing_alert_sent"
 LLM_SCHEMA_INVALID_ALERT_SENT_KEY = "llm_schema_invalid_alert_sent"
-LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
-LLM_PROVIDER_FALLBACK_KEY = "llm_provider_fallback"
 LLM_PROMPT_TEMPLATE_KEY = "llm_prompt_template"
 LLM_MODEL_CODEX_KEY = "llm_model_codex"
 LLM_REASONING_EFFORT_CODEX_KEY = "llm_reasoning_effort_codex"
@@ -30,28 +25,8 @@ LLM_MAX_CONCURRENT_KEY = "llm_max_concurrent"
 LLM_RUNTIME_LAST_CODE_KEY = "llm_runtime_last_code"
 LLM_RUNTIME_LAST_MESSAGE_KEY = "llm_runtime_last_message"
 LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
-LLM_PROVIDER_PRIMARY_DEFAULT = LLM_PROVIDER_CODEX
-LLM_PROVIDER_FALLBACK_DEFAULT = LLM_PROVIDER_NONE
 LLM_MAX_CONCURRENT_DEFAULT = 1
 LLM_MAX_CONCURRENT_LIMIT = 4
-
-# Deprecated compatibility constants. Claude/Gemini are no longer valid provider options,
-# but these keys may exist in older local databases and imports.
-LLM_MODEL_CLAUDE_KEY = "llm_model_claude"
-LLM_MODEL_GEMINI_KEY = "llm_model_gemini"
-LLM_REASONING_EFFORT_CLAUDE_KEY = "llm_reasoning_effort_claude"
-LLM_REASONING_EFFORT_GEMINI_KEY = "llm_reasoning_effort_gemini"
-LLM_MODEL_CLAUDE_MAX_LENGTH = 0
-LLM_MODEL_GEMINI_MAX_LENGTH = 0
-
-
-def _validate_llm_provider_setting(value: str | None, *, allow_none: bool = False) -> str:
-    normalized = str(value or "").strip().lower()
-    options = LLM_PROVIDER_FALLBACK_OPTIONS if allow_none else LLM_PROVIDER_OPTIONS
-    if normalized not in options:
-        allowed = ", ".join(sorted(options))
-        raise ValueError(f"provider must be one of: {allowed}")
-    return normalized
 
 
 def _validate_llm_prompt_template(value: str | None) -> str:
@@ -101,8 +76,6 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     settings = await get_settings_map(
         db,
         {
-            LLM_PROVIDER_PRIMARY_KEY: LLM_PROVIDER_PRIMARY_DEFAULT,
-            LLM_PROVIDER_FALLBACK_KEY: LLM_PROVIDER_FALLBACK_DEFAULT,
             LLM_PROMPT_TEMPLATE_KEY: "",
             LLM_MODEL_CODEX_KEY: LLM_CODEX_MODEL_DEFAULT,
             LLM_REASONING_EFFORT_CODEX_KEY: "",
@@ -113,9 +86,6 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     model_codex_raw = settings[LLM_MODEL_CODEX_KEY]
     reasoning_effort_codex_raw = settings[LLM_REASONING_EFFORT_CODEX_KEY]
     max_concurrent_raw = settings[LLM_MAX_CONCURRENT_KEY]
-
-    primary = normalize_llm_provider(LLM_PROVIDER_CODEX, allow_none=False)
-    fallback = normalize_llm_provider(LLM_PROVIDER_NONE, allow_none=True)
 
     prompt_template = str(prompt_raw or "")
     try:
@@ -136,8 +106,8 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         max_concurrent = LLM_MAX_CONCURRENT_DEFAULT
 
     return {
-        "provider_primary": primary,
-        "provider_fallback": fallback,
+        "provider_primary": LLM_PROVIDER_CODEX,
+        "provider_fallback": LLM_PROVIDER_NONE,
         "prompt_template": prompt_template,
         "llm_model": model,
         "llm_reasoning_effort": {"codex": reasoning_effort_codex},
@@ -148,8 +118,6 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
 async def set_llm_settings(
     db: aiosqlite.Connection,
     *,
-    provider_primary: str | None = None,
-    provider_fallback: str | None = None,
     prompt_template: str | None = None,
     llm_model: Mapping[str, Any] | None = None,
     llm_reasoning_effort: Mapping[str, Any] | None = None,
@@ -164,10 +132,6 @@ async def set_llm_settings(
     next_reasoning_effort_codex = str(current_reasoning_effort.get("codex", ""))
     next_max_concurrent = int(current.get("max_concurrent", LLM_MAX_CONCURRENT_DEFAULT))
 
-    if provider_primary is not None:
-        _validate_llm_provider_setting(provider_primary, allow_none=False)
-    if provider_fallback is not None:
-        _validate_llm_provider_setting(provider_fallback, allow_none=True)
     if prompt_template is not None:
         next_prompt = _validate_llm_prompt_template(prompt_template)
     if llm_model is not None:
@@ -194,8 +158,6 @@ async def set_llm_settings(
     if not persist:
         return next_settings
 
-    await set_setting(db, key=LLM_PROVIDER_PRIMARY_KEY, value=LLM_PROVIDER_CODEX)
-    await set_setting(db, key=LLM_PROVIDER_FALLBACK_KEY, value=LLM_PROVIDER_NONE)
     await set_setting(db, key=LLM_PROMPT_TEMPLATE_KEY, value=next_prompt)
     await set_setting(db, key=LLM_MODEL_CODEX_KEY, value=next_model_codex)
     await set_setting(db, key=LLM_REASONING_EFFORT_CODEX_KEY, value=next_reasoning_effort_codex)
