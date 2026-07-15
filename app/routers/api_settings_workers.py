@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from app.repositories import settings as settings_repo
-from app.routers.helpers import parse_bool_input
+from app.routers.helpers import parse_bool_input, read_json_object
 
 router = APIRouter(tags=["api"])
 
@@ -15,8 +15,10 @@ async def set_workers(request: Request):
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
-        payload = await request.json()
+        payload = await read_json_object(request)
         workers_payload = payload.get("workers", {})
+        if not isinstance(workers_payload, dict):
+            raise HTTPException(status_code=400, detail="workers must be an object")
         for worker in defaults:
             if worker not in workers_payload:
                 continue

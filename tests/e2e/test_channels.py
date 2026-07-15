@@ -118,7 +118,7 @@ def _goto_channels(page: Page, *, status: str = "active", **params: str) -> None
     for k, v in params.items():
         qs += f"&{k}={v}"
     page.goto(f"{page._e2e_base_url}/channels?{qs}")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_selector("#channel-list-wrap")
 
 
 def _parse_search_index(text: str) -> tuple[int, int]:
@@ -133,8 +133,8 @@ def _parse_search_index(text: str) -> tuple[int, int]:
 
 
 @pytest.mark.e2e
-def test_channel_search_filter(page: Page) -> None:
-    """Search input filters channels via JS matching, highlights matches."""
+def test_channel_search_filter_and_navigation(page: Page) -> None:
+    """Search filters, highlights, and cycles through matching channels."""
     _goto_channels(page)
 
     search_input = page.locator("[data-channel-search-input]")
@@ -151,13 +151,6 @@ def test_channel_search_filter(page: Page) -> None:
     highlighted = page.locator("[data-channel-row].bg-amber-50, [data-channel-row].bg-indigo-100")
     assert highlighted.count() >= 1
 
-
-@pytest.mark.e2e
-def test_channel_search_prev_next(page: Page) -> None:
-    """Prev/next navigation cycles through matching channels."""
-    _goto_channels(page)
-
-    search_input = page.locator("[data-channel-search-input]")
     search_input.fill("채널")
 
     next_btn = page.locator("[data-channel-search-next]")
@@ -181,8 +174,8 @@ def test_channel_search_prev_next(page: Page) -> None:
 
 
 @pytest.mark.e2e
-def test_channel_select_all_toggle(page: Page) -> None:
-    """Select-all checkbox toggles all channel checkboxes."""
+def test_channel_select_all_and_reactivate_modal(page: Page) -> None:
+    """Select-all works and inactive selections open the reactivate modal."""
     _goto_channels(page)
 
     select_all = page.locator("[data-channel-select-all]")
@@ -200,10 +193,27 @@ def test_channel_select_all_toggle(page: Page) -> None:
     for i in range(items.count()):
         expect(items.nth(i)).not_to_be_checked()
 
+    _goto_channels(page, status="inactive")
+    first_item = page.locator("[data-channel-select-item]").first
+    first_item.check()
+
+    reactivate_btn = page.locator(
+        "button[data-channel-bulk-submit]:not([name='bulk_action'])"
+    ).first
+    expect(reactivate_btn).to_be_visible()
+    expect(reactivate_btn).to_contain_text("재활성화")
+    reactivate_btn.click()
+
+    confirm_modal = page.locator("#channel-reactivate-confirm-modal")
+    expect(confirm_modal).to_be_visible(timeout=5_000)
+    expect(confirm_modal.locator("[data-reactivate-confirm-title]")).to_be_visible()
+    confirm_modal.locator("[data-reactivate-confirm-cancel]").click()
+    expect(confirm_modal).to_be_hidden()
+
 
 @pytest.mark.e2e
-def test_channel_compose_accordion(page: Page) -> None:
-    """Channel compose area expand/collapse via toggle button."""
+def test_channel_accordions(page: Page) -> None:
+    """Compose and metadata accordions expand, collapse, and exclude peers."""
     _goto_channels(page)
 
     toggle = page.locator("[data-channel-compose-toggle]")
@@ -213,31 +223,15 @@ def test_channel_compose_accordion(page: Page) -> None:
     expect(toggle).to_be_visible()
 
     if body.is_visible():
-        # Collapse
         toggle.click()
-        page.wait_for_timeout(300)
         expect(body).to_be_hidden()
-
-        # Expand again
         toggle.click()
-        page.wait_for_timeout(300)
         expect(body).to_be_visible()
     else:
-        # Expand
         toggle.click()
-        page.wait_for_timeout(300)
         expect(body).to_be_visible()
-
-        # Collapse
         toggle.click()
-        page.wait_for_timeout(300)
         expect(body).to_be_hidden()
-
-
-@pytest.mark.e2e
-def test_channel_metadata_accordion(page: Page) -> None:
-    """Meta accordion mutual exclusion: opening one closes others."""
-    _goto_channels(page)
 
     items = page.locator("[data-channel-meta-item]")
     if items.count() < 2:
@@ -247,14 +241,12 @@ def test_channel_metadata_accordion(page: Page) -> None:
     toggle_1 = items.nth(0).locator("[data-channel-meta-toggle]")
     panel_1 = items.nth(0).locator("[data-channel-meta-panel]")
     toggle_1.click()
-    page.wait_for_timeout(300)
     expect(panel_1).to_be_visible()
 
     # Click second toggle
     toggle_2 = items.nth(1).locator("[data-channel-meta-toggle]")
     panel_2 = items.nth(1).locator("[data-channel-meta-panel]")
     toggle_2.click()
-    page.wait_for_timeout(300)
 
     # Second should open, first should close (mutual exclusion)
     expect(panel_2).to_be_visible()
@@ -282,42 +274,3 @@ def test_channel_category_filter_keeps_full_page_url_after_reload(page: Page) ->
     page.wait_for_selector("#category-sidebar")
     expect(page.locator("#channel-list-wrap")).to_be_visible()
     expect(page.locator("body")).to_contain_text("투자채널A")
-
-
-@pytest.mark.e2e
-def test_channel_reactivate_flow(page: Page) -> None:
-    """Inactive tab -> select channels -> reactivate button -> confirm modal."""
-    _goto_channels(page, status="inactive")
-
-    rows = page.locator("[data-channel-row]")
-    if rows.count() == 0:
-        pytest.skip("No inactive channels to test reactivation")
-
-    # Check the first inactive channel
-    first_item = page.locator("[data-channel-select-item]").first
-    first_item.check()
-
-    # The reactivate button should exist on the inactive tab
-    reactivate_btn = page.locator(
-        "button[data-channel-bulk-submit]:not([name='bulk_action'])"
-    ).first
-
-    expect(reactivate_btn).to_be_visible()
-    expect(reactivate_btn).to_contain_text("재활성화")
-
-    reactivate_btn.click()
-
-    # A custom confirm modal should appear (not browser dialog)
-    confirm_modal = page.locator("#channel-reactivate-confirm-modal")
-    expect(confirm_modal).to_be_visible(timeout=5_000)
-
-    # Modal should have title text
-    title_node = confirm_modal.locator("[data-reactivate-confirm-title]")
-    expect(title_node).to_be_visible()
-
-    # Click cancel to dismiss
-    cancel_btn = confirm_modal.locator("[data-reactivate-confirm-cancel]")
-    cancel_btn.click()
-
-    # Modal should be hidden
-    expect(confirm_modal).to_be_hidden()

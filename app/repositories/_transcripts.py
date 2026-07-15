@@ -123,6 +123,7 @@ async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
             pipeline_status,
             COUNT(1) AS cnt
         FROM videos
+        WHERE deleted_at IS NULL
         GROUP BY pipeline_status
         """
     )

@@ -36,6 +36,8 @@ from app.services.transcript_headers import (
 router = APIRouter(tags=["pages"])
 router.include_router(pages_downloads.router)
 REACTIVATE_BATCH_LIMIT = 50
+RETENTION_PAGE_SIZE = 100
+RETENTION_DELETE_BATCH_SIZE = 500
 
 
 def _build_video_detail_dynamic_refresh_key(detail: dict[str, object] | None) -> str:
@@ -380,21 +382,15 @@ async def queue_page(request: Request):
 
 
 @router.get("/retention")
-async def retention_page(request: Request):
-    policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
-    expired_videos = await alerts_repo.list_retention_expired_videos(
-        request.app.state.runtime.db,
-        retention_days=int(policy["retention_days"]),
-    )
+async def retention_page(request: Request, page: int = Query(1, ge=1)):
     deleted_raw = request.query_params.get("deleted", "0")
     try:
         deleted_count = max(0, int(deleted_raw))
     except (TypeError, ValueError):
         deleted_count = 0
-    context = await build_template_context(
+    context = await _build_retention_page_context(
         request,
-        expired_videos=expired_videos,
-        retention_days=int(policy["retention_days"]),
+        page=page,
         deleted_count=deleted_count,
     )
     return request.app.state.templates.TemplateResponse(
@@ -420,37 +416,74 @@ def _cleanup_thumbnail_files(thumbnail_paths: list[str], thumbnail_dir: str) -> 
             continue
 
 
+def _normalize_page_number(value: object) -> int:
+    try:
+        return max(1, int(str(value or "1")))
+    except (TypeError, ValueError):
+        return 1
+
+
+async def _build_retention_page_context(
+    request: Request,
+    *,
+    page: int,
+    deleted_count: int = 0,
+):
+    policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
+    retention_days = int(policy["retention_days"])
+    expired_total = await alerts_repo.count_retention_expired_videos(
+        request.app.state.runtime.db,
+        retention_days=retention_days,
+    )
+    page_count = max(1, (expired_total + RETENTION_PAGE_SIZE - 1) // RETENTION_PAGE_SIZE)
+    safe_page = min(max(1, int(page)), page_count)
+    expired_videos = await alerts_repo.list_retention_expired_videos(
+        request.app.state.runtime.db,
+        retention_days=retention_days,
+        limit=RETENTION_PAGE_SIZE,
+        offset=(safe_page - 1) * RETENTION_PAGE_SIZE,
+    )
+    return await build_template_context(
+        request,
+        expired_videos=expired_videos,
+        expired_total=expired_total,
+        retention_days=retention_days,
+        retention_page=safe_page,
+        retention_page_count=page_count,
+        deleted_count=max(0, int(deleted_count)),
+    )
+
+
 @router.post("/retention/delete-selected")
 async def delete_retention_selected(request: Request):
     form = await request.form()
     selected = [str(value).strip() for value in form.getlist("video_id") if str(value).strip()]
 
     policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
-    expired_ids = set(
-        await alerts_repo.list_retention_expired_video_ids(
-            request.app.state.runtime.db,
-            retention_days=int(policy["retention_days"]),
-        )
-    )
-    targets = [video_id for video_id in selected if video_id in expired_ids]
-
-    result = await videos_repo.delete_videos_by_ids(request.app.state.runtime.db, targets)
-    if int(result.get("deleted", 0) or 0) > 0:
-        request.app.state.runtime.invalidate_retention_notice_cache()
-    _cleanup_thumbnail_files(
-        result["thumbnail_paths"],
-        request.app.state.runtime.config.thumbnail_dir,
-    )
-
-    deleted_count = int(result.get("deleted", 0) or 0)
-    expired_videos = await alerts_repo.list_retention_expired_videos(
+    targets = await alerts_repo.list_retention_expired_matching_video_ids(
         request.app.state.runtime.db,
         retention_days=int(policy["retention_days"]),
+        video_ids=selected,
     )
-    context = await build_template_context(
+
+    deleted_count = 0
+    for start in range(0, len(targets), RETENTION_DELETE_BATCH_SIZE):
+        result = await videos_repo.delete_videos_by_ids(
+            request.app.state.runtime.db,
+            targets[start : start + RETENTION_DELETE_BATCH_SIZE],
+        )
+        deleted_count += int(result.get("deleted", 0) or 0)
+        _cleanup_thumbnail_files(
+            result["thumbnail_paths"],
+            request.app.state.runtime.config.thumbnail_dir,
+        )
+
+    if deleted_count > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
+
+    context = await _build_retention_page_context(
         request,
-        expired_videos=expired_videos,
-        retention_days=int(policy["retention_days"]),
+        page=_normalize_page_number(request.query_params.get("page")),
         deleted_count=deleted_count,
     )
     return request.app.state.templates.TemplateResponse(
@@ -467,27 +500,31 @@ async def delete_retention_all(request: Request):
     if confirmed != "on":
         return RedirectResponse(url="/retention", status_code=303)
     policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
-    expired_ids = await alerts_repo.list_retention_expired_video_ids(
-        request.app.state.runtime.db,
-        retention_days=int(policy["retention_days"]),
-    )
-    result = await videos_repo.delete_videos_by_ids(request.app.state.runtime.db, expired_ids)
-    if int(result.get("deleted", 0) or 0) > 0:
-        request.app.state.runtime.invalidate_retention_notice_cache()
-    _cleanup_thumbnail_files(
-        result["thumbnail_paths"],
-        request.app.state.runtime.config.thumbnail_dir,
-    )
+    deleted_count = 0
+    while True:
+        expired_ids = await alerts_repo.list_retention_expired_video_ids(
+            request.app.state.runtime.db,
+            retention_days=int(policy["retention_days"]),
+            limit=RETENTION_DELETE_BATCH_SIZE,
+        )
+        if not expired_ids:
+            break
+        result = await videos_repo.delete_videos_by_ids(request.app.state.runtime.db, expired_ids)
+        batch_deleted = int(result.get("deleted", 0) or 0)
+        if batch_deleted <= 0:
+            break
+        deleted_count += batch_deleted
+        _cleanup_thumbnail_files(
+            result["thumbnail_paths"],
+            request.app.state.runtime.config.thumbnail_dir,
+        )
 
-    deleted_count = int(result.get("deleted", 0) or 0)
-    expired_videos = await alerts_repo.list_retention_expired_videos(
-        request.app.state.runtime.db,
-        retention_days=int(policy["retention_days"]),
-    )
-    context = await build_template_context(
+    if deleted_count > 0:
+        request.app.state.runtime.invalidate_retention_notice_cache()
+
+    context = await _build_retention_page_context(
         request,
-        expired_videos=expired_videos,
-        retention_days=int(policy["retention_days"]),
+        page=1,
         deleted_count=deleted_count,
     )
     return request.app.state.templates.TemplateResponse(

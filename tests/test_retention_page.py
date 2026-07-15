@@ -41,6 +41,43 @@ def _seed_retention_data(db_path: str) -> None:
         conn.commit()
 
 
+def _seed_many_expired_videos(db_path: str, *, count: int) -> None:
+    now = datetime.now(UTC)
+    old_time = (now - timedelta(days=200)).isoformat()
+    recent_time = (now - timedelta(days=10)).isoformat()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCretbulk001",
+                "Retention Bulk Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCretbulk001",
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
+            """,
+            [
+                (f"vid-ret-bulk-{idx:03d}", "UCretbulk001", f"old {idx}", old_time)
+                for idx in range(count)
+            ],
+        )
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
+            """,
+            ("vid-ret-bulk-fresh", "UCretbulk001", "fresh", recent_time),
+        )
+        conn.commit()
+
+
 def test_retention_page_shows_expired_only(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)
@@ -78,6 +115,17 @@ def test_retention_page_ignores_deleted_expired_videos(client: TestClient) -> No
     home = client.get("/")
     assert home.status_code == 200
     assert "data-retention-notice" not in home.text
+
+
+def test_retention_page_limits_visible_rows_but_shows_total(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_many_expired_videos(db_path, count=101)
+
+    response = client.get("/retention")
+    assert response.status_code == 200
+    assert response.text.count("data-retention-select-item") == 100
+    assert "101" in response.text
+    assert "/retention?page=2" in response.text
 
 
 def test_retention_delete_all_requires_confirmation(client: TestClient) -> None:
@@ -126,6 +174,34 @@ def test_retention_delete_all_with_confirmation(client: TestClient) -> None:
     assert "data-retention-notice" not in after.text
 
 
+def test_retention_delete_all_batches_expired_videos(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_many_expired_videos(db_path, count=505)
+
+    response = client.post(
+        "/retention/delete-all",
+        data={"confirm_delete_all": "on"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+
+    with sqlite3.connect(db_path) as conn:
+        expired_count = conn.execute(
+            """
+            SELECT COUNT(1)
+            FROM videos
+            WHERE channel_id = 'UCretbulk001'
+              AND video_id != 'vid-ret-bulk-fresh'
+              AND deleted_at IS NULL
+            """
+        ).fetchone()[0]
+        fresh_row = conn.execute(
+            "SELECT 1 FROM videos WHERE video_id = 'vid-ret-bulk-fresh' AND deleted_at IS NULL"
+        ).fetchone()
+    assert expired_count == 0
+    assert fresh_row is not None
+
+
 def test_retention_delete_selected(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)
@@ -143,3 +219,45 @@ def test_retention_delete_selected(client: TestClient) -> None:
         new_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-new-001'").fetchone()
     assert old_row is None
     assert new_row is not None
+
+
+def test_retention_delete_selected_handles_large_manual_payload(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+
+    response = client.post(
+        "/retention/delete-selected",
+        data={"video_id": [*[f"missing-{idx}" for idx in range(1200)], "vid-ret-old-001"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+
+    with sqlite3.connect(db_path) as conn:
+        old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
+        new_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-new-001'").fetchone()
+    assert old_row is None
+    assert new_row is not None
+
+
+def test_retention_delete_selected_batches_many_expired_videos(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_many_expired_videos(db_path, count=505)
+
+    response = client.post(
+        "/retention/delete-selected",
+        data={"video_id": [f"vid-ret-bulk-{idx:03d}" for idx in range(505)]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+
+    with sqlite3.connect(db_path) as conn:
+        remaining = conn.execute(
+            """
+            SELECT COUNT(1)
+            FROM videos
+            WHERE channel_id = 'UCretbulk001'
+              AND video_id != 'vid-ret-bulk-fresh'
+              AND deleted_at IS NULL
+            """
+        ).fetchone()[0]
+    assert remaining == 0

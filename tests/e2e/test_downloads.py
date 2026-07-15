@@ -105,21 +105,21 @@ def _goto_downloads(page: Page, status: str = "all") -> None:
     base = page._e2e_base_url
     url = f"{base}/downloads" if status == "all" else f"{base}/downloads?status={status}"
     page.goto(url)
-    page.wait_for_load_state("networkidle")
+    expect(page.locator("[data-download-history-page]")).to_be_visible()
 
 
 def _goto_video_detail(page: Page, video_id: str) -> None:
     base = page._e2e_base_url
     page.goto(f"{base}/videos/{video_id}")
-    page.wait_for_load_state("networkidle")
+    expect(page.locator("#video-detail-wrap")).to_be_visible()
 
 
 # ---------------------------------------------------------------------------
-# 6. test_downloads_detail_modal
+# 6. test_downloads_detail_modal_and_retry
 # ---------------------------------------------------------------------------
-def test_downloads_detail_modal(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Clicking detail button opens the JS-rendered detail modal."""
-    _goto_downloads(e2e_page)
+def test_downloads_detail_modal_and_retry(e2e_page: Page, downloads_seeded: dict) -> None:
+    """Failed job detail modal and retry action work on the same page."""
+    _goto_downloads(e2e_page, status="failed")
 
     # Click the first detail button in the desktop table
     detail_buttons = e2e_page.locator("table [data-download-detail-open]")
@@ -140,14 +140,6 @@ def test_downloads_detail_modal(e2e_page: Page, downloads_seeded: dict) -> None:
     # Modal should be hidden
     expect(modal).to_be_hidden()
 
-
-# ---------------------------------------------------------------------------
-# 7. test_downloads_retry_button
-# ---------------------------------------------------------------------------
-def test_downloads_retry_button(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Failed job retry button makes an API call to /api/downloads/{job_id}/retry."""
-    _goto_downloads(e2e_page, status="failed")
-
     # Desktop table may show button; also duplicated in mobile card view
     retry_btn = e2e_page.locator("table [data-download-retry-button]").first
 
@@ -164,28 +156,10 @@ def test_downloads_retry_button(e2e_page: Page, downloads_seeded: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 9. test_downloads_badge_on_nav
+# 9. test_downloads_badge_and_progress_polling
 # ---------------------------------------------------------------------------
-def test_downloads_badge_on_nav(e2e_page: Page, downloads_seeded: dict) -> None:
-    """Active (pending+running) jobs cause the nav badge to be updated via JS polling."""
-    _goto_downloads(e2e_page)
-
-    # The nav badge element should exist in the header
-    badge = e2e_page.locator("[data-download-nav-badge]")
-    expect(badge).to_have_count(1)
-
-    # Wait for the polling to update the badge (the badge becomes visible
-    # when active_count > 0, which is 2 in our seed: pending + running).
-    # The JS polling fires on page load, so after networkidle it should
-    # already be visible, but we allow extra time for the async fetch.
-    expect(badge).to_be_visible(timeout=10_000)
-
-
-# ---------------------------------------------------------------------------
-# 10. test_downloads_progress_polling
-# ---------------------------------------------------------------------------
-def test_downloads_progress_polling(e2e_page: Page, downloads_seeded: dict) -> None:
-    """JS polls /api/downloads/progress every 5 seconds."""
+def test_downloads_badge_and_progress_polling(e2e_page: Page, downloads_seeded: dict) -> None:
+    """Initial and five-second progress polls update the active download badge."""
     base = e2e_page._e2e_base_url
     progress_requests: list[str] = []
 
@@ -193,18 +167,26 @@ def test_downloads_progress_polling(e2e_page: Page, downloads_seeded: dict) -> N
         if "/api/downloads/progress" in req.url and req.method == "GET":
             progress_requests.append(req.url)
 
+    e2e_page.clock.install()
     e2e_page.on("request", on_request)
-    with e2e_page.expect_response(
-        lambda resp: "/api/downloads/progress" in resp.url and resp.status == 200,
-        timeout=7_000,
-    ):
-        e2e_page.goto(f"{base}/downloads")
-    with e2e_page.expect_response(
-        lambda resp: "/api/downloads/progress" in resp.url and resp.status == 200,
-        timeout=7_000,
-    ):
-        pass
-    e2e_page.remove_listener("request", on_request)
+    try:
+        with e2e_page.expect_response(
+            lambda resp: "/api/downloads/progress" in resp.url and resp.status == 200,
+        ):
+            e2e_page.goto(f"{base}/downloads")
+        expect(e2e_page.locator("[data-download-history-page]")).to_be_visible()
+
+        badge = e2e_page.locator("[data-download-nav-badge]")
+        expect(badge).to_have_count(1)
+        expect(badge).to_be_visible()
+        expect(badge).to_contain_text("2")
+
+        with e2e_page.expect_response(
+            lambda resp: "/api/downloads/progress" in resp.url and resp.status == 200,
+        ):
+            e2e_page.clock.run_for(5_000)
+    finally:
+        e2e_page.remove_listener("request", on_request)
     assert len(progress_requests) >= 2
 
 

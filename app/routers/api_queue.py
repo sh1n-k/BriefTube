@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
@@ -31,6 +32,15 @@ async def queue_poll(request: Request):
     counts = await transcripts_repo.queue_status(db)
     workers = await settings_repo.get_worker_settings(db)
     guard = await transcripts_repo.get_transcript_guard_state(db)
+    language_raw = await settings_repo.get_setting(db, key="language", default=DEFAULT_LANGUAGE)
+    queue_html = request.app.state.templates.env.get_template("fragments/queue_list.html").render(
+        {
+            "txt": get_texts(normalize_language(language_raw)),
+            "transcript_items": transcript_items,
+            "llm_items": llm_items,
+            "queue_counts": counts,
+        }
+    )
     badge_count = (
         counts.get("transcript_pending", 0)
         + counts.get("transcript_processing", 0)
@@ -41,6 +51,7 @@ async def queue_poll(request: Request):
         "transcript_items": transcript_items,
         "llm_items": llm_items,
         "counts": counts,
+        "queue_html": queue_html,
         "badge_count": badge_count,
         "workers": {
             "transcript": workers.get("transcript", True),

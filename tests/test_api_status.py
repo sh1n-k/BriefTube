@@ -65,6 +65,52 @@ def test_queue_status_counts_unknown_values_in_unknown_count(client: TestClient)
     assert payload["unknown_count"] == 1
 
 
+def test_queue_status_and_poll_ignore_deleted_videos(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (
+                "UCdeletedqueue001",
+                "Deleted Queue Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdeletedqueue001",
+            ),
+        )
+        rows = [
+            ("vid-active-tp", "transcript_pending", None),
+            ("vid-deleted-tp", "transcript_pending", "2026-02-21T00:00:00+00:00"),
+            ("vid-active-lp", "llm_pending", None),
+            ("vid-deleted-lp", "llm_pending", "2026-02-21T00:00:00+00:00"),
+            ("vid-deleted-unknown", "mystery_state", "2026-02-21T00:00:00+00:00"),
+        ]
+        conn.executemany(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, deleted_at)
+            VALUES (?, 'UCdeletedqueue001', ?, '2026-02-20T00:00:00+00:00', ?, ?)
+            """,
+            [(video_id, video_id, status, deleted_at) for video_id, status, deleted_at in rows],
+        )
+        conn.commit()
+
+    status_payload = client.get("/api/status").json()
+    assert status_payload["transcript_pending"] == 1
+    assert status_payload["llm_pending"] == 1
+    assert status_payload["unknown_count"] == 0
+
+    poll_response = client.get("/api/queue/poll")
+    assert poll_response.status_code == 200
+    poll_payload = poll_response.json()
+    assert poll_payload["counts"]["transcript_pending"] == 1
+    assert poll_payload["counts"]["llm_pending"] == 1
+    assert poll_payload["badge_count"] == 2
+    assert "vid-active-tp" in poll_payload["queue_html"]
+    assert "vid-active-lp" in poll_payload["queue_html"]
+    assert "vid-deleted-tp" not in poll_payload["queue_html"]
+
+
 def _seed_queue_video(
     conn: sqlite3.Connection,
     *,

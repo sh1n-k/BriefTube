@@ -52,7 +52,7 @@ def page(seeded_server: dict, context) -> Page:
 
 def _goto_settings(page: Page) -> None:
     page.goto(f"{page._e2e_base_url}/settings")
-    page.wait_for_load_state("networkidle")
+    page.wait_for_selector("[data-settings-section='workers']")
 
 
 # ---------------------------------------------------------------------------
@@ -60,8 +60,8 @@ def _goto_settings(page: Page) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_settings_theme_mode_toggle(page: Page) -> None:
-    """Theme mode select (light/dark/system) changes data-theme on <html>."""
+def test_settings_theme_controls(page: Page) -> None:
+    """Theme mode and tone selects update the document theme attributes."""
     _goto_settings(page)
 
     mode_select = page.locator("[data-theme-mode-select]")
@@ -82,18 +82,7 @@ def test_settings_theme_mode_toggle(page: Page) -> None:
     mode_select.select_option("system")
     expect(html).to_have_attribute("data-theme-mode", "system")
 
-
-# ---------------------------------------------------------------------------
-# 5. test_settings_theme_tone_toggle
-# ---------------------------------------------------------------------------
-
-
-def test_settings_theme_tone_toggle(page: Page) -> None:
-    """Theme tone select (brand/neutral/high-contrast) changes data-tone."""
-    _goto_settings(page)
-
     tone_select = page.locator("[data-theme-tone-select]")
-    html = page.locator("html")
 
     # Switch to brand
     tone_select.select_option("brand")
@@ -136,7 +125,8 @@ def test_settings_transcript_guard_reset(page: Page) -> None:
 
     # Submit the form — this POSTs and redirects to /settings?guard_reset=1
     submit_btn.click()
-    page.wait_for_load_state("networkidle")
+    page.wait_for_url(f"{page._e2e_base_url}/settings?guard_reset=1")
+    page.wait_for_selector("[data-settings-section='workers']")
 
     # After redirect, the success message should be visible
     expect(page).to_have_url(f"{page._e2e_base_url}/settings?guard_reset=1")
@@ -151,8 +141,8 @@ def test_settings_transcript_guard_reset(page: Page) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_settings_llm_prompt_modal(page: Page) -> None:
-    """LLM prompt preview opens a large modal editor and closes cleanly."""
+def test_settings_llm_prompt_modal_and_saved_toast(page: Page) -> None:
+    """Prompt modal controls work and a setting update renders a success toast."""
     _goto_settings(page)
 
     open_button = page.locator("[data-open-llm-prompt-modal]")
@@ -167,19 +157,11 @@ def test_settings_llm_prompt_modal(page: Page) -> None:
     page.locator("[data-close-llm-prompt-modal]").click()
     expect(modal).to_be_hidden()
 
-
-# ---------------------------------------------------------------------------
-# 14. test_settings_saved_toast
-# ---------------------------------------------------------------------------
-
-
-def test_settings_saved_toast(page: Page) -> None:
-    """Toast with the save confirmation message appears after a setting change."""
-    _goto_settings(page)
-
-    # Make a timezone change to trigger a toast
     tz_select = page.locator("select[name='timezone']")
-    tz_select.select_option("America/Los_Angeles")
+    with page.expect_response(
+        lambda response: "/api/settings/timezone" in response.url and response.status == 200
+    ):
+        tz_select.select_option("America/Los_Angeles")
 
     # Wait for the toast stack to appear
     toast_stack = page.locator("#ui-toast-stack")
@@ -192,6 +174,7 @@ def test_settings_saved_toast(page: Page) -> None:
     # The toast should contain the emerald (success) styling
     expect(toast_items.first).to_have_class(re.compile(r"border-emerald-300"))
 
-    # Restore
-    tz_select.select_option("Asia/Seoul")
-    page.wait_for_timeout(500)
+    with page.expect_response(
+        lambda response: "/api/settings/timezone" in response.url and response.status == 200
+    ):
+        tz_select.select_option("Asia/Seoul")

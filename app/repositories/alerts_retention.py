@@ -13,4 +13,5 @@ acknowledge_alerts_by_type = repository.acknowledge_alerts_by_type
 
 count_retention_expired_videos = repository.count_retention_expired_videos
 list_retention_expired_video_ids = repository.list_retention_expired_video_ids
+list_retention_expired_matching_video_ids = repository.list_retention_expired_matching_video_ids
 list_retention_expired_videos = repository.list_retention_expired_videos

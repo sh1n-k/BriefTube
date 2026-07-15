@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 from tests.e2e.seed_helpers import (
     get_db_connection,
@@ -174,28 +174,33 @@ def test_video_list_article_modal_scroll_resets_for_different_article(
     page.goto(f"{seeded_server['base_url']}/?limit=25")
     page.wait_for_selector("#video-list-wrap")
 
-    def open_article(video_id: str) -> None:
-        page.locator("tr", has_text=video_id).locator("[data-video-article-preview-load]").click()
-        expect(page.locator("[data-video-list-article-modal]")).to_be_visible()
+    def open_article(video_id: str) -> Locator:
+        row = page.locator(f"tr:has(a[href='/videos/{video_id}'])")
+        with page.expect_response(f"**/views/videos/{video_id}/article-preview-modal"):
+            row.locator("[data-video-article-preview-load]").click()
+        modal = page.locator("[data-video-list-article-modal]")
+        expect(modal).to_be_visible()
+        return modal
 
-    open_article("ALPHA_DONE_01")
-    modal = page.locator("[data-video-list-article-modal]")
+    modal = open_article("ALPHA_DONE_01")
     scroller = modal.locator("[data-article-preview-scroll]")
     scroller.evaluate("(node) => { node.scrollTop = 360; }")
     assert scroller.evaluate("(node) => node.scrollTop") > 0
     modal.locator("[data-article-preview-close]").click()
 
-    open_article("ALPHA_DONE_01")
+    modal = open_article("ALPHA_DONE_01")
+    scroller = modal.locator("[data-article-preview-scroll]")
     assert scroller.evaluate("(node) => node.scrollTop") > 0
     modal.locator("[data-article-preview-close]").click()
 
-    open_article("BETA_DONE_01")
+    modal = open_article("BETA_DONE_01")
+    scroller = modal.locator("[data-article-preview-scroll]")
     assert scroller.evaluate("(node) => node.scrollTop") == 0
 
 
 @pytest.mark.e2e
-def test_video_list_pagination(e2e_page: Page, seeded_server: dict) -> None:
-    """Page 1 shows 10 items; clicking next loads page 2 via HTMX swap."""
+def test_video_list_pagination_and_delete(e2e_page: Page, seeded_server: dict) -> None:
+    """Pagination loads page 2 where selected deletion updates the list."""
     page = e2e_page
     _goto_home(page, seeded_server)
 
@@ -220,6 +225,18 @@ def test_video_list_pagination(e2e_page: Page, seeded_server: dict) -> None:
     )
     rows_p2 = page.locator("#video-list-wrap tbody tr")
     expect(rows_p2).to_have_count(10)
+
+    target_href = "/videos/ALPHA_TP_05"
+    target_row = page.locator(f"#video-list-wrap tbody tr:has(a[href='{target_href}'])")
+    expect(target_row).to_have_count(1)
+    target_row.locator("input[data-video-select-item]").check()
+
+    delete_btn = page.locator("button[data-video-delete-selected]")
+    expect(delete_btn).to_be_enabled()
+    with page.expect_response("**/views/videos/delete-selected") as resp_info:
+        delete_btn.click()
+    assert resp_info.value.ok
+    expect(page.locator(f"#video-list-wrap tbody a[href='{target_href}']")).to_have_count(0)
 
 
 @pytest.mark.e2e
@@ -252,12 +269,13 @@ def test_video_detail_article_section(e2e_page: Page, seeded_server: dict) -> No
 
 
 @pytest.mark.e2e
-def test_video_detail_auto_refresh_preserves_player_card(
+def test_video_detail_auto_refresh_preserves_static_and_unchanged_dom(
     e2e_page: Page, seeded_server: dict
 ) -> None:
-    """기사 대기 중 자동 갱신은 dynamic bundle만 교체하고 player card DOM은 유지된다."""
+    """동일한 자동 갱신 응답은 player와 dynamic article DOM을 유지한다."""
     page = e2e_page
     video_id = "ALPHA_LP_01"
+    page.clock.install()
     page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
     page.wait_for_selector("#video-detail-wrap")
 
@@ -268,33 +286,6 @@ def test_video_detail_auto_refresh_preserves_player_card(
     expect(player_card).to_be_visible()
     player_card.evaluate("(node) => node.setAttribute('data-player-stability-marker', 'kept')")
 
-    with page.expect_response(
-        lambda resp: (
-            f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200
-        ),
-        timeout=5_000,
-    ):
-        pass
-
-    expect(page.locator("[data-detail-player-card]")).to_have_attribute(
-        "data-player-stability-marker",
-        "kept",
-    )
-    expect(page.locator("[data-detail-article-card]")).to_contain_text(
-        re.compile(r"(아직 준비되지 않았습니다|Not ready)"),
-    )
-
-
-@pytest.mark.e2e
-def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(
-    e2e_page: Page, seeded_server: dict
-) -> None:
-    """서버 응답이 같으면 dynamic bundle을 다시 갈아끼우지 않는다."""
-    page = e2e_page
-    video_id = "ALPHA_LP_01"
-    page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
-    page.wait_for_selector("#video-detail-wrap")
-
     article_card = page.locator("[data-detail-article-card]")
     expect(article_card).to_be_visible()
     article_card.evaluate("(node) => node.setAttribute('data-refresh-stability-marker', 'kept')")
@@ -303,43 +294,17 @@ def test_video_detail_auto_refresh_skips_unchanged_fragment_swap(
         lambda resp: (
             f"/views/videos/{video_id}/dynamic-fragment" in resp.url and resp.status == 200
         ),
-        timeout=5_000,
     ):
-        pass
+        page.clock.run_for(3_000)
 
+    expect(page.locator("[data-detail-player-card]")).to_have_attribute(
+        "data-player-stability-marker",
+        "kept",
+    )
+    expect(page.locator("[data-detail-article-card]")).to_contain_text(
+        re.compile(r"(아직 준비되지 않았습니다|Not ready)"),
+    )
     expect(page.locator("[data-detail-article-card]")).to_have_attribute(
         "data-refresh-stability-marker",
         "kept",
     )
-
-
-@pytest.mark.e2e
-def test_video_list_delete_selected(e2e_page: Page, seeded_server: dict) -> None:
-    """Checking checkboxes and clicking delete removes video from list."""
-    page = e2e_page
-    _goto_home(page, seeded_server)
-
-    # Get initial row count
-    rows = page.locator("#video-list-wrap tbody tr")
-    initial_count = rows.count()
-    assert initial_count > 0
-
-    # Get the first row target URL before delete
-    first_row = page.locator("#video-list-wrap tbody tr").first
-    target_href = first_row.locator("td a[href^='/videos/']").get_attribute("href")
-    assert target_href is not None
-    first_checkbox = first_row.locator("input[data-video-select-item]")
-    first_checkbox.check()
-
-    # The delete button (type="submit") should become enabled via JS
-    delete_btn = page.locator("button[data-video-delete-selected]")
-    expect(delete_btn).to_be_enabled(timeout=5000)
-
-    # Click the submit button — triggers hx-post="/views/videos/delete-selected"
-    with page.expect_response("**/views/videos/delete-selected") as resp_info:
-        delete_btn.click()
-    assert resp_info.value.ok
-
-    # After HTMX swap, verify the deleted target is not present on the page.
-    page.wait_for_selector("#video-list-wrap tbody tr")
-    assert page.locator(f"#video-list-wrap tbody a[href='{target_href}']").count() == 0

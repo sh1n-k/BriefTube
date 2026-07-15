@@ -10,6 +10,7 @@ ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
 ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
 ALERT_TYPE_LLM_SCHEMA_INVALID = "llm_schema_invalid"
 ALERT_TYPE_TELEGRAM_SEND_FAILED = "telegram_send_failed"
+RETENTION_MATCH_BATCH_SIZE = 500
 
 
 def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
@@ -195,29 +196,79 @@ async def count_retention_expired_videos(db: aiosqlite.Connection, retention_day
 
 
 async def list_retention_expired_video_ids(
-    db: aiosqlite.Connection, retention_days: int
+    db: aiosqlite.Connection,
+    retention_days: int,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[str]:
     modifier = f"-{max(1, int(retention_days))} days"
+    params: list[Any] = [modifier]
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ? OFFSET ?"
+        params.extend([max(1, int(limit)), max(0, int(offset))])
     cursor = await db.execute(
-        """
+        f"""
         SELECT video_id
         FROM videos
         WHERE datetime(upload_time) <= datetime('now', ?)
           AND deleted_at IS NULL
         ORDER BY datetime(upload_time) ASC, created_at ASC
+        {limit_clause}
         """,
-        (modifier,),
+        tuple(params),
     )
     rows = await cursor.fetchall()
     return [str(row["video_id"]) for row in rows]
 
 
+async def list_retention_expired_matching_video_ids(
+    db: aiosqlite.Connection,
+    retention_days: int,
+    video_ids: Iterable[str],
+) -> list[str]:
+    normalized = [
+        str(video_id).strip() for video_id in dict.fromkeys(video_ids) if str(video_id).strip()
+    ]
+    if not normalized:
+        return []
+
+    modifier = f"-{max(1, int(retention_days))} days"
+    expired: set[str] = set()
+    for start in range(0, len(normalized), RETENTION_MATCH_BATCH_SIZE):
+        batch = normalized[start : start + RETENTION_MATCH_BATCH_SIZE]
+        placeholders = ",".join(["?"] * len(batch))
+        cursor = await db.execute(
+            f"""
+            SELECT video_id
+            FROM videos
+            WHERE video_id IN ({placeholders})
+              AND datetime(upload_time) <= datetime('now', ?)
+              AND deleted_at IS NULL
+            """,
+            (*batch, modifier),
+        )
+        rows = await cursor.fetchall()
+        expired.update(str(row["video_id"]) for row in rows)
+    return [video_id for video_id in normalized if video_id in expired]
+
+
 async def list_retention_expired_videos(
-    db: aiosqlite.Connection, retention_days: int
+    db: aiosqlite.Connection,
+    retention_days: int,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     modifier = f"-{max(1, int(retention_days))} days"
+    params: list[Any] = [modifier]
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ? OFFSET ?"
+        params.extend([max(1, int(limit)), max(0, int(offset))])
     cursor = await db.execute(
-        """
+        f"""
         SELECT
             v.video_id,
             v.channel_id,
@@ -232,8 +283,9 @@ async def list_retention_expired_videos(
         WHERE datetime(v.upload_time) <= datetime('now', ?)
           AND v.deleted_at IS NULL
         ORDER BY datetime(v.upload_time) ASC, v.created_at ASC
+        {limit_clause}
         """,
-        (modifier,),
+        tuple(params),
     )
     rows = await cursor.fetchall()
     return [_with_thumbnail_url(item) for item in _rows_to_dicts(rows)]

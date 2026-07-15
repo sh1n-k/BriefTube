@@ -99,7 +99,7 @@ def _seed(e2e_server: dict) -> None:
 
 def _go_home(page: Page) -> None:
     page.goto(page._e2e_base_url)
-    page.wait_for_load_state("networkidle")
+    expect(page.locator("form[hx-get='/views/search-results']")).to_be_visible()
 
 
 def _submit_search(page: Page, keyword: str) -> None:
@@ -127,8 +127,5 @@ def test_search_enters_query_and_navigates_to_result(e2e_page: Page) -> None:
     expect(link).to_be_visible()
 
     link.click()
-    page.wait_for_load_state("networkidle")
-
-    # Verify we navigated to the video detail page
     expect(page).to_have_url(f"{page._e2e_base_url}/videos/vid_search_quantum")
     expect(page.locator("#video-detail-wrap")).to_be_visible()

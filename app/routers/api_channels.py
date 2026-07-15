@@ -13,6 +13,7 @@ from starlette.datastructures import UploadFile
 
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
+from app.routers.helpers import read_json_object
 from app.services.bulk_channels import (
     MAX_TAKEOUT_IMPORT_BYTES,
     TakeoutImportTooLargeError,
@@ -27,22 +28,12 @@ MAX_CHANNEL_IMPORT_BYTES = 5 * 1024 * 1024
 router = APIRouter(tags=["api"])
 
 
-async def _read_json_object(request: Request) -> dict:
-    try:
-        payload = await request.json()
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="invalid JSON payload") from exc
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="JSON payload must be an object")
-    return payload
-
-
 async def _read_json_or_form_object(request: Request) -> dict:
     content_type = request.headers.get("content-type", "")
     if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
         form = await request.form()
         return {key: form.get(key) for key in form.keys()}
-    return await _read_json_object(request)
+    return await read_json_object(request)
 
 
 def _parse_takeout_entries_or_413(filename: str, content: bytes):
@@ -84,7 +75,7 @@ async def create_channel(request: Request):
     channel_language_hint: str | None = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
-        payload = await _read_json_object(request)
+        payload = await read_json_object(request)
         channel_id = str(payload.get("channel_id", "")).strip()
         channel_name = str(payload.get("channel_name", "")).strip()
         channel_handle = str(payload.get("channel_handle", "")).strip() or None
@@ -141,7 +132,7 @@ async def resolve_bulk_channels(request: Request):
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
-        payload = await _read_json_object(request)
+        payload = await read_json_object(request)
         bulk_text = str(payload.get("bulk_text", ""))
         raw_takeout_entries = payload.get("takeout_entries", [])
         if raw_takeout_entries is None:
@@ -209,7 +200,7 @@ async def commit_bulk_channels(request: Request):
     items: list[dict] = []
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
-        payload = await _read_json_object(request)
+        payload = await read_json_object(request)
         raw_items = payload.get("items", [])
         if not isinstance(raw_items, list):
             raise HTTPException(status_code=400, detail="items must be a list")

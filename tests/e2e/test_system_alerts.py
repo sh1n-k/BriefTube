@@ -86,40 +86,28 @@ def _seed(e2e_server: dict) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_alert_toast_dismiss(e2e_page: Page) -> None:
-    """Clicking the dismiss (X) button removes the toast from the DOM."""
+def test_alert_dismiss_and_acknowledge(e2e_page: Page) -> None:
+    """Dismiss and confirmed acknowledgement both remove alert toasts."""
     page = e2e_page
     page.goto(page._e2e_base_url)
 
     toasts = page.locator("[data-alert-toast]")
     expect(toasts).to_have_count(2)
 
-    # Click the dismiss button on the first toast
     first_toast = toasts.first
+    details = first_toast.locator("details")
+    members = details.locator("ul")
+    expect(members).to_be_hidden()
+    details.locator("summary").click()
+    expect(members).to_be_visible()
+    assert members.locator("li").count() >= 1
+
     dismiss_btn = first_toast.locator("[data-alert-dismiss]")
     dismiss_btn.click()
 
-    # After the 150ms fade-out + removal, only 1 toast should remain
     expect(toasts).to_have_count(1)
-
-
-# --------------------------------------------------------------------------- #
-# 3. Confirm checkbox + submit → HTMX POST → toast removed
-# --------------------------------------------------------------------------- #
-
-
-def test_alert_confirm_and_ack(e2e_page: Page) -> None:
-    """Checking the confirm box enables the submit button; submitting removes the toast via HTMX."""
-    page = e2e_page
-    page.goto(page._e2e_base_url)
-
-    toasts = page.locator("[data-alert-toast]")
-    # After the previous dismiss test, alerts may have changed state.
-    # We work with whatever toasts are present.
     initial_count = toasts.count()
     assert initial_count > 0, "Expected at least one alert toast to be present"
-
-    # Find the first toast with the llm_config_missing type (has only 1 member)
     target_toast = None
     for i in range(initial_count):
         toast = toasts.nth(i)
@@ -128,62 +116,12 @@ def test_alert_confirm_and_ack(e2e_page: Page) -> None:
             target_toast = toast
             break
 
-    # If llm_config_missing was already dismissed, use any remaining toast
     if target_toast is None:
         target_toast = toasts.first
-
-    # Submit button should be disabled initially
     submit_btn = target_toast.locator("[data-alert-submit]")
     expect(submit_btn).to_be_disabled()
-
-    # Check the confirm checkbox
     confirm_checkbox = target_toast.locator("[data-alert-confirm]")
     confirm_checkbox.check()
-
-    # Submit button should now be enabled
     expect(submit_btn).to_be_enabled()
-
-    # Click submit — HTMX POST to /views/alerts/ack-group with hx-swap="outerHTML"
-    # The form should be replaced (removed) from DOM
     submit_btn.click()
-
-    # Wait for the toast to be removed from the DOM
     expect(target_toast).to_have_count(0)
-
-
-# --------------------------------------------------------------------------- #
-# 4. <details> toggle shows member list
-# --------------------------------------------------------------------------- #
-
-
-def test_alert_group_members_toggle(e2e_page: Page) -> None:
-    """Opening the <details> element reveals the member list."""
-    page = e2e_page
-    page.goto(page._e2e_base_url)
-
-    toasts = page.locator("[data-alert-toast]")
-    toast_count = toasts.count()
-    assert toast_count > 0, "Expected at least one alert toast to be present"
-
-    # Use the first available toast
-    toast = toasts.first
-
-    # The <details> element is inside the toast
-    details = toast.locator("details")
-    expect(details).to_be_visible()
-
-    # The member list (<ul>) should not be visible initially (details is closed)
-    member_list = details.locator("ul")
-    expect(member_list).to_have_count(1)
-    expect(member_list).to_be_hidden()
-
-    # Click the <summary> to open the details
-    summary = details.locator("summary")
-    summary.click()
-
-    # Now the member list should be visible
-    expect(member_list).to_be_visible()
-
-    # There should be at least 1 <li> member entry
-    members = member_list.locator("li")
-    assert members.count() >= 1
