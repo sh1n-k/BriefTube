@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.main import _resolve_worker_start_specs
+from app.worker_registry import WORKER_SPECS
 from tests.e2e.conftest import _build_e2e_env
 
 
@@ -57,17 +58,7 @@ def test_e2e_server_env_disables_background_workers(tmp_path) -> None:
         log_dir=str(tmp_path / "logs"),
     )
 
-    for name in (
-        "RSS",
-        "DOWNLOAD",
-        "MANUAL_ARTICLE",
-        "LLM",
-        "NOTIFIER",
-        "REMOTE_SYNC",
-        "CHANNEL_METADATA",
-        "TRANSCRIPT",
-        "MANUAL_TRANSCRIPT",
-    ):
-        assert env[f"BRIEFTUBE_DISABLE_{name}_WORKER"] == "1"
+    for spec in WORKER_SPECS:
+        assert env[spec.disable_env_name] == "1"
     assert env["BRIEFTUBE_REMOTE_SYNC_ENABLED"] == "0"
     assert env["BRIEFTUBE_REMOTE_SYNC_DSN"] == ""

@@ -5,7 +5,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.repositories import _settings as settings_repository
+import app.repositories._settings as settings_repository
 from app.repositories._transcripts import (
     get_settings_map,
 )

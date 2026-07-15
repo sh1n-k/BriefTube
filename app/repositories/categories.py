@@ -1,6 +1,6 @@
 """Category-related repository accessors."""
 
-from app.repositories import _categories as repository
+import app.repositories._categories as repository
 
 CATEGORY_PROCESSING_STAGE_OFF = repository.CATEGORY_PROCESSING_STAGE_OFF
 CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY = repository.CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY

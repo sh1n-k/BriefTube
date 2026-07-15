@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from app.config import load_config
+
+
+def test_load_config_warns_for_unknown_yaml_key(monkeypatch, tmp_path: Path, caplog) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("unknown_option: true\n", encoding="utf-8")
+    monkeypatch.setenv("APP_CONFIG_FILE", str(config_path))
+
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        load_config()
+
+    assert "event=config.unknown_yaml_key" in caplog.text
+    assert "key=unknown_option" in caplog.text
 
 
 def test_load_config_reads_server_settings_from_yaml(monkeypatch, tmp_path: Path) -> None:

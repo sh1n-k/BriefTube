@@ -1,6 +1,6 @@
 """Manual article job repository accessors."""
 
-from app.repositories import _manual_articles as repository
+import app.repositories._manual_articles as repository
 
 MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = (
     repository.MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES

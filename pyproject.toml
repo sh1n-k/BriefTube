@@ -157,8 +157,6 @@ include_external_packages = false
 #
 # `app.state` (composition root that wires service instances), `app.main`,
 # and `app.cli` (entry points) are intentionally outside the layered graph.
-# Baseline violations are tracked in `ignore_imports` and should be removed
-# by future refactors.
 
 [[tool.importlinter.contracts]]
 name = "Layered architecture"
@@ -171,5 +169,18 @@ layers = [
   "app.logging_setup",
   "app.time_utils",
   "app.database | app.i18n | app.download_error_registry | app.download_policy | app.llm_policy | app.timezone_policy | app.config",
+  "app.pipeline_status",
 ]
 exhaustive = false
+
+[[tool.importlinter.contracts]]
+name = "Services do not depend on composition state"
+type = "forbidden"
+source_modules = ["app.services"]
+forbidden_modules = ["app.state"]
+
+[[tool.importlinter.contracts]]
+name = "Repositories do not depend on composition state"
+type = "forbidden"
+source_modules = ["app.repositories"]
+forbidden_modules = ["app.state"]

@@ -6,8 +6,8 @@ from typing import Any
 
 import aiosqlite
 
+import app.repositories._settings as settings_repository
 from app.download_policy import validate_download_output_dir
-from app.repositories import _settings as settings_repository
 
 get_settings_map = settings_repository.get_settings_map
 set_setting = settings_repository.set_setting

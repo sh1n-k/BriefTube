@@ -5,18 +5,11 @@ from typing import Any
 
 import aiosqlite
 
+import app.repositories._alerts_retention as alerts_repository
+import app.repositories._settings as settings_repository
+import app.repositories._settings_llm as llm_settings_repository
 from app.remote_sync_metadata import SYNC_NOW_SQL
-from app.repositories import (
-    _alerts_retention as alerts_repository,
-)
-from app.repositories import (
-    _settings as settings_repository,
-)
-from app.repositories import (
-    _settings_llm as llm_settings_repository,
-)
 
-LLM_QUEUE_STATUSES = ("llm_pending", "llm_processing", "llm_failed", "manual_review")
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
 LLM_ARTICLE_PROVIDER_VALUES = {"codex", "claude", "gemini"}
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = llm_settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY

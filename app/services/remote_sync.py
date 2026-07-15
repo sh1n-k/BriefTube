@@ -9,11 +9,15 @@ from typing import Any
 import asyncpg
 
 from app.config import AppConfig
+from app.remote_sync_metadata import (
+    REMOTE_SYNC_KEY_COLUMNS,
+    REMOTE_SYNC_PRUNE_ORDER,
+    REMOTE_SYNC_SCHEMA_VERSION,
+    REMOTE_SYNC_TABLES,
+)
 from app.repositories import remote_sync as local_sync_repo
 
 logger = logging.getLogger(__name__)
-
-REMOTE_SYNC_SCHEMA_VERSION = "2"
 
 
 class RemoteSyncError(Exception):
@@ -50,31 +54,12 @@ class RemoteSyncGateway:
         conn = await self._connect()
         try:
             return {
-                "categories": await _fetch_dicts(
+                table: await _fetch_dicts(
                     conn,
-                    "SELECT * FROM sync_categories ORDER BY updated_at ASC LIMIT $1",
+                    f"SELECT * FROM sync_{table} ORDER BY updated_at ASC LIMIT $1",
                     safe_limit,
-                ),
-                "channels": await _fetch_dicts(
-                    conn,
-                    "SELECT * FROM sync_channels ORDER BY updated_at ASC LIMIT $1",
-                    safe_limit,
-                ),
-                "videos": await _fetch_dicts(
-                    conn,
-                    "SELECT * FROM sync_videos ORDER BY updated_at ASC LIMIT $1",
-                    safe_limit,
-                ),
-                "transcripts": await _fetch_dicts(
-                    conn,
-                    "SELECT * FROM sync_transcripts ORDER BY updated_at ASC LIMIT $1",
-                    safe_limit,
-                ),
-                "articles": await _fetch_dicts(
-                    conn,
-                    "SELECT * FROM sync_articles ORDER BY updated_at ASC LIMIT $1",
-                    safe_limit,
-                ),
+                )
+                for table in REMOTE_SYNC_TABLES
             }
         finally:
             await conn.close()
@@ -83,16 +68,17 @@ class RemoteSyncGateway:
         conn = await self._connect()
         try:
             async with conn.transaction():
-                for row in rows_by_table.get("categories", ()):
-                    await conn.execute(UPSERT_CATEGORY, *_category_args(row))
-                for row in rows_by_table.get("channels", ()):
-                    await conn.execute(UPSERT_CHANNEL, *_channel_args(row))
-                for row in rows_by_table.get("videos", ()):
-                    await conn.execute(UPSERT_VIDEO, *_video_args(row))
-                for row in rows_by_table.get("transcripts", ()):
-                    await conn.execute(UPSERT_TRANSCRIPT, *_transcript_args(row))
-                for row in rows_by_table.get("articles", ()):
-                    await conn.execute(UPSERT_ARTICLE, *_article_args(row))
+                handlers = {
+                    "categories": (UPSERT_CATEGORY, _category_args),
+                    "channels": (UPSERT_CHANNEL, _channel_args),
+                    "videos": (UPSERT_VIDEO, _video_args),
+                    "transcripts": (UPSERT_TRANSCRIPT, _transcript_args),
+                    "articles": (UPSERT_ARTICLE, _article_args),
+                }
+                for table in REMOTE_SYNC_TABLES:
+                    sql, args_builder = handlers[table]
+                    for row in rows_by_table.get(table, ()):
+                        await conn.execute(sql, *args_builder(row))
         finally:
             await conn.close()
 
@@ -100,13 +86,9 @@ class RemoteSyncGateway:
         conn = await self._connect()
         try:
             total = 0
-            for table, key in (
-                ("sync_articles", "video_id"),
-                ("sync_transcripts", "video_id"),
-                ("sync_videos", "video_id"),
-                ("sync_channels", "channel_id"),
-                ("sync_categories", "category_uid"),
-            ):
+            for entity in REMOTE_SYNC_PRUNE_ORDER:
+                table = f"sync_{entity}"
+                key = REMOTE_SYNC_KEY_COLUMNS[entity]
                 tag = await conn.execute(
                     f"""
                     DELETE FROM {table}

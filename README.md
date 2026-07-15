@@ -12,7 +12,6 @@ macOS/Linux:
 
 ```bash
 uv sync
-uv run python scripts/init_db.py
 ./run-dev.sh
 ```
 
@@ -20,11 +19,16 @@ Windows PowerShell:
 
 ```powershell
 uv sync
-uv run python .\scripts\init_db.py
 .\run-dev.ps1
 ```
 
 앱은 기본적으로 `http://127.0.0.1:48080`에서 실행됩니다.
+실행 시 선택된 config의 DB를 자동으로 초기화합니다. 서버를 시작하지 않고 개발 DB만
+초기화하려면 다음처럼 config를 명시합니다.
+
+```bash
+APP_CONFIG_FILE=config.dev.yaml uv run python scripts/init_db.py
+```
 
 ## 주요 기능
 

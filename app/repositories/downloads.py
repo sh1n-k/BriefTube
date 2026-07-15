@@ -1,7 +1,7 @@
 """Download domain repository accessors."""
 
-from app.repositories import _downloads as repository
-from app.repositories import _downloads_queries as queries_repository
+import app.repositories._downloads as repository
+import app.repositories._downloads_queries as queries_repository
 
 DOWNLOAD_QUALITY_OPTIONS = repository.DOWNLOAD_QUALITY_OPTIONS
 DOWNLOAD_QUALITY_DEFAULT = repository.DOWNLOAD_QUALITY_DEFAULT

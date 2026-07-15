@@ -6,15 +6,16 @@ from typing import Any
 import aiosqlite
 
 from app.remote_sync_metadata import (
+    REMOTE_SYNC_KEY_COLUMNS,
+    REMOTE_SYNC_PRUNE_ORDER,
     REMOTE_SYNC_RUNTIME_ENABLED_KEY,
     REMOTE_SYNC_STATUS_LAST_FAILURE_CODE_KEY,
     REMOTE_SYNC_STATUS_LAST_SUCCESS_AT_KEY,
     REMOTE_SYNC_STATUS_SCHEMA_VERSION_KEY,
+    REMOTE_SYNC_TABLES,
     SYNC_NOW_SQL,
     sync_dirty_set_clause,
 )
-
-SYNC_TABLES: tuple[str, ...] = ("categories", "channels", "videos", "transcripts", "articles")
 
 
 def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
@@ -219,19 +220,8 @@ async def mark_rows_pushed(
     rows_by_table: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> None:
     pushed_at_sql = SYNC_NOW_SQL
-    for row in rows_by_table.get("categories", ()):
-        await db.execute(
-            f"""
-            UPDATE categories
-            SET sync_dirty = 0,
-                sync_last_pushed_at = {pushed_at_sql}
-            WHERE category_uid = ?
-              AND updated_at = ?
-            """,
-            (row.get("category_uid"), row.get("updated_at")),
-        )
-    for table in ("channels", "videos", "transcripts", "articles"):
-        key = "channel_id" if table == "channels" else "video_id"
+    for table in REMOTE_SYNC_TABLES:
+        key = REMOTE_SYNC_KEY_COLUMNS[table]
         for row in rows_by_table.get(table, ()):
             await db.execute(
                 f"""
@@ -250,17 +240,18 @@ async def apply_remote_rows(
     db: aiosqlite.Connection,
     rows_by_table: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> dict[str, int]:
-    applied = {table: 0 for table in SYNC_TABLES}
-    for row in rows_by_table.get("categories", ()):
-        applied["categories"] += await _apply_category(db, row)
-    for row in rows_by_table.get("channels", ()):
-        applied["channels"] += await _apply_channel(db, row)
-    for row in rows_by_table.get("videos", ()):
-        applied["videos"] += await _apply_video(db, row)
-    for row in rows_by_table.get("transcripts", ()):
-        applied["transcripts"] += await _apply_transcript(db, row)
-    for row in rows_by_table.get("articles", ()):
-        applied["articles"] += await _apply_article(db, row)
+    handlers = {
+        "categories": _apply_category,
+        "channels": _apply_channel,
+        "videos": _apply_video,
+        "transcripts": _apply_transcript,
+        "articles": _apply_article,
+    }
+    applied = {table: 0 for table in REMOTE_SYNC_TABLES}
+    for table in REMOTE_SYNC_TABLES:
+        handler = handlers[table]
+        for row in rows_by_table.get(table, ()):
+            applied[table] += await handler(db, row)
     await db.commit()
     return applied
 
@@ -518,13 +509,8 @@ async def prune_local_tombstones(
     safe_days = max(1, int(retention_days))
     safe_limit = max(1, int(batch_size))
     total = 0
-    for table, key in (
-        ("articles", "video_id"),
-        ("transcripts", "video_id"),
-        ("videos", "video_id"),
-        ("channels", "channel_id"),
-        ("categories", "category_uid"),
-    ):
+    for table in REMOTE_SYNC_PRUNE_ORDER:
+        key = REMOTE_SYNC_KEY_COLUMNS[table]
         cursor = await db.execute(
             f"""
             DELETE FROM {table}

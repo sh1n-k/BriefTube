@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 import aiosqlite
 
@@ -29,7 +29,12 @@ from youtube_transcript_api._errors import (  # pyright: ignore[reportMissingImp
 )
 
 from app.repositories import transcripts as transcripts_repo
-from app.state import AppState
+
+
+class TranscriptGuardRuntime(Protocol):
+    """Runtime capability required to serialize transcript guard mutations."""
+
+    transcript_guard_lock: asyncio.Lock
 
 
 class TranscriptErrorCategory(StrEnum):
@@ -227,7 +232,7 @@ async def _save_guard_state(db, guard: TranscriptGuardState) -> None:
 
 @asynccontextmanager
 async def transcript_guard_mutation(
-    state: AppState, db: aiosqlite.Connection
+    state: TranscriptGuardRuntime, db: aiosqlite.Connection
 ) -> AsyncIterator[TranscriptGuardState]:
     """``TranscriptGuardState``를 ``state.transcript_guard_lock`` 안에서
     ``DB → in-memory mutate → DB`` 순으로 다룬다.
@@ -255,7 +260,9 @@ async def transcript_guard_mutation(
             await _save_guard_state(db, guard)
 
 
-async def read_transcript_guard(state: AppState, db: aiosqlite.Connection) -> TranscriptGuardState:
+async def read_transcript_guard(
+    state: TranscriptGuardRuntime, db: aiosqlite.Connection
+) -> TranscriptGuardState:
     """``state.transcript_guard_lock`` 안에서 DB의 최신 가드를 읽어 반환한다
     (저장 없음). 사이클 상단의 분기 결정에 사용한다.
 
@@ -270,7 +277,7 @@ async def read_transcript_guard(state: AppState, db: aiosqlite.Connection) -> Tr
 
 
 async def claim_transcript_fetch_permit(
-    state: AppState,
+    state: TranscriptGuardRuntime,
     db: aiosqlite.Connection,
     *,
     channel_id: str,

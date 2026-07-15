@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app.routers.helpers import full_page_redirect_for_non_fragment_request
-from app.routers.pages import build_video_detail_context, build_video_detail_dynamic_context
+from app.routers.video_detail_context import (
+    build_video_detail_context,
+    build_video_detail_dynamic_context,
+)
 
 router = APIRouter(tags=["views"])
 

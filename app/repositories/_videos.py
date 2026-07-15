@@ -6,20 +6,11 @@ from typing import Any
 
 import aiosqlite
 
+from app.pipeline_status import VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES
 from app.remote_sync_metadata import (
     SYNC_NOW_SQL,
     is_remote_sync_runtime_enabled,
     sync_dirty_set_clause,
-)
-
-VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES: tuple[str, ...] = (
-    "auto_paused",
-    "transcript_done",
-    "transcript_failed",
-    "no_subtitle",
-    "llm_pending",
-    "manual_review",
-    "done",
 )
 
 

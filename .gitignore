@@ -23,16 +23,10 @@ pip-wheel-metadata/
 htmlcov/
 
 # App artifacts
-data.db
-data.db-*
-data.dev.db
-data.dev.db-*
-data.prod.db
-data.prod.db-*
+data*.db
+data*.db-*
 data*.db.*
-thumbnails/
-thumbnails-dev/
-thumbnails-prod/
+thumbnails*/
 logs/
 *.log
 
