@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
@@ -41,6 +42,16 @@ def parse_optional_int(value: object | None) -> int | None:
     if text.isdigit():
         return int(text)
     return None
+
+
+async def read_json_object(request: Request) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON payload must be an object")
+    return payload
 
 
 def build_rss_poll_preview(

@@ -95,6 +95,13 @@ def test_alert_dismiss_and_acknowledge(e2e_page: Page) -> None:
     expect(toasts).to_have_count(2)
 
     first_toast = toasts.first
+    details = first_toast.locator("details")
+    members = details.locator("ul")
+    expect(members).to_be_hidden()
+    details.locator("summary").click()
+    expect(members).to_be_visible()
+    assert members.locator("li").count() >= 1
+
     dismiss_btn = first_toast.locator("[data-alert-dismiss]")
     dismiss_btn.click()
 

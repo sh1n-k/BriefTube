@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app.repositories import settings as settings_repo
+from app.routers.helpers import read_json_object
 
 router = APIRouter(tags=["api"])
 
@@ -16,11 +17,11 @@ async def set_policy(request: Request):
 
     try:
         if "application/json" in content_type:
-            payload = await request.json()
+            payload = await read_json_object(request)
             if "rss_bootstrap_lookback_days" in payload:
-                lookback_value = int(payload.get("rss_bootstrap_lookback_days"))
+                lookback_value = int(payload["rss_bootstrap_lookback_days"])
             if "retention_days" in payload:
-                retention_value = int(payload.get("retention_days"))
+                retention_value = int(payload["retention_days"])
             if "rss_feed_mode" in payload:
                 feed_mode_value = str(payload["rss_feed_mode"])
         else:

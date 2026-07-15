@@ -71,6 +71,19 @@ def test_project_configs_define_server_runtime(monkeypatch) -> None:
     assert prod_cfg.server_reload is False
 
 
+def test_load_config_defaults_to_localhost_when_server_host_is_blank(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text('server_host: ""', encoding="utf-8")
+    monkeypatch.setenv("APP_CONFIG_FILE", str(config_path))
+    for env_name in ("SERVER_HOST", "HOST"):
+        monkeypatch.delenv(env_name, raising=False)
+
+    assert load_config().server_host == "127.0.0.1"
+
+
 def test_cli_uses_yaml_server_settings(monkeypatch, tmp_path: Path) -> None:
     from app import cli
 

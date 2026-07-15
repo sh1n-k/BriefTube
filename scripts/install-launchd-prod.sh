@@ -50,7 +50,7 @@ xml_escape() {
   printf "%s\n" "${value}"
 }
 
-SERVER_HOST_VALUE="$(read_config_value "server_host" "0.0.0.0")"
+SERVER_HOST_VALUE="$(read_config_value "server_host" "127.0.0.1")"
 SERVER_PORT_VALUE="$(read_config_value "server_port" "48080")"
 APP_LOG_DIR_VALUE="$(read_config_value "log_dir" "./logs/prod")"
 APP_LOG_FILE_NAME_VALUE="$(read_config_value "log_file_name" "brieftube-prod.log")"

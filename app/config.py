@@ -12,7 +12,7 @@ _logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class AppConfig:
     env: str = "prod"
-    server_host: str = "0.0.0.0"
+    server_host: str = "127.0.0.1"
     server_port: int = 48080
     server_reload: bool = False
     polling_interval_minutes: int = 15
@@ -520,7 +520,7 @@ def load_config() -> AppConfig:
         1, cfg.transcript_breaker_half_open_probe_count
     )
     if not cfg.server_host:
-        cfg.server_host = "0.0.0.0"
+        cfg.server_host = "127.0.0.1"
     cfg.server_port = max(1, min(65535, cfg.server_port))
     cfg.rss_inter_channel_delay_seconds = max(0.0, min(30.0, cfg.rss_inter_channel_delay_seconds))
     if cfg.rss_fetcher_mode not in {"rss", "rss_then_yt_dlp", "yt_dlp"}:

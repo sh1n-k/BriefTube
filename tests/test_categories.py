@@ -44,6 +44,21 @@ def test_create_category_empty_name(client: TestClient) -> None:
     assert resp.status_code == 400
 
 
+def test_create_category_rejects_invalid_json(client: TestClient) -> None:
+    response = client.post("/api/categories", json=[])
+    assert response.status_code == 400
+    assert response.json()["detail"] == "JSON payload must be an object"
+
+    for content in ("{", b"\xff"):
+        response = client.post(
+            "/api/categories",
+            content=content,
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "invalid JSON payload"
+
+
 def test_list_categories_with_channel_count(client: TestClient) -> None:
     resp = client.post("/api/categories", json={"name": "테크"})
     cat_id = resp.json()["id"]
@@ -131,6 +146,12 @@ def test_reorder_categories(client: TestClient) -> None:
     assert reordered_ids == reversed_ids
 
 
+def test_reorder_categories_rejects_invalid_json_shape(client: TestClient) -> None:
+    for payload in ([], {"ordered_ids": "bad"}, {"ordered_ids": ["bad"]}, {"ordered_ids": [None]}):
+        response = client.put("/api/categories/reorder", json=payload)
+        assert response.status_code == 400
+
+
 def test_move_channels_to_category(client: TestClient) -> None:
     resp = client.post("/api/categories", json={"name": "이동대상"})
     cat_id = resp.json()["id"]
@@ -142,6 +163,13 @@ def test_move_channels_to_category(client: TestClient) -> None:
     )
     assert move_resp.status_code == 200
     assert move_resp.json()["moved"] == 2
+
+
+def test_move_channels_to_category_rejects_invalid_json_shape(client: TestClient) -> None:
+    category_id = client.post("/api/categories", json={"name": "이동형식오류"}).json()["id"]
+    for payload in ([], {"channel_ids": "bad"}):
+        response = client.post(f"/api/categories/{category_id}/channels", json=payload)
+        assert response.status_code == 400
 
 
 def test_channel_management_page_with_category_filter(client: TestClient) -> None:

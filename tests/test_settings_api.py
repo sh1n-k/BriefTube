@@ -109,6 +109,11 @@ def test_settings_workers_update(client: TestClient) -> None:
     assert poll.json() == {"ok": True, "triggered": False, "reason": "rss_worker_disabled"}
 
 
+def test_settings_workers_rejects_invalid_json_shape(client: TestClient) -> None:
+    assert client.put("/api/settings/workers", json=[]).status_code == 400
+    assert client.put("/api/settings/workers", json={"workers": []}).status_code == 400
+
+
 def test_settings_telegram_update_masks_values_and_configures_runtime(client: TestClient) -> None:
     response = client.put(
         "/api/settings/telegram",
@@ -232,6 +237,10 @@ def test_settings_policy_update(client: TestClient) -> None:
         "retention_days": 120,
         "rss_feed_mode": "long_form_only",
     }
+
+
+def test_settings_policy_rejects_invalid_json_shape(client: TestClient) -> None:
+    assert client.put("/api/settings/policy", json=[]).status_code == 400
 
 
 def test_settings_feed_mode_update(client: TestClient) -> None:

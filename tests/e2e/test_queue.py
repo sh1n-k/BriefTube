@@ -78,6 +78,13 @@ def test_queue_section_collapsible_and_clear_action(queue_page: Page):
     # Body should now be hidden
     expect(transcript_body).to_be_hidden()
 
+    with queue_page.expect_response(
+        lambda response: "/api/queue/poll" in response.url and response.status == 200,
+        timeout=5_000,
+    ):
+        pass
+    expect(transcript_body).to_be_hidden()
+
     # Click again to expand
     transcript_toggle.click()
     expect(transcript_body).to_be_visible()
@@ -118,6 +125,7 @@ def test_queue_retry_badge_and_polling(e2e_page: Page):
         assert "transcript_items" in payload
         assert "llm_items" in payload
         assert "counts" in payload
+        assert "queue_html" in payload
         assert "badge_count" in payload
         assert "workers" in payload
         assert "transcript_guard" in payload

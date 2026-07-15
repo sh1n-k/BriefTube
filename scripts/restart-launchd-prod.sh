@@ -29,7 +29,7 @@ read_config_value() {
   printf "%s\n" "${value:-${default_value}}"
 }
 
-SERVER_HOST_VALUE="$(read_config_value "server_host" "0.0.0.0")"
+SERVER_HOST_VALUE="$(read_config_value "server_host" "127.0.0.1")"
 SERVER_PORT_VALUE="$(read_config_value "server_port" "48080")"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
