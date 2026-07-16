@@ -1,6 +1,6 @@
 """Manual transcript job repository accessors."""
 
-from app.repositories import _manual_transcripts as repository
+import app.repositories._manual_transcripts as repository
 
 MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES = repository.MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES
 MANUAL_TRANSCRIPT_JOB_STATUS_PENDING = repository.MANUAL_TRANSCRIPT_JOB_STATUS_PENDING

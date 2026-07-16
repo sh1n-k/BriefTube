@@ -1,7 +1,7 @@
 """Settings and worker-policy repository accessors."""
 
-from app.repositories import _settings as repository
-from app.repositories import _settings_llm as llm_repository
+import app.repositories._settings as repository
+import app.repositories._settings_llm as llm_repository
 
 WORKER_SETTING_DEFAULTS = repository.WORKER_SETTING_DEFAULTS
 RSS_FEED_MODE_DEFAULT = repository.RSS_FEED_MODE_DEFAULT

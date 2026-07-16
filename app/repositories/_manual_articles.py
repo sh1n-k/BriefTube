@@ -6,6 +6,11 @@ from typing import Any
 
 import aiosqlite
 
+from app.pipeline_status import (
+    MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES,
+    MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES,
+)
+
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
@@ -14,21 +19,6 @@ MANUAL_ARTICLE_JOB_STATUS_RUNNING = "running"
 MANUAL_ARTICLE_JOB_STATUS_SUCCEEDED = "succeeded"
 MANUAL_ARTICLE_JOB_STATUS_FAILED = "failed"
 MANUAL_ARTICLE_JOB_STATUS_SKIPPED = "skipped"
-MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES = {
-    "auto_paused",
-    "transcript_done",
-    "transcript_failed",
-    "no_subtitle",
-    "llm_failed",
-    "manual_review",
-}
-MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = {
-    "transcript_pending",
-    "transcript_processing",
-    "llm_pending",
-    "llm_processing",
-    "done",
-}
 
 
 def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:

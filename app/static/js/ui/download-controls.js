@@ -1,7 +1,6 @@
 (() => {
-  const DOWNLOAD_EVENT_CURSOR_KEY = "brieftube.download.lastEventId";
-  const DOWNLOAD_PROGRESS_POLL_INTERVAL_MS = 5000;
   const UI_BOOTSTRAP = window.BRIEFTUBE_UI_BOOTSTRAP || {};
+  const downloadSettings = window.BrieftubeDownloadSettings || null;
   const DOWNLOAD_UI_TEXT = {
     modalTitle: "영상 다운로드",
     modalDesc: "{title} 영상을 백그라운드로 다운로드합니다.",
@@ -42,23 +41,8 @@
     toastCopiedError: "오류 메시지를 복사했습니다.",
     ...(UI_BOOTSTRAP.download || {}),
   };
-  const DOWNLOAD_SETTINGS_UI_TEXT = {
-    pathErrorEmpty: "다운로드 저장 경로를 입력해 주세요.",
-    pathErrorMustBeAbsolute: "다운로드 저장 경로는 절대 경로여야 합니다.",
-    pathErrorInvalid: "다운로드 저장 경로 형식이 올바르지 않습니다.",
-    pathErrorNotFound: "다운로드 저장 경로가 존재하지 않습니다.",
-    pathErrorNotDirectory: "다운로드 저장 경로는 디렉터리여야 합니다.",
-    pathErrorNotWritable: "다운로드 저장 경로에 쓰기 권한이 없습니다.",
-    pathErrorGeneric: "다운로드 저장 경로를 확인해 주세요.",
-    ...(UI_BOOTSTRAP.downloadSettings || {}),
-  };
-
   let showToast = () => {};
   let refreshDownloadHistory = async () => true;
-  let downloadProgressInFlight = false;
-  let downloadProgressPollingStarted = false;
-  let downloadProgressIntervalId = null;
-  let downloadSettingsErrorHandlersBound = false;
 
   function configure(options = {}) {
     if (typeof options.showUiToast === "function") {
@@ -66,22 +50,6 @@
     }
     if (typeof options.refreshDownloadHistoryFragment === "function") {
       refreshDownloadHistory = options.refreshDownloadHistoryFragment;
-    }
-  }
-
-  function getStoredValue(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch (_err) {
-      return null;
-    }
-  }
-
-  function setStoredValue(key, value) {
-    try {
-      localStorage.setItem(key, value);
-    } catch (_err) {
-      // ignore storage write errors and keep runtime-only state.
     }
   }
 
@@ -109,24 +77,11 @@
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  function resolveDownloadPathErrorMessage(detail) {
-    const code = String(detail || "").trim().toLowerCase();
-    if (code === "download_path_empty") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorEmpty;
-    if (code === "download_path_must_be_absolute") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorMustBeAbsolute;
-    if (code === "download_path_invalid") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorInvalid;
-    if (code === "download_path_not_found") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorNotFound;
-    if (code === "download_path_not_directory") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorNotDirectory;
-    if (code === "download_path_not_writable") return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorNotWritable;
-    if (code.length > 0 && !code.includes(" ")) return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorGeneric;
-    if (code.length > 0) return code;
-    return DOWNLOAD_SETTINGS_UI_TEXT.pathErrorGeneric;
-  }
-
   function resolveDownloadRequestErrorMessage(payload) {
     const code = String(payload?.code || "").trim().toLowerCase();
     if (code === "ffmpeg_missing") return DOWNLOAD_UI_TEXT.toastFfmpegMissing;
     if (code.startsWith("download_path_")) {
-      return resolveDownloadPathErrorMessage(code);
+      return downloadSettings?.resolvePathErrorMessage?.(code) || DOWNLOAD_UI_TEXT.toastRequestFailed;
     }
     const message = String(payload?.message || payload?.detail || "").trim();
     if (message) return message;
@@ -142,94 +97,6 @@
     const message = String(payload?.message || payload?.detail || "").trim();
     if (message) return message;
     return DOWNLOAD_UI_TEXT.toastOutputOpenFailed;
-  }
-
-  function setDownloadOutputDirError(form, message) {
-    if (!(form instanceof HTMLFormElement)) return;
-    const input = form.querySelector("input[name='download_output_dir']");
-    const errorNode = form.querySelector("[data-download-output-dir-error]");
-    if (input instanceof HTMLInputElement) {
-      if (message) {
-        input.setAttribute("aria-invalid", "true");
-        input.classList.add("border-rose-400", "focus:border-rose-500", "focus:ring-rose-500");
-      } else {
-        input.removeAttribute("aria-invalid");
-        input.classList.remove("border-rose-400", "focus:border-rose-500", "focus:ring-rose-500");
-      }
-    }
-    if (errorNode instanceof HTMLElement) {
-      errorNode.textContent = message || "";
-      errorNode.classList.toggle("hidden", !message);
-    }
-  }
-
-  function getDownloadEventCursor() {
-    const raw = getStoredValue(DOWNLOAD_EVENT_CURSOR_KEY);
-    const parsed = Number.parseInt(String(raw || ""), 10);
-    if (Number.isNaN(parsed) || parsed < 0) return 0;
-    return parsed;
-  }
-
-  function setDownloadEventCursor(value) {
-    const safe = Math.max(0, Number.parseInt(String(value || "0"), 10) || 0);
-    setStoredValue(DOWNLOAD_EVENT_CURSOR_KEY, String(safe));
-  }
-
-  function formatDownloadPreview(items) {
-    const names = items
-      .map((item) => String(item?.video_title || item?.video_id || "").trim())
-      .filter((name) => name.length > 0);
-    const preview = names.slice(0, 2);
-    const remain = Math.max(0, names.length - preview.length);
-    if (remain > 0) {
-      preview.push(formatTemplate(DOWNLOAD_UI_TEXT.toastMore, { count: remain }));
-    }
-    return preview.join(", ");
-  }
-
-  function buildDownloadEventToast(events) {
-    const succeeded = events.filter((event) => event?.event_type === "succeeded");
-    const failed = events.filter((event) => event?.event_type === "failed");
-    if (!succeeded.length && !failed.length) return null;
-    if (succeeded.length && failed.length) {
-      return {
-        tone: "error",
-        message: formatTemplate(DOWNLOAD_UI_TEXT.toastMixed, {
-          success: succeeded.length,
-          failed: failed.length,
-        }),
-      };
-    }
-    if (failed.length) {
-      return {
-        tone: "error",
-        message: formatTemplate(DOWNLOAD_UI_TEXT.toastFailed, {
-          count: failed.length,
-          videos: formatDownloadPreview(failed),
-        }),
-      };
-    }
-    return {
-      tone: "success",
-      message: formatTemplate(DOWNLOAD_UI_TEXT.toastCompleted, {
-        count: succeeded.length,
-      }),
-    };
-  }
-
-  function updateDownloadNavBadge(activeCount) {
-    const nodes = document.querySelectorAll("[data-download-nav-badge]");
-    const count = Math.max(0, Number.parseInt(String(activeCount || "0"), 10) || 0);
-    nodes.forEach((node) => {
-      if (!(node instanceof HTMLElement)) return;
-      if (count <= 0) {
-        node.classList.add("hidden");
-        node.textContent = "0";
-        return;
-      }
-      node.classList.remove("hidden");
-      node.textContent = formatTemplate(DOWNLOAD_UI_TEXT.badgeInProgress, { count });
-    });
   }
 
   function ensureVideoDownloadModal() {
@@ -372,7 +239,7 @@
         if (response.status === 202 && payload?.queued === true) {
           showToast(DOWNLOAD_UI_TEXT.toastQueued, "success");
           close(true);
-          void pollDownloadProgress();
+          void window.BrieftubeDownloadProgress?.pollNow?.();
           return;
         }
         if (payload?.duplicate === true) {
@@ -736,119 +603,10 @@
     });
   }
 
-  async function pollDownloadProgress() {
-    if (downloadProgressInFlight) return;
-    downloadProgressInFlight = true;
-    const storedCursorRaw = getStoredValue(DOWNLOAD_EVENT_CURSOR_KEY);
-    const hasStoredCursor = storedCursorRaw !== null;
-    const afterEventId = getDownloadEventCursor();
-    try {
-      const response = await fetch(
-        `/api/downloads/progress?after_event_id=${encodeURIComponent(String(afterEventId))}`,
-        {
-          method: "GET",
-          headers: { "Accept": "application/json" },
-        },
-      );
-      if (!response.ok) return;
-      const payload = await response.json().catch(() => null);
-      if (!payload || typeof payload !== "object") return;
-
-      updateDownloadNavBadge(payload.active_count);
-
-      const events = Array.isArray(payload.events) ? payload.events : [];
-      const latestFromPayload = Number.parseInt(String(payload.latest_event_id || "0"), 10) || 0;
-      const maxEventId = events.reduce((acc, item) => {
-        const current = Number.parseInt(String(item?.id || "0"), 10) || 0;
-        return Math.max(acc, current);
-      }, 0);
-      const nextCursor = Math.max(afterEventId, latestFromPayload, maxEventId);
-
-      if (!hasStoredCursor) {
-        setDownloadEventCursor(nextCursor);
-        return;
-      }
-      if (events.length > 0) {
-        const toast = buildDownloadEventToast(events);
-        if (toast && toast.message) {
-          showToast(toast.message, toast.tone);
-        }
-        if (window.location.pathname === "/downloads") {
-          void refreshDownloadHistory(false);
-        }
-      }
-      setDownloadEventCursor(nextCursor);
-    } catch (_error) {
-      // ignore polling failures and retry on next interval.
-    } finally {
-      downloadProgressInFlight = false;
-    }
-  }
-
-  function startDownloadProgressPolling() {
-    if (downloadProgressPollingStarted) return;
-    downloadProgressPollingStarted = true;
-    void pollDownloadProgress();
-    downloadProgressIntervalId = window.setInterval(() => {
-      void pollDownloadProgress();
-    }, DOWNLOAD_PROGRESS_POLL_INTERVAL_MS);
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) {
-        if (downloadProgressIntervalId) {
-          clearInterval(downloadProgressIntervalId);
-          downloadProgressIntervalId = null;
-        }
-      } else if (!downloadProgressIntervalId) {
-        void pollDownloadProgress();
-        downloadProgressIntervalId = window.setInterval(() => {
-          void pollDownloadProgress();
-        }, DOWNLOAD_PROGRESS_POLL_INTERVAL_MS);
-      }
-    });
-  }
-
-  function bindDownloadSettingsErrorHandlers() {
-    if (downloadSettingsErrorHandlersBound) return;
-    downloadSettingsErrorHandlersBound = true;
-
-    document.addEventListener("htmx:afterRequest", (event) => {
-      if (!event.detail.successful) return;
-      const requestElt = event.detail?.requestConfig?.elt;
-      if (!(requestElt instanceof Element)) return;
-      const downloadSettingsForm = requestElt.closest("[data-download-settings-form]");
-      if (downloadSettingsForm instanceof HTMLFormElement) {
-        setDownloadOutputDirError(downloadSettingsForm, "");
-      }
-    });
-    document.addEventListener("htmx:responseError", (event) => {
-      const requestElt = event.detail?.requestConfig?.elt;
-      if (!(requestElt instanceof Element)) return;
-      const form = requestElt.closest("[data-download-settings-form]");
-      if (!(form instanceof HTMLFormElement)) return;
-      const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
-      const detail = payload && typeof payload === "object" ? payload.detail : "";
-      const message = resolveDownloadPathErrorMessage(detail);
-      setDownloadOutputDirError(form, message);
-      showToast(message, "error");
-    });
-    document.addEventListener("input", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement)) return;
-      if (target.name !== "download_output_dir") return;
-      const form = target.closest("[data-download-settings-form]");
-      if (!(form instanceof HTMLFormElement)) return;
-      if (target.hasAttribute("aria-invalid")) {
-        setDownloadOutputDirError(form, "");
-      }
-    });
-  }
-
   window.BrieftubeDownloadControls = {
     configure,
     bindVideoDownloadButtons,
     bindDownloadDetailButtons,
     bindDownloadRetryButtons,
-    bindDownloadSettingsErrorHandlers,
-    startDownloadProgressPolling,
   };
 })();

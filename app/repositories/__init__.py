@@ -1,31 +1,6 @@
-"""Domain repository boundary modules.
+"""Repository package.
 
-Application code should import the specific repository domain it needs, for
-example `app.repositories.videos` or `app.repositories.channels`.
+Import the public domain facade directly, for example
+``app.repositories.videos`` or ``app.repositories.channels``. Keeping this
+package initializer empty avoids importing every repository as a side effect.
 """
-
-from app.repositories import (
-    alerts_retention,
-    categories,
-    channels,
-    downloads,
-    llm,
-    manual_articles,
-    manual_transcripts,
-    settings,
-    transcripts,
-    videos,
-)
-
-__all__ = [
-    "alerts_retention",
-    "categories",
-    "channels",
-    "downloads",
-    "llm",
-    "manual_articles",
-    "manual_transcripts",
-    "settings",
-    "transcripts",
-    "videos",
-]

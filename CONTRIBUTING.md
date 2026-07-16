@@ -42,6 +42,19 @@ uv run pytest -q tests/test_llm_client.py tests/test_llm_capabilities.py \
 uv run pytest -q tests/test_remote_sync_config.py tests/test_remote_sync_local_repository.py \
   tests/test_remote_sync_integration.py
 
+# transcript와 수동 작업
+uv run pytest -q tests/test_transcript_policy.py tests/test_transcript_guard_policy.py \
+  tests/test_transcript_guard_concurrency.py tests/test_manual_transcript_worker.py \
+  tests/test_manual_article_worker.py
+
+# DB migration과 config
+uv run pytest -q tests/test_database_migrations.py \
+  tests/test_database_pipeline_status_normalization.py tests/test_config_runtime.py
+
+# retention, 검색과 알림
+uv run pytest -q tests/test_retention_page.py tests/test_search_results.py \
+  tests/test_alert_toasts.py tests/test_notifier_worker.py
+
 # 전체 unit test와 E2E
 uv run pytest -q
 uv run pytest -q -m e2e tests/e2e
@@ -60,6 +73,14 @@ uv run ruff format --check .
 uv run pyright
 uv run lint-imports
 ```
+
+Shell 변경은 `bash -n run-*.sh scripts/*.sh`로 문법을 확인합니다. HTML/Jinja/JS는 별도
+정적 toolchain을 두지 않으므로 관련 unit contract와 `uv run pytest -q -m e2e tests/e2e/<file>.py`를
+실행합니다. 실제 Postgres smoke는 `BRIEFTUBE_TEST_REMOTE_SYNC_DSN`이 있는 환경에서만 검증되며,
+기본 remote sync test 통과와 구분해서 보고합니다.
+
+`.github/workflows/ci.yml`은 위 정적 검사와 전체 unit/E2E 명령을 그대로 실행합니다. 로컬에서
+동일 명령이 통과해야 하며 CI 전용 우회나 별도 test selection을 추가하지 않습니다.
 
 - 새 위반은 수정합니다. 동작 변경이 필요한 자동 수정은 별도 범위로 분리합니다.
 - 의도된 예외는 사유와 함께 좁은 `# noqa: <RULE>` 또는 `# pyright: ignore[<rule>]`를 사용합니다.

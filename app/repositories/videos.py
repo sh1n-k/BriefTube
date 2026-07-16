@@ -5,7 +5,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.repositories import _videos as repository
+import app.repositories._videos as repository
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 """Alerts and retention repository accessors."""
 
-from app.repositories import _alerts_retention as repository
+import app.repositories._alerts_retention as repository
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = repository.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND
 ALERT_TYPE_TELEGRAM_SEND_FAILED = repository.ALERT_TYPE_TELEGRAM_SEND_FAILED

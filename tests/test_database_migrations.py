@@ -4,7 +4,70 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
-from app.database import init_database, open_database
+import pytest
+
+from app.database import database_transaction, init_database, open_database
+from app.database_migrations import CURRENT_SCHEMA_VERSION, get_schema_version
+
+
+def test_init_database_records_current_schema_version(tmp_path: Path) -> None:
+    async def _run() -> tuple[int, int]:
+        db = await open_database(str(tmp_path / "schema-version.db"))
+        try:
+            await init_database(db)
+            first = await get_schema_version(db)
+            await init_database(db)
+            return first, await get_schema_version(db)
+        finally:
+            await db.close()
+
+    assert asyncio.run(_run()) == (CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION)
+
+
+def test_database_transaction_rolls_back_all_statements(tmp_path: Path) -> None:
+    async def _run() -> int:
+        db_path = str(tmp_path / "transaction.db")
+        db = await open_database(db_path)
+        try:
+            await init_database(db)
+        finally:
+            await db.close()
+
+        try:
+            async with database_transaction(db_path) as transaction_db:
+                await transaction_db.execute(
+                    "INSERT INTO channels(channel_id, channel_name, rss_url) VALUES (?, ?, ?)",
+                    ("UCrollback", "Rollback", "https://example.test/rss"),
+                )
+                raise RuntimeError("force rollback")
+        except RuntimeError:
+            pass
+
+        verify_db = await open_database(db_path)
+        try:
+            cursor = await verify_db.execute(
+                "SELECT COUNT(*) FROM channels WHERE channel_id = ?", ("UCrollback",)
+            )
+            row = await cursor.fetchone()
+            return int(row[0])
+        finally:
+            await verify_db.close()
+
+    assert asyncio.run(_run()) == 0
+
+
+def test_init_database_rejects_newer_schema_version(tmp_path: Path) -> None:
+    async def _run() -> None:
+        db = await open_database(str(tmp_path / "future-schema.db"))
+        try:
+            await db.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION + 1}")
+            await db.commit()
+            with pytest.raises(RuntimeError, match="newer than supported"):
+                await init_database(db)
+        finally:
+            await db.close()
+
+    asyncio.run(_run())
 
 
 def test_legacy_video_rebuild_preserves_remote_sync_metadata(tmp_path: Path) -> None:

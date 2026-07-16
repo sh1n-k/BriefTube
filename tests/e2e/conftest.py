@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Page
 
+from app.worker_registry import WORKER_SPECS
 from tests.e2e.seed_helpers import disable_all_workers, init_schema
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -78,20 +79,12 @@ def _build_e2e_env(
             "LLM_TIMEOUT_SECONDS": "120",
             "TELEGRAM_BOT_TOKEN": "",
             "TELEGRAM_CHAT_ID": "",
-            "BRIEFTUBE_DISABLE_RSS_WORKER": "1",
-            "BRIEFTUBE_DISABLE_DOWNLOAD_WORKER": "1",
-            "BRIEFTUBE_DISABLE_MANUAL_ARTICLE_WORKER": "1",
-            "BRIEFTUBE_DISABLE_LLM_WORKER": "1",
-            "BRIEFTUBE_DISABLE_NOTIFIER_WORKER": "1",
-            "BRIEFTUBE_DISABLE_REMOTE_SYNC_WORKER": "1",
-            "BRIEFTUBE_DISABLE_CHANNEL_METADATA_WORKER": "1",
-            "BRIEFTUBE_DISABLE_TRANSCRIPT_WORKER": "1",
-            "BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_WORKER": "1",
             "BRIEFTUBE_REMOTE_SYNC_ENABLED": "0",
             "BRIEFTUBE_REMOTE_SYNC_DSN": "",
             "BRIEFTUBE_LLM_RESPONSE_CAPTURE_DISABLED": "1",
         }
     )
+    env.update({spec.disable_env_name: "1" for spec in WORKER_SPECS})
     return env
 
 

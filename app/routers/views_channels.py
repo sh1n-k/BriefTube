@@ -6,12 +6,12 @@ import logging
 import httpx
 from fastapi import APIRouter, Query, Request
 
+from app.domains.channels import delete_channels_and_cleanup
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.repositories import settings as settings_repo
 from app.routers.helpers import htmx_trigger_header, parse_optional_int, request_texts
 from app.routers.template_context import build_template_context
-from app.routers.views_channel_delete import delete_channels_and_cleanup_runtime
 from app.routers.views_common import (
     REACTIVATE_BATCH_LIMIT,
     _channel_management_ui_context,
@@ -156,7 +156,7 @@ async def reactivate_selected_channels(request: Request):
     toast_message = ""
     toast_tone = "success"
     if bulk_action == "delete":
-        result = await delete_channels_and_cleanup_runtime(request, channel_ids)
+        result = await delete_channels_and_cleanup(request.app.state.runtime, channel_ids)
         logger.debug(
             "event=channels.reactivate_bulk_delete_done requested=%s deleted=%s",
             len(channel_ids),

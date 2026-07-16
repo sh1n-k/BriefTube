@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -82,3 +83,26 @@ def test_delete_selected_channels_removes_multiple(client: TestClient) -> None:
         ).fetchone()[0]
     assert channel_count == 0
     assert video_count == 0
+
+
+def test_api_delete_channel_cleans_thumbnail_and_runtime_cache(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    thumbnail_dir = Path(os.environ["THUMBNAIL_DIR"])
+    thumbnail_dir.mkdir(parents=True, exist_ok=True)
+    thumbnail = thumbnail_dir / "vid-api-delete.jpg"
+    thumbnail.write_bytes(b"thumbnail")
+    _seed_channel_with_video(db_path, "UCdelapi001", "vid-api-delete")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE videos SET thumbnail_path = ? WHERE video_id = ?",
+            (str(thumbnail), "vid-api-delete"),
+        )
+        conn.commit()
+    client.app.state.runtime.rss_cache["UCdelapi001"] = {"etag": "cached"}
+
+    response = client.delete("/api/channels/UCdelapi001")
+
+    assert response.status_code == 200
+    assert response.json()["deleted_videos"] == 1
+    assert not thumbnail.exists()
+    assert "UCdelapi001" not in client.app.state.runtime.rss_cache

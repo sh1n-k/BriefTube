@@ -1,22 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
 
-from app.database_migrations import (
-    _ensure_app_settings_table,
-    _ensure_article_columns,
-    _ensure_category_tables,
-    _ensure_channel_metadata_columns,
-    _ensure_download_columns,
-    _ensure_manual_transcript_jobs_table,
-    _ensure_remote_sync_device_id,
-    _ensure_remote_sync_indexes,
-    _ensure_sync_metadata_columns,
-    _ensure_video_columns,
-    _ensure_video_indexes,
-)
+from app.database_migrations import run_database_migrations
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 
@@ -31,22 +21,30 @@ async def open_database(db_path: str) -> aiosqlite.Connection:
     return db
 
 
+@asynccontextmanager
+async def database_transaction(db_path: str) -> AsyncIterator[aiosqlite.Connection]:
+    """Own an isolated SQLite write transaction on a dedicated connection.
+
+    Multi-statement use cases use this boundary instead of the process-wide
+    connection so another coroutine cannot accidentally commit their work.
+    """
+    db = await open_database(db_path)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        yield db
+    except BaseException:
+        await db.rollback()
+        raise
+    else:
+        await db.commit()
+    finally:
+        await db.close()
+
+
 async def init_database(db: aiosqlite.Connection) -> None:
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     await db.executescript(schema_sql)
-    await _ensure_app_settings_table(db)
-    await _ensure_video_columns(db)
-    await _ensure_remote_sync_device_id(db)
-    await _ensure_article_columns(db)
-    await _ensure_video_indexes(db)
-    await _ensure_download_columns(db)
-    await _ensure_manual_transcript_jobs_table(db)
-    await _ensure_category_tables(db)
-    await _ensure_channel_metadata_columns(db)
-    for table in ("categories", "channels", "videos", "transcripts", "articles"):
-        await _ensure_sync_metadata_columns(db, table)
-    await _ensure_remote_sync_indexes(db)
-    await db.commit()
+    await run_database_migrations(db)
 
 
 async def recover_stuck_jobs(db: aiosqlite.Connection) -> int:

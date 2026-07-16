@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +70,21 @@ class AppConfig:
     remote_sync_connect_timeout_seconds: int = 5
 
 
+ENV_ONLY_CONFIG_FIELDS = frozenset(
+    {
+        "remote_sync_enabled",
+        "remote_sync_dsn",
+        "remote_sync_push_interval_seconds",
+        "remote_sync_batch_size",
+        "remote_sync_tombstone_retention_days",
+        "remote_sync_connect_timeout_seconds",
+    }
+)
+YAML_CONFIG_KEYS = frozenset(
+    field.name for field in fields(AppConfig) if field.name not in ENV_ONLY_CONFIG_FIELDS
+)
+
+
 def _parse_scalar(value: str) -> str | int | bool:
     raw = value.strip().strip('"').strip("'")
     if raw.lower() in {"true", "false"}:
@@ -124,6 +139,13 @@ def _load_simple_yaml(path: Path) -> dict[str, Any]:
             continue
         key, value = stripped.split(":", 1)
         parsed[key.strip()] = _parse_scalar(value)
+    for key in sorted(set(parsed) - YAML_CONFIG_KEYS):
+        event = (
+            "config.env_only_yaml_key_ignored"
+            if key in ENV_ONLY_CONFIG_FIELDS
+            else "config.unknown_yaml_key"
+        )
+        _logger.warning("event=%s key=%s path=%s", event, key, path)
     return parsed
 
 

@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, TypedDict
 
 import aiosqlite
 
+import app.repositories._alerts_retention as alerts_repository
+import app.repositories._categories as categories_repository
 from app.remote_sync_metadata import (
     SYNC_NOW_SQL,
     is_remote_sync_runtime_enabled,
     sync_dirty_set_clause,
 )
-from app.repositories import (
-    _alerts_retention as alerts_repository,
-)
-from app.repositories import (
-    _categories as categories_repository,
-)
 
 logger = logging.getLogger(__name__)
+
+
+class ChannelDeletionResult(TypedDict):
+    deleted_channels: int
+    deleted_videos: int
+    thumbnail_paths: list[str]
+
 
 CHANNEL_MANAGEMENT_STATUS_ACTIVE = "active"
 CHANNEL_MANAGEMENT_STATUS_INACTIVE = "inactive"
@@ -550,7 +553,9 @@ async def update_channel_watermark(
 async def delete_channels_with_related_data(
     db: aiosqlite.Connection,
     channel_ids: list[str],
-) -> dict[str, Any]:
+    *,
+    commit: bool = True,
+) -> ChannelDeletionResult:
     normalized = [channel_id for channel_id in dict.fromkeys(channel_ids) if channel_id]
     if not normalized:
         return {"deleted_channels": 0, "deleted_videos": 0, "thumbnail_paths": []}
@@ -650,7 +655,8 @@ async def delete_channels_with_related_data(
             f"DELETE FROM channels WHERE channel_id IN ({placeholders})",
             tuple(normalized),
         )
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return {
         "deleted_channels": int(channels_cursor.rowcount or 0),

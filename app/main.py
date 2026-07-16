@@ -3,22 +3,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import httpx
-from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
-from app.domains.downloads import recover_stuck_running_jobs, resolve_download_file_target
+from app.domains.downloads import recover_stuck_running_jobs
 from app.logging_setup import configure_logging
 from app.repositories import channels as channels_repo
 from app.repositories import llm as llm_repo
@@ -26,7 +22,7 @@ from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
-from app.routers import api, pages, views
+from app.routers import api, files, pages, system, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
 from app.services.llm_capabilities import LlmCapabilityProbe
@@ -37,54 +33,9 @@ from app.services.transcript import TranscriptService
 from app.services.transcript_headers import merge_with_default_headers
 from app.services.yt_dlp_feed import YtDlpFeedService
 from app.state import AppState
-from app.workers.channel_metadata_worker import run_channel_metadata_worker
-from app.workers.download_worker import run_download_worker
-from app.workers.llm_worker import run_llm_queue_worker
-from app.workers.manual_article_worker import run_manual_article_worker
-from app.workers.manual_transcript_worker import run_manual_transcript_worker
-from app.workers.notifier_worker import run_telegram_notifier
-from app.workers.poller import run_rss_poller
-from app.workers.remote_sync_worker import run_remote_sync_worker
-from app.workers.transcript_worker import run_transcript_fetcher
+from app.worker_registry import WORKER_SPECS, WorkerSpec
 
 logger = logging.getLogger(__name__)
-WorkerFactory = Callable[[AppState], Coroutine[Any, Any, None]]
-
-
-@dataclass(frozen=True, slots=True)
-class WorkerSpec:
-    worker_name: str
-    task_name: str
-    factory: WorkerFactory
-    order: int
-    test_allow_alias: str | None = None
-    insert_at: int | None = None
-
-
-WORKER_SPECS: tuple[WorkerSpec, ...] = (
-    WorkerSpec("rss", "rss_poller", run_rss_poller, order=10),
-    WorkerSpec("download", "download_worker", run_download_worker, order=20),
-    WorkerSpec("manual_article", "manual_article_worker", run_manual_article_worker, order=30),
-    WorkerSpec("llm", "llm_queue_worker", run_llm_queue_worker, order=40),
-    WorkerSpec("notifier", "telegram_notifier", run_telegram_notifier, order=50),
-    WorkerSpec("remote_sync", "remote_sync_worker", run_remote_sync_worker, order=55),
-    WorkerSpec(
-        "channel_metadata",
-        "channel_metadata_worker",
-        run_channel_metadata_worker,
-        order=60,
-        test_allow_alias="BRIEFTUBE_ENABLE_METADATA_WORKER_IN_TESTS",
-        insert_at=1,
-    ),
-    WorkerSpec("transcript", "transcript_fetcher", run_transcript_fetcher, order=70, insert_at=3),
-    WorkerSpec(
-        "manual_transcript",
-        "manual_transcript_worker",
-        run_manual_transcript_worker,
-        order=80,
-        insert_at=3,
-    ),
-)
 
 
 def _is_background_worker_enabled(worker_name: str, *, test_allow_alias: str | None = None) -> bool:
@@ -317,64 +268,5 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 app.include_router(api.router)
 app.include_router(views.router)
 app.include_router(pages.router)
-
-
-@app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/thumbnails/{filename:path}")
-async def thumbnail(filename: str):
-    safe_name = Path(filename).name
-    if safe_name != filename:
-        return JSONResponse(status_code=400, content={"detail": "invalid filename"})
-
-    runtime = getattr(app.state, "runtime", None)
-    if runtime is None:
-        return JSONResponse(status_code=503, content={"detail": "runtime not ready"})
-
-    target = Path(runtime.config.thumbnail_dir) / safe_name
-    if not target.exists() or not target.is_file():
-        return JSONResponse(status_code=404, content={"detail": "thumbnail not found"})
-    return FileResponse(target)
-
-
-@app.get("/downloads/files/{filename:path}")
-async def download_file(
-    filename: str,
-    job_id: int | None = Query(default=None, ge=1),
-    probe: bool = Query(default=False),
-):
-    safe_name = Path(filename).name
-    if safe_name != filename:
-        return JSONResponse(
-            status_code=400, content={"detail": "invalid filename", "code": "invalid_filename"}
-        )
-
-    runtime = getattr(app.state, "runtime", None)
-    if runtime is None:
-        return JSONResponse(
-            status_code=503, content={"detail": "runtime not ready", "code": "runtime_not_ready"}
-        )
-
-    target_result = await resolve_download_file_target(
-        runtime.db,
-        filename=safe_name,
-        default_download_dir=runtime.config.download_dir,
-        job_id=job_id,
-    )
-    if not target_result.ok:
-        status_code = 400 if target_result.code == "invalid_filename" else 404
-        return JSONResponse(
-            status_code=status_code,
-            content={"detail": target_result.message, "code": target_result.code},
-        )
-    if probe:
-        return {"ok": True, "filename": safe_name}
-    if target_result.target is None:
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "download target missing", "code": "download_target_missing"},
-        )
-    return FileResponse(target_result.target)
+app.include_router(files.router)
+app.include_router(system.router)

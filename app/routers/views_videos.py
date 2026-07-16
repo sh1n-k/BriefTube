@@ -5,22 +5,21 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
 
-from app.repositories import categories as categories_repo
-from app.repositories import channels as channels_repo
 from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import (
-    cleanup_thumbnail_files,
     full_page_redirect_for_non_fragment_request,
     htmx_trigger_header,
     parse_optional_int,
     request_texts,
     safe_int,
 )
-from app.routers.pages import build_video_detail_context
 from app.routers.template_context import build_template_context
+from app.routers.video_detail_context import build_video_detail_context
+from app.routers.video_list_context import build_video_list_context
+from app.services.thumbnail_files import cleanup_thumbnail_files
 
 router = APIRouter(tags=["views"])
 
@@ -143,68 +142,29 @@ async def video_list(
         if redirect is not None:
             return redirect
 
-    normalized_category_id = parse_optional_int(category_id)
-    normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
-
-    if limit is None:
-        limit = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
-
-    total = await videos_repo.count_videos(
-        request.app.state.runtime.db,
+    result = await build_video_list_context(
+        request,
         channel_id=channel_id,
-        category_id=normalized_category_id,
-        pipeline_status=normalized_pipeline_status,
-    )
-    total_pages = max(1, (total + limit - 1) // limit)
-    current_page = min(max(1, page), total_pages)
-    videos = await videos_repo.list_videos(
-        request.app.state.runtime.db,
-        channel_id=channel_id,
+        category_id=category_id,
+        pipeline_status=pipeline_status,
         sort=sort,
         order=order,
-        page=current_page,
+        page=page,
         limit=limit,
-        category_id=normalized_category_id,
-        pipeline_status=normalized_pipeline_status,
-    )
-    all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
-    channels = (
-        [ch for ch in all_channels if ch.get("category_id") == normalized_category_id]
-        if normalized_category_id is not None
-        else all_channels
-    )
-    categories = await categories_repo.list_categories(request.app.state.runtime.db)
-    context = await build_template_context(
-        request,
-        videos=videos,
-        channels=channels,
-        categories_for_filter=categories,
-        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
-        pagination={
-            "page": current_page,
-            "limit": limit,
-            "total": total,
-            "total_pages": total_pages,
-            "channel_id": channel_id or "",
-            "category_id": normalized_category_id if normalized_category_id is not None else "",
-            "pipeline_status": normalized_pipeline_status or "",
-            "sort": sort,
-            "order": order,
-        },
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/video_list.html",
-        context=context,
+        context=result.context,
         headers={
             "HX-Push-Url": _video_list_push_url(
-                page=current_page,
-                limit=limit,
+                page=result.page,
+                limit=result.limit,
                 sort=sort,
                 order=order,
                 channel_id=channel_id,
-                category_id=normalized_category_id,
-                pipeline_status=normalized_pipeline_status,
+                category_id=result.category_id,
+                pipeline_status=result.pipeline_status,
             )
         },
     )
@@ -234,58 +194,20 @@ async def delete_selected_videos(request: Request):
     sort = str(form.get("_sort") or "upload_time")
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
-    category_id = parse_optional_int(form.get("_category_id"))
-    pipeline_status = videos_repo.normalize_pipeline_status_filter(
-        str(form.get("_pipeline_status") or "")
-    )
-
-    total = await videos_repo.count_videos(
-        request.app.state.runtime.db,
+    result = await build_video_list_context(
+        request,
         channel_id=channel_id,
-        category_id=category_id,
-        pipeline_status=pipeline_status,
-    )
-    total_pages = max(1, (total + limit_val - 1) // limit_val)
-    current_page = min(max(1, page), total_pages)
-    videos = await videos_repo.list_videos(
-        request.app.state.runtime.db,
-        channel_id=channel_id,
+        category_id=form.get("_category_id"),
+        pipeline_status=str(form.get("_pipeline_status") or ""),
         sort=sort,
         order=order,
-        page=current_page,
+        page=page,
         limit=limit_val,
-        category_id=category_id,
-        pipeline_status=pipeline_status,
-    )
-    all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
-    channels = (
-        [ch for ch in all_channels if ch.get("category_id") == category_id]
-        if category_id is not None
-        else all_channels
-    )
-    categories = await categories_repo.list_categories(request.app.state.runtime.db)
-    context = await build_template_context(
-        request,
-        videos=videos,
-        channels=channels,
-        categories_for_filter=categories,
-        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
-        pagination={
-            "page": current_page,
-            "limit": limit_val,
-            "total": total,
-            "total_pages": total_pages,
-            "channel_id": channel_id or "",
-            "category_id": category_id if category_id is not None else "",
-            "pipeline_status": pipeline_status or "",
-            "sort": sort,
-            "order": order,
-        },
     )
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/video_list.html",
-        context=context,
+        context=result.context,
     )
 
 

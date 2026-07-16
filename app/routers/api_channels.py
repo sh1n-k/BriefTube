@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
+from app.domains.channels import delete_channels_and_cleanup
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.routers.helpers import read_json_object
@@ -244,13 +245,7 @@ async def commit_bulk_channels(request: Request):
 
 @router.delete("/channels/{channel_id}")
 async def delete_channel(channel_id: str, request: Request):
-    result = await channels_repo.delete_channels_with_related_data(
-        request.app.state.runtime.db,
-        [channel_id],
-    )
-    request.app.state.runtime.rss_cache.pop(channel_id, None)
-    if int(result.get("deleted_videos", 0) or 0) > 0:
-        request.app.state.runtime.invalidate_retention_notice_cache()
+    result = await delete_channels_and_cleanup(request.app.state.runtime, [channel_id])
     if result["deleted_channels"] == 0:
         raise HTTPException(status_code=404, detail="Channel not found")
     return {

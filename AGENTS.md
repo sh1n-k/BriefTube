@@ -30,7 +30,7 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 - 재활성화 toast는 `HX-Trigger`의 `channel-reactivate-toast`로 전달하고
   `json.dumps(..., ensure_ascii=True)`를 유지한다. 버튼에 `data-save-toast`를 추가하지 않는다.
 - 채널 목록 갱신은 `#channel-list-wrap` fragment 교체 계약을 유지한다.
-- transcript fetch 경로는 공유 `state.transcript_fetch_gate`를 사용한다. 일반 transcript worker의 단일 실행은
+- transcript fetch 경로는 공유 `state.transcript_fetch_lock`을 사용한다. 일반 transcript worker의 단일 실행은
   `state.transcript_worker_lock`으로 보장한다.
 - pytest에서는 background worker를 기본 비활성화하고 필요한 테스트만
   `BRIEFTUBE_ENABLE_<NAME>_WORKER_IN_TESTS=1`로 활성화한다.
@@ -55,6 +55,20 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `app/workers/download_worker.py`, download API/page tests
 - remote sync: `app/services/remote_sync.py`, `app/repositories/remote_sync.py`,
   `app/workers/remote_sync_worker.py`, `sql/schema.sql`
+- 다운로드·thumbnail 파일 전달 route: `app/routers/files.py`, download domain과 관련 route tests
+
+## 변경 체크리스트
+
+- SQLite schema 변경은 `sql/schema.sql`, `app/database_migrations.py`, migration 실행 순서,
+  fresh/legacy migration test를 함께 확인한다. remote sync 대상 entity면 remote schema와 sync handler도 확인한다.
+- worker 추가·삭제는 runtime registry, `AppState` wake/lock, 설정 화면 노출 여부, pytest enable alias,
+  E2E disable 환경과 lifecycle test를 함께 갱신한다.
+- HTMX 변경은 route가 반환하는 fragment, `hx-target`/`hx-swap`/OOB selector, JS hydrate/event,
+  unit contract와 관련 E2E를 함께 확인한다.
+- config 추가는 `AppConfig`, YAML key, 환경변수 override, normalization과 config contract test를 함께 확인한다.
+- 단순 CRUD는 router에서 공개 repository facade를 직접 호출할 수 있다. API·HTMX·worker가 공유하거나
+  여러 repository, 외부 I/O, 상태 전이를 조합하는 흐름은 작은 domain use case로 둔다.
+- 앱 startup의 remote sync pull은 원격 schema ensure/migration을 수행한다. remote DDL 변경은 운영 DB write로 취급한다.
 
 ## 검증 주의
 
@@ -67,6 +81,7 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 
 ## 운영 안전
 
-- `data*.db`, `logs/`, `thumbnails*/`, `downloads/`, `config.*.local.yaml`, 비밀값을 커밋하지 않는다.
+- `data*.db`, `data*.db-*`, `logs/`, `thumbnails*/`, `downloads/`, `output/`,
+  `config.*.local.y*ml`, 비밀값을 커밋하지 않는다.
 - 운영·공용 DB와 SSH는 기본 읽기 전용으로 다룬다.
 - LaunchAgent 변경은 먼저 `BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-prod.sh`로 확인한다.

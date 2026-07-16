@@ -1,8 +1,8 @@
 """Channel-related repository accessors."""
 
-from app.repositories import _channels as repository
-from app.repositories import _channels_metadata as metadata_repository
-from app.repositories import _channels_polling as polling_repository
+import app.repositories._channels as repository
+import app.repositories._channels_metadata as metadata_repository
+import app.repositories._channels_polling as polling_repository
 
 CHANNEL_MANAGEMENT_STATUS_ACTIVE = repository.CHANNEL_MANAGEMENT_STATUS_ACTIVE
 CHANNEL_MANAGEMENT_STATUS_INACTIVE = repository.CHANNEL_MANAGEMENT_STATUS_INACTIVE
@@ -14,6 +14,7 @@ CHANNEL_METADATA_STATUS_RUNNING = repository.CHANNEL_METADATA_STATUS_RUNNING
 CHANNEL_METADATA_STATUS_SUCCESS = repository.CHANNEL_METADATA_STATUS_SUCCESS
 CHANNEL_METADATA_STATUS_FAILED = repository.CHANNEL_METADATA_STATUS_FAILED
 CHANNEL_METADATA_STATUS_RATE_LIMITED = repository.CHANNEL_METADATA_STATUS_RATE_LIMITED
+ChannelDeletionResult = repository.ChannelDeletionResult
 RSS_PRIORITY_PINNED = polling_repository.RSS_PRIORITY_PINNED
 RSS_PRIORITY_NORMAL = polling_repository.RSS_PRIORITY_NORMAL
 RSS_PRIORITY_LOW = polling_repository.RSS_PRIORITY_LOW

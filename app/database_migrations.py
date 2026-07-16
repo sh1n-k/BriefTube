@@ -10,26 +10,15 @@ import uuid
 
 import aiosqlite
 
+from app.pipeline_status import PIPELINE_STATUSES
 from app.remote_sync_metadata import (
     DEFAULT_CATEGORY_UID,
     REMOTE_SYNC_DEVICE_ID_KEY,
     SYNC_NOW_SQL,
 )
 
-VALID_PIPELINE_STATUSES: tuple[str, ...] = (
-    "auto_paused",
-    "transcript_pending",
-    "transcript_processing",
-    "transcript_done",
-    "transcript_failed",
-    "no_subtitle",
-    "llm_pending",
-    "llm_processing",
-    "llm_failed",
-    "manual_review",
-    "done",
-)
 logger = logging.getLogger(__name__)
+CURRENT_SCHEMA_VERSION = 1
 
 
 async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> bool:
@@ -86,7 +75,7 @@ def _pipeline_status_expr(columns: set[str]) -> str:
 
 
 async def _normalize_pipeline_status_values(db: aiosqlite.Connection) -> int:
-    canonical = ",".join([f"'{value}'" for value in VALID_PIPELINE_STATUSES])
+    canonical = ",".join([f"'{value}'" for value in PIPELINE_STATUSES])
     cursor = await db.execute(
         f"""
         UPDATE videos
@@ -778,3 +767,43 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         WHERE deleted_at IS NULL
         """
     )
+
+
+async def get_schema_version(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute("PRAGMA user_version")
+    row = await cursor.fetchone()
+    return int(row[0] if row is not None else 0)
+
+
+async def _migrate_to_v1(db: aiosqlite.Connection) -> None:
+    await _ensure_app_settings_table(db)
+    await _ensure_video_columns(db)
+    await _ensure_remote_sync_device_id(db)
+    await _ensure_article_columns(db)
+    await _ensure_video_indexes(db)
+    await _ensure_download_columns(db)
+    await _ensure_manual_transcript_jobs_table(db)
+    await _ensure_category_tables(db)
+    await _ensure_channel_metadata_columns(db)
+    for table in ("categories", "channels", "videos", "transcripts", "articles"):
+        await _ensure_sync_metadata_columns(db, table)
+    await _ensure_remote_sync_indexes(db)
+
+
+MIGRATIONS = ((1, _migrate_to_v1),)
+
+
+async def run_database_migrations(db: aiosqlite.Connection) -> None:
+    current_version = await get_schema_version(db)
+    if current_version > CURRENT_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"database schema version {current_version} is newer than supported version "
+            f"{CURRENT_SCHEMA_VERSION}"
+        )
+    for target_version, migration in MIGRATIONS:
+        if current_version >= target_version:
+            continue
+        await migration(db)
+        await db.execute(f"PRAGMA user_version = {target_version}")
+        await db.commit()
+        current_version = target_version

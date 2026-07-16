@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
 
+from app.domains.channels import delete_channels_and_cleanup
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
-from app.routers.helpers import cleanup_thumbnail_files, parse_optional_int
+from app.routers.helpers import parse_optional_int
 from app.routers.template_context import build_template_context
 from app.routers.views_common import (
     _channel_management_ui_context,
@@ -12,25 +13,6 @@ from app.routers.views_common import (
 )
 
 router = APIRouter(tags=["views"])
-
-
-async def delete_channels_and_cleanup_runtime(
-    request: Request,
-    channel_ids: list[str],
-) -> dict:
-    result = await channels_repo.delete_channels_with_related_data(
-        request.app.state.runtime.db,
-        channel_ids,
-    )
-    if int(result.get("deleted_videos", 0) or 0) > 0:
-        request.app.state.runtime.invalidate_retention_notice_cache()
-    cleanup_thumbnail_files(
-        result["thumbnail_paths"],
-        request.app.state.runtime.config.thumbnail_dir,
-    )
-    for channel_id in channel_ids:
-        request.app.state.runtime.rss_cache.pop(channel_id, None)
-    return result
 
 
 @router.post("/channels/delete-selected")
@@ -43,7 +25,7 @@ async def delete_selected_channels(request: Request):
         str(form.get("category_id") or request.query_params.get("category_id", ""))
     )
     channel_ids = [str(value).strip() for value in form.getlist("channel_id") if str(value).strip()]
-    await delete_channels_and_cleanup_runtime(request, channel_ids)
+    await delete_channels_and_cleanup(request.app.state.runtime, channel_ids)
 
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,
@@ -76,7 +58,7 @@ async def delete_single_channel(
 ):
     normalized = channel_id.strip()
     requested_status = channels_repo.normalize_channel_management_status(status)
-    await delete_channels_and_cleanup_runtime(request, [normalized])
+    await delete_channels_and_cleanup(request.app.state.runtime, [normalized])
 
     channel_status, channels, channel_counts = await _resolve_channel_management_state(
         request,

@@ -7,30 +7,13 @@ from typing import Any, cast
 
 import aiosqlite
 
+import app.repositories._settings as settings_repository
+from app.pipeline_status import PIPELINE_STATUSES
 from app.remote_sync_metadata import SYNC_NOW_SQL
-from app.repositories import _settings as settings_repository
 
 TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
 TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY = "transcript_request_headers_overrides_json"
-PIPELINE_STATUS_KEYS: tuple[str, ...] = (
-    "auto_paused",
-    "transcript_pending",
-    "transcript_processing",
-    "transcript_done",
-    "transcript_failed",
-    "no_subtitle",
-    "llm_pending",
-    "llm_processing",
-    "llm_failed",
-    "manual_review",
-    "done",
-)
-TRANSCRIPT_QUEUE_STATUSES = (
-    "transcript_pending",
-    "transcript_processing",
-    "transcript_failed",
-    "no_subtitle",
-)
+PIPELINE_STATUS_KEYS = PIPELINE_STATUSES
 
 get_settings_map = settings_repository.get_settings_map
 get_setting = settings_repository.get_setting
