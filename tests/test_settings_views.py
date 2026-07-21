@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from typing import Any
 
@@ -74,6 +75,19 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'name="llm_model_grok"' in response.text
     assert 'value="grok-4.5"' in response.text
     assert 'name="llm_reasoning_effort_grok"' in response.text
+    grok_effort_select = re.search(
+        r'name="llm_reasoning_effort_grok".*?</select>',
+        response.text,
+        flags=re.S,
+    )
+    assert grok_effort_select is not None
+    grok_effort_html = grok_effort_select.group(0)
+    assert 'value="low"' in grok_effort_html
+    assert 'value="medium"' in grok_effort_html
+    assert 'value="high"' in grok_effort_html
+    assert 'value="xhigh"' in grok_effort_html
+    assert 'value="max"' not in grok_effort_html
+    assert 'value="ultra"' not in grok_effort_html
     assert 'name="llm_provider_fallback"' not in response.text
     assert 'name="llm_model_claude"' not in response.text
     assert 'name="llm_model_gemini"' not in response.text

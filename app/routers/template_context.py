@@ -15,6 +15,7 @@ from app.services.llm import (
     LLM_CODEX_MODEL_OPTIONS,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_GROK_MODEL_OPTIONS,
+    LLM_REASONING_EFFORT_OPTIONS,
 )
 from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
@@ -101,10 +102,26 @@ async def _build_llm_capability_context(
     }:
         codex_model_options.append((current_codex_model, current_codex_model))
 
-    effort_options = list(codex.reasoning_efforts) or sorted(LLM_CODEX_REASONING_EFFORT_OPTIONS)
-    for effort in (current_codex_reasoning_effort, current_grok_reasoning_effort):
-        if effort and effort not in effort_options:
-            effort_options.append(effort)
+    codex_effort_options = list(codex.reasoning_efforts) or sorted(
+        LLM_CODEX_REASONING_EFFORT_OPTIONS
+    )
+    if (
+        current_codex_reasoning_effort
+        and current_codex_reasoning_effort not in codex_effort_options
+    ):
+        codex_effort_options.append(current_codex_reasoning_effort)
+
+    # Grok accepts a fixed effort set (not Codex probe values like max/ultra).
+    preferred_grok_efforts = ("low", "medium", "high", "xhigh")
+    grok_effort_options = [
+        effort for effort in preferred_grok_efforts if effort in LLM_REASONING_EFFORT_OPTIONS
+    ]
+    if (
+        current_grok_reasoning_effort
+        and current_grok_reasoning_effort in LLM_REASONING_EFFORT_OPTIONS
+        and current_grok_reasoning_effort not in grok_effort_options
+    ):
+        grok_effort_options.append(current_grok_reasoning_effort)
 
     grok_model_options = list(LLM_GROK_MODEL_OPTIONS)
     if current_grok_model and current_grok_model not in {
@@ -115,9 +132,9 @@ async def _build_llm_capability_context(
     return {
         "codex": codex.as_payload(),
         "codex_model_options": tuple(codex_model_options) or LLM_CODEX_MODEL_OPTIONS,
-        "codex_reasoning_effort_options": tuple(effort_options),
+        "codex_reasoning_effort_options": tuple(codex_effort_options),
         "grok_model_options": tuple(grok_model_options),
-        "grok_reasoning_effort_options": tuple(effort_options),
+        "grok_reasoning_effort_options": tuple(grok_effort_options),
     }
 
 
@@ -188,7 +205,7 @@ async def build_template_context(
             "codex_model_options": LLM_CODEX_MODEL_OPTIONS,
             "codex_reasoning_effort_options": (),
             "grok_model_options": LLM_GROK_MODEL_OPTIONS,
-            "grok_reasoning_effort_options": tuple(sorted(LLM_CODEX_REASONING_EFFORT_OPTIONS)),
+            "grok_reasoning_effort_options": ("low", "medium", "high", "xhigh"),
         }
     context: dict[str, object] = {
         "language": language,
