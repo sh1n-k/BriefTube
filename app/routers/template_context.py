@@ -15,7 +15,8 @@ from app.services.llm import (
     LLM_CODEX_MODEL_OPTIONS,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_GROK_MODEL_OPTIONS,
-    LLM_REASONING_EFFORT_OPTIONS,
+    LLM_GROK_REASONING_EFFORT_OPTIONS,
+    LLM_GROK_REASONING_EFFORT_ORDER,
 )
 from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
@@ -111,14 +112,15 @@ async def _build_llm_capability_context(
     ):
         codex_effort_options.append(current_codex_reasoning_effort)
 
-    # Grok accepts a fixed effort set (not Codex probe values like max/ultra).
-    preferred_grok_efforts = ("low", "medium", "high", "xhigh")
+    # Grok 4.5 Build menu: low/medium/high only (no xhigh).
     grok_effort_options = [
-        effort for effort in preferred_grok_efforts if effort in LLM_REASONING_EFFORT_OPTIONS
+        effort
+        for effort in LLM_GROK_REASONING_EFFORT_ORDER
+        if effort in LLM_GROK_REASONING_EFFORT_OPTIONS
     ]
     if (
         current_grok_reasoning_effort
-        and current_grok_reasoning_effort in LLM_REASONING_EFFORT_OPTIONS
+        and current_grok_reasoning_effort in LLM_GROK_REASONING_EFFORT_OPTIONS
         and current_grok_reasoning_effort not in grok_effort_options
     ):
         grok_effort_options.append(current_grok_reasoning_effort)
@@ -205,7 +207,7 @@ async def build_template_context(
             "codex_model_options": LLM_CODEX_MODEL_OPTIONS,
             "codex_reasoning_effort_options": (),
             "grok_model_options": LLM_GROK_MODEL_OPTIONS,
-            "grok_reasoning_effort_options": ("low", "medium", "high", "xhigh"),
+            "grok_reasoning_effort_options": LLM_GROK_REASONING_EFFORT_ORDER,
         }
     context: dict[str, object] = {
         "language": language,

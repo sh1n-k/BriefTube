@@ -21,6 +21,10 @@ LLM_GROK_MODEL_DEFAULT = "grok-4.5"
 LLM_GROK_MODEL_OPTIONS: tuple[tuple[str, str], ...] = (("grok-4.5", "Grok 4.5"),)
 LLM_GROK_MODEL_VALUES = {value for value, _label in LLM_GROK_MODEL_OPTIONS}
 LLM_GROK_MODEL_MAX_LENGTH = 200
+# Grok 4.5 Build menu exposes low/medium/high only (no xhigh).
+LLM_GROK_REASONING_EFFORT_OPTIONS = {"low", "medium", "high"}
+LLM_GROK_REASONING_EFFORT_ORDER: tuple[str, ...] = ("low", "medium", "high")
+# Backward-compatible alias used by shared codex-era call sites.
 LLM_REASONING_EFFORT_OPTIONS = LLM_CODEX_REASONING_EFFORT_OPTIONS
 
 

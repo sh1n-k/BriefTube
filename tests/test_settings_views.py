@@ -85,7 +85,7 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'value="low"' in grok_effort_html
     assert 'value="medium"' in grok_effort_html
     assert 'value="high"' in grok_effort_html
-    assert 'value="xhigh"' in grok_effort_html
+    assert 'value="xhigh"' not in grok_effort_html
     assert 'value="max"' not in grok_effort_html
     assert 'value="ultra"' not in grok_effort_html
     assert 'name="llm_provider_fallback"' not in response.text

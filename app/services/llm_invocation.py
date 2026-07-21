@@ -18,7 +18,8 @@ from app.services.llm_errors import LlmClientError
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
-LLM_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_OPTIONS
+LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
+LLM_GROK_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_GROK_REASONING_EFFORT_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
 normalize_grok_model = _llm_policy.normalize_grok_model
 normalize_llm_provider = _llm_policy.normalize_llm_provider
@@ -181,7 +182,7 @@ async def run_codex_provider_command(
             "-",
         ]
         effort = str(reasoning_effort or "").strip().lower()
-        if effort in LLM_REASONING_EFFORT_OPTIONS:
+        if effort in LLM_CODEX_REASONING_EFFORT_OPTIONS:
             args.extend(["-c", f'model_reasoning_effort="{effort}"'])
 
         result = await runner(args, timeout_seconds, prompt)
@@ -234,7 +235,7 @@ async def run_grok_provider_command(
             "json",
         ]
         effort = str(reasoning_effort or "").strip().lower()
-        if effort in LLM_REASONING_EFFORT_OPTIONS:
+        if effort in LLM_GROK_REASONING_EFFORT_OPTIONS:
             args.extend(["--reasoning-effort", effort])
 
         result = await runner(args, timeout_seconds, None)

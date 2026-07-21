@@ -455,6 +455,19 @@ def test_settings_llm_accepts_codex_xhigh_reasoning_effort(client: TestClient) -
     assert response.json()["llm_settings"]["llm_reasoning_effort"]["codex"] == "xhigh"
 
 
+def test_settings_llm_rejects_grok_xhigh_reasoning_effort(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "llm_reasoning_effort": {
+                "grok": "xhigh",
+            }
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "reasoning_effort must be one of: high, low, medium"
+
+
 def test_settings_llm_capabilities_reports_codex_models(client: TestClient) -> None:
     calls = 0
 

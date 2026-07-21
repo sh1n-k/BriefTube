@@ -8,13 +8,14 @@ import aiosqlite
 from app.llm_policy import (
     LLM_CODEX_MODEL_DEFAULT,
     LLM_CODEX_MODEL_MAX_LENGTH,
+    LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_GROK_MODEL_DEFAULT,
     LLM_GROK_MODEL_MAX_LENGTH,
+    LLM_GROK_REASONING_EFFORT_OPTIONS,
     LLM_PROMPT_TEMPLATE_MAX_LENGTH,
     LLM_PROVIDER_CODEX,
     LLM_PROVIDER_NONE,
     LLM_PROVIDER_VALUES,
-    LLM_REASONING_EFFORT_OPTIONS,
     normalize_codex_model,
     normalize_grok_model,
     normalize_llm_provider,
@@ -75,13 +76,13 @@ def _validate_llm_model_settings(value: Mapping[str, Any]) -> dict[str, str]:
     return result
 
 
-def _normalize_reasoning_effort(value: Any) -> str:
+def _normalize_reasoning_effort(value: Any, *, allowed: set[str]) -> str:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return ""
-    if normalized not in LLM_REASONING_EFFORT_OPTIONS:
-        allowed = ", ".join(sorted(LLM_REASONING_EFFORT_OPTIONS))
-        raise ValueError(f"reasoning_effort must be one of: {allowed}")
+    if normalized not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ValueError(f"reasoning_effort must be one of: {allowed_text}")
     return normalized
 
 
@@ -91,9 +92,15 @@ def _validate_llm_reasoning_effort_settings(value: Mapping[str, Any]) -> dict[st
         raise ValueError(f"llm_reasoning_effort contains unsupported keys: {sorted(unknown)}")
     result: dict[str, str] = {}
     if "codex" in value:
-        result["codex"] = _normalize_reasoning_effort(value.get("codex"))
+        result["codex"] = _normalize_reasoning_effort(
+            value.get("codex"),
+            allowed=LLM_CODEX_REASONING_EFFORT_OPTIONS,
+        )
     if "grok" in value:
-        result["grok"] = _normalize_reasoning_effort(value.get("grok"))
+        result["grok"] = _normalize_reasoning_effort(
+            value.get("grok"),
+            allowed=LLM_GROK_REASONING_EFFORT_OPTIONS,
+        )
     if not result:
         raise ValueError("llm_reasoning_effort must include codex and/or grok")
     return result
@@ -149,11 +156,17 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
             "grok": LLM_GROK_MODEL_DEFAULT,
         }
     try:
-        reasoning_effort_codex = _normalize_reasoning_effort(reasoning_effort_codex_raw)
+        reasoning_effort_codex = _normalize_reasoning_effort(
+            reasoning_effort_codex_raw,
+            allowed=LLM_CODEX_REASONING_EFFORT_OPTIONS,
+        )
     except ValueError:
         reasoning_effort_codex = ""
     try:
-        reasoning_effort_grok = _normalize_reasoning_effort(reasoning_effort_grok_raw)
+        reasoning_effort_grok = _normalize_reasoning_effort(
+            reasoning_effort_grok_raw,
+            allowed=LLM_GROK_REASONING_EFFORT_OPTIONS,
+        )
     except ValueError:
         reasoning_effort_grok = ""
     try:

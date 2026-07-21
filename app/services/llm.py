@@ -49,6 +49,8 @@ LLM_GROK_MODEL_DEFAULT = _llm_policy.LLM_GROK_MODEL_DEFAULT
 LLM_GROK_MODEL_MAX_LENGTH = _llm_policy.LLM_GROK_MODEL_MAX_LENGTH
 LLM_GROK_MODEL_OPTIONS = _llm_policy.LLM_GROK_MODEL_OPTIONS
 LLM_GROK_MODEL_VALUES = _llm_policy.LLM_GROK_MODEL_VALUES
+LLM_GROK_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_GROK_REASONING_EFFORT_OPTIONS
+LLM_GROK_REASONING_EFFORT_ORDER = _llm_policy.LLM_GROK_REASONING_EFFORT_ORDER
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = _llm_policy.LLM_PROMPT_TEMPLATE_MAX_LENGTH
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
@@ -114,17 +116,23 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
             "grok": normalize_grok_model(grok_model_raw),
         },
         llm_reasoning_effort={
-            "codex": _normalize_reasoning_effort(codex_effort_raw),
-            "grok": _normalize_reasoning_effort(grok_effort_raw),
+            "codex": _normalize_reasoning_effort(
+                codex_effort_raw,
+                allowed=LLM_CODEX_REASONING_EFFORT_OPTIONS,
+            ),
+            "grok": _normalize_reasoning_effort(
+                grok_effort_raw,
+                allowed=LLM_GROK_REASONING_EFFORT_OPTIONS,
+            ),
         },
     )
 
 
-def _normalize_reasoning_effort(value: Any) -> str:
+def _normalize_reasoning_effort(value: Any, *, allowed: set[str]) -> str:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return ""
-    if normalized in LLM_REASONING_EFFORT_OPTIONS:
+    if normalized in allowed:
         return normalized
     return ""
 
