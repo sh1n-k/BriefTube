@@ -601,6 +601,7 @@ def test_restructure_grok_success_uses_prompt_file_and_structured_output() -> No
         assert "--json-schema" in args
         assert args[args.index("-m") + 1] == LLM_GROK_MODEL_DEFAULT
         assert "--max-turns" in args
+        assert args[args.index("--max-turns") + 1] == "3"
         assert args[args.index("--tools") + 1] == ""
         assert "--disable-web-search" in args
         assert "--no-subagents" in args

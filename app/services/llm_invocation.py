@@ -225,7 +225,7 @@ async def run_grok_provider_command(
             "-m",
             normalize_grok_model(model),
             "--max-turns",
-            "1",
+            "3",
             "--tools",
             "",
             "--disable-web-search",
