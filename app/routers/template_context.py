@@ -11,7 +11,11 @@ from app.repositories import alerts_retention as alerts_repo
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.services.channel_handle import format_channel_handle_display
-from app.services.llm import LLM_CODEX_MODEL_OPTIONS
+from app.services.llm import (
+    LLM_CODEX_MODEL_OPTIONS,
+    LLM_CODEX_REASONING_EFFORT_OPTIONS,
+    LLM_GROK_MODEL_OPTIONS,
+)
 from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
     resolve_llm_runtime_status,
@@ -84,23 +88,36 @@ async def _build_llm_runtime_context(
 async def _build_llm_capability_context(
     request: Request,
     *,
-    current_model: str,
-    current_reasoning_effort: str,
+    current_codex_model: str,
+    current_grok_model: str,
+    current_codex_reasoning_effort: str,
+    current_grok_reasoning_effort: str,
     refresh: bool = False,
 ) -> dict[str, object]:
     codex = await resolve_codex_capabilities(request.app.state.runtime, refresh=refresh)
-    model_options = [(model.value, model.label) for model in codex.models]
-    if current_model and current_model not in {value for value, _label in model_options}:
-        model_options.append((current_model, current_model))
+    codex_model_options = [(model.value, model.label) for model in codex.models]
+    if current_codex_model and current_codex_model not in {
+        value for value, _label in codex_model_options
+    }:
+        codex_model_options.append((current_codex_model, current_codex_model))
 
-    effort_options = list(codex.reasoning_efforts)
-    if current_reasoning_effort and current_reasoning_effort not in effort_options:
-        effort_options.append(current_reasoning_effort)
+    effort_options = list(codex.reasoning_efforts) or sorted(LLM_CODEX_REASONING_EFFORT_OPTIONS)
+    for effort in (current_codex_reasoning_effort, current_grok_reasoning_effort):
+        if effort and effort not in effort_options:
+            effort_options.append(effort)
+
+    grok_model_options = list(LLM_GROK_MODEL_OPTIONS)
+    if current_grok_model and current_grok_model not in {
+        value for value, _label in grok_model_options
+    }:
+        grok_model_options.append((current_grok_model, current_grok_model))
 
     return {
         "codex": codex.as_payload(),
-        "codex_model_options": tuple(model_options) or LLM_CODEX_MODEL_OPTIONS,
+        "codex_model_options": tuple(codex_model_options) or LLM_CODEX_MODEL_OPTIONS,
         "codex_reasoning_effort_options": tuple(effort_options),
+        "grok_model_options": tuple(grok_model_options),
+        "grok_reasoning_effort_options": tuple(effort_options),
     }
 
 
@@ -155,12 +172,14 @@ async def build_template_context(
     if isinstance(llm_settings, dict):
         llm_model = llm_settings.get("llm_model", {})
         llm_reasoning_effort = llm_settings.get("llm_reasoning_effort", {})
+        llm_model_map = llm_model if isinstance(llm_model, dict) else {}
+        llm_effort_map = llm_reasoning_effort if isinstance(llm_reasoning_effort, dict) else {}
         llm_capabilities = await _build_llm_capability_context(
             request,
-            current_model=str(llm_model.get("codex", "")) if isinstance(llm_model, dict) else "",
-            current_reasoning_effort=str(llm_reasoning_effort.get("codex", ""))
-            if isinstance(llm_reasoning_effort, dict)
-            else "",
+            current_codex_model=str(llm_model_map.get("codex", "")),
+            current_grok_model=str(llm_model_map.get("grok", "")),
+            current_codex_reasoning_effort=str(llm_effort_map.get("codex", "")),
+            current_grok_reasoning_effort=str(llm_effort_map.get("grok", "")),
             refresh=request.query_params.get("llm_capabilities_refresh") == "1",
         )
     else:
@@ -168,6 +187,8 @@ async def build_template_context(
             "codex": {},
             "codex_model_options": LLM_CODEX_MODEL_OPTIONS,
             "codex_reasoning_effort_options": (),
+            "grok_model_options": LLM_GROK_MODEL_OPTIONS,
+            "grok_reasoning_effort_options": tuple(sorted(LLM_CODEX_REASONING_EFFORT_OPTIONS)),
         }
     context: dict[str, object] = {
         "language": language,
@@ -181,6 +202,8 @@ async def build_template_context(
         "llm_capabilities": llm_capabilities,
         "codex_model_options": llm_capabilities["codex_model_options"],
         "codex_reasoning_effort_options": llm_capabilities["codex_reasoning_effort_options"],
+        "grok_model_options": llm_capabilities["grok_model_options"],
+        "grok_reasoning_effort_options": llm_capabilities["grok_reasoning_effort_options"],
         "format_upload_time": format_upload_time,
         "format_channel_handle_display": format_channel_handle_display,
     }

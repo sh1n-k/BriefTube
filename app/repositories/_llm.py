@@ -11,7 +11,7 @@ import app.repositories._settings_llm as llm_settings_repository
 from app.remote_sync_metadata import SYNC_NOW_SQL
 
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
-LLM_ARTICLE_PROVIDER_VALUES = {"codex", "claude", "gemini"}
+LLM_ARTICLE_PROVIDER_VALUES = {"codex", "grok", "claude", "gemini"}
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = llm_settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY
 LLM_SCHEMA_INVALID_ALERT_SENT_KEY = llm_settings_repository.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
 LLM_RUNTIME_LAST_CODE_KEY = llm_settings_repository.LLM_RUNTIME_LAST_CODE_KEY

@@ -90,6 +90,10 @@ def extract_article_payload(data: Any, provider: str) -> Mapping[str, Any]:
         if isinstance(structured, dict) and is_article_payload(structured):
             return structured
 
+        structured_camel = data.get("structuredOutput")
+        if isinstance(structured_camel, dict) and is_article_payload(structured_camel):
+            return structured_camel
+
         nested_result = data.get("result")
         if isinstance(nested_result, dict) and is_article_payload(nested_result):
             return nested_result

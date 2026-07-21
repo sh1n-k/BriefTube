@@ -364,24 +364,20 @@ def test_settings_llm_update(client: TestClient) -> None:
         response.json()["llm_settings"]["prompt_template"]
         == "Title={source_title}\\nBody={transcript_text}"
     )
-    assert response.json()["llm_settings"]["llm_model"] == {
-        "codex": "gpt-5.4",
-    }
-    assert response.json()["llm_settings"]["llm_reasoning_effort"] == {
-        "codex": "high",
-    }
+    assert response.json()["llm_settings"]["llm_model"]["codex"] == "gpt-5.4"
+    assert response.json()["llm_settings"]["llm_model"]["grok"] == "grok-4.5"
+    assert response.json()["llm_settings"]["llm_reasoning_effort"]["codex"] == "high"
+    assert response.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == ""
     assert response.json()["llm_settings"]["max_concurrent"] == 4
 
     after = client.get("/api/settings")
     assert after.status_code == 200
     assert after.json()["llm_settings"]["provider_primary"] == "codex"
     assert after.json()["llm_settings"]["provider_fallback"] == "none"
-    assert after.json()["llm_settings"]["llm_model"] == {
-        "codex": "gpt-5.4",
-    }
-    assert after.json()["llm_settings"]["llm_reasoning_effort"] == {
-        "codex": "high",
-    }
+    assert after.json()["llm_settings"]["llm_model"]["codex"] == "gpt-5.4"
+    assert after.json()["llm_settings"]["llm_model"]["grok"] == "grok-4.5"
+    assert after.json()["llm_settings"]["llm_reasoning_effort"]["codex"] == "high"
+    assert after.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == ""
     assert after.json()["llm_settings"]["max_concurrent"] == 4
 
 
@@ -389,7 +385,7 @@ def test_settings_llm_update(client: TestClient) -> None:
     ("payload", "detail"),
     [
         ({"max_concurrent": 5}, "max_concurrent must be between 1 and 4"),
-        ({"provider_primary": "claude"}, "only codex provider is supported"),
+        ({"provider_primary": "claude"}, "provider_primary must be one of: codex, grok"),
         ({"provider_fallback": "claude"}, "fallback provider is not supported"),
         ({}, "empty llm settings payload"),
         (
@@ -408,11 +404,11 @@ def test_settings_llm_update(client: TestClient) -> None:
         ),
         (
             {"llm_model": {"claude": "sonnet"}},
-            "llm_model must contain only codex",
+            "llm_model must contain only codex and/or grok",
         ),
         (
             {"llm_reasoning_effort": {"gemini": "low"}},
-            "llm_reasoning_effort must contain only codex",
+            "llm_reasoning_effort must contain only codex and/or grok",
         ),
         (
             {"llm_reasoning_effort": {"codex": "ultra"}},
@@ -528,9 +524,8 @@ def test_settings_llm_partial_model_update_preserves_reasoning_effort(
         },
     )
     assert second.status_code == 200
-    assert second.json()["llm_settings"]["llm_reasoning_effort"] == {
-        "codex": "high",
-    }
+    assert second.json()["llm_settings"]["llm_reasoning_effort"]["codex"] == "high"
+    assert second.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == ""
 
 
 def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> None:
@@ -547,13 +542,36 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
     )
     assert response.status_code == 200
     llm_settings = response.json()["llm_settings"]
-    assert llm_settings["llm_model"] == {
-        "codex": "gpt-5.4",
-    }
-    assert llm_settings["llm_reasoning_effort"] == {
-        "codex": "medium",
-    }
+    assert llm_settings["llm_model"]["codex"] == "gpt-5.4"
+    assert llm_settings["llm_model"]["grok"] == "grok-4.5"
+    assert llm_settings["llm_reasoning_effort"]["codex"] == "medium"
+    assert llm_settings["llm_reasoning_effort"]["grok"] == ""
     assert llm_settings["max_concurrent"] == 3
+
+
+def test_settings_llm_update_accepts_grok_provider_model_and_effort(
+    client: TestClient,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "grok",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+            "llm_model": {"grok": "grok-4.5"},
+            "llm_reasoning_effort": {"grok": "high"},
+        },
+    )
+    assert response.status_code == 200
+    llm_settings = response.json()["llm_settings"]
+    assert llm_settings["provider_primary"] == "grok"
+    assert llm_settings["llm_model"]["grok"] == "grok-4.5"
+    assert llm_settings["llm_reasoning_effort"]["grok"] == "high"
+
+    after = client.get("/api/settings")
+    assert after.status_code == 200
+    assert after.json()["llm_settings"]["provider_primary"] == "grok"
+    assert after.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == "high"
 
 
 def test_settings_llm_update_blocks_when_schema_preflight_fails(
@@ -606,7 +624,7 @@ def test_settings_llm_update_rejects_unsupported_provider(client: TestClient) ->
         },
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "only codex provider is supported"
+    assert response.json()["detail"] == "provider_primary must be one of: codex, grok"
 
     after = client.get("/api/settings")
     assert after.status_code == 200

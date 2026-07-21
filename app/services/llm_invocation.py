@@ -17,7 +17,10 @@ from app.services.llm_errors import LlmClientError
 
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
+LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
+LLM_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
+normalize_grok_model = _llm_policy.normalize_grok_model
 normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 
@@ -103,6 +106,8 @@ def provider_command_name(provider: str) -> str:
     normalized = normalize_llm_provider(provider, allow_none=False)
     if normalized == LLM_PROVIDER_CODEX:
         return "codex"
+    if normalized == LLM_PROVIDER_GROK:
+        return "grok"
     raise LlmClientError(
         "llm_provider_invalid",
         f"Unsupported provider: {provider}",
@@ -175,8 +180,9 @@ async def run_codex_provider_command(
             str(output_file),
             "-",
         ]
-        if reasoning_effort:
-            args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+        effort = str(reasoning_effort or "").strip().lower()
+        if effort in LLM_REASONING_EFFORT_OPTIONS:
+            args.extend(["-c", f'model_reasoning_effort="{effort}"'])
 
         result = await runner(args, timeout_seconds, prompt)
         raw_output = ""
@@ -184,6 +190,55 @@ async def run_codex_provider_command(
             raw_output = output_file.read_text(encoding="utf-8", errors="replace").strip()
         if not raw_output:
             raw_output = result.stdout
+
+    return ProviderCommandResult(
+        exit_code=result.exit_code,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        raw_output=raw_output,
+    )
+
+
+async def run_grok_provider_command(
+    *,
+    prompt: str,
+    model: str,
+    reasoning_effort: str,
+    schema_json: str,
+    timeout_seconds: int,
+    runner: CommandRunner,
+    command_exists: CommandExists,
+) -> ProviderCommandResult:
+    command = _ensure_provider_command(LLM_PROVIDER_GROK, command_exists=command_exists)
+
+    with tempfile.TemporaryDirectory(prefix="brieftube-llm-grok-") as tmpdir:
+        prompt_file = Path(tmpdir) / "prompt.txt"
+        prompt_file.write_text(prompt, encoding="utf-8")
+
+        args = [
+            command,
+            "--prompt-file",
+            str(prompt_file),
+            "--json-schema",
+            schema_json,
+            "-m",
+            normalize_grok_model(model),
+            "--max-turns",
+            "1",
+            "--tools",
+            "",
+            "--disable-web-search",
+            "--no-subagents",
+            "--no-memory",
+            "--output-format",
+            "json",
+        ]
+        effort = str(reasoning_effort or "").strip().lower()
+        if effort in LLM_REASONING_EFFORT_OPTIONS:
+            args.extend(["--reasoning-effort", effort])
+
+        result = await runner(args, timeout_seconds, None)
+        raw_output = result.stdout.strip()
 
     return ProviderCommandResult(
         exit_code=result.exit_code,

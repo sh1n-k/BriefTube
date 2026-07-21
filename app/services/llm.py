@@ -19,6 +19,7 @@ from app.services.llm_invocation import (
     default_command_runner,
     resolve_provider_command,
     run_codex_provider_command,
+    run_grok_provider_command,
 )
 from app.services.llm_payload import (
     coerce_article,
@@ -44,10 +45,18 @@ LLM_CODEX_MODEL_MAX_LENGTH = _llm_policy.LLM_CODEX_MODEL_MAX_LENGTH
 LLM_CODEX_MODEL_OPTIONS = _llm_policy.LLM_CODEX_MODEL_OPTIONS
 LLM_CODEX_MODEL_VALUES = _llm_policy.LLM_CODEX_MODEL_VALUES
 LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
+LLM_GROK_MODEL_DEFAULT = _llm_policy.LLM_GROK_MODEL_DEFAULT
+LLM_GROK_MODEL_MAX_LENGTH = _llm_policy.LLM_GROK_MODEL_MAX_LENGTH
+LLM_GROK_MODEL_OPTIONS = _llm_policy.LLM_GROK_MODEL_OPTIONS
+LLM_GROK_MODEL_VALUES = _llm_policy.LLM_GROK_MODEL_VALUES
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = _llm_policy.LLM_PROMPT_TEMPLATE_MAX_LENGTH
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
+LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
 LLM_PROVIDER_NONE = _llm_policy.LLM_PROVIDER_NONE
+LLM_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
+normalize_grok_model = _llm_policy.normalize_grok_model
+normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 _UNTRUSTED_TRANSCRIPT_GUARD = """
 Security and accuracy rules:
@@ -77,19 +86,36 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         if isinstance(model_payload, Mapping)
         else payload.get("llm_model_codex", "")
     )
+    grok_model_raw = (
+        model_payload.get("grok", "")
+        if isinstance(model_payload, Mapping)
+        else payload.get("llm_model_grok", "")
+    )
     effort_payload = payload.get("llm_reasoning_effort")
     codex_effort_raw = (
         effort_payload.get("codex", "")
         if isinstance(effort_payload, Mapping)
         else payload.get("llm_reasoning_effort_codex", "")
     )
+    grok_effort_raw = (
+        effort_payload.get("grok", "")
+        if isinstance(effort_payload, Mapping)
+        else payload.get("llm_reasoning_effort_grok", "")
+    )
     return LlmSettings(
-        provider_primary=LLM_PROVIDER_CODEX,
+        provider_primary=normalize_llm_provider(
+            payload.get("provider_primary"),
+            allow_none=False,
+        ),
         provider_fallback=LLM_PROVIDER_NONE,
         prompt_template=prompt_template,
-        llm_model={"codex": normalize_codex_model(codex_model_raw)},
+        llm_model={
+            "codex": normalize_codex_model(codex_model_raw),
+            "grok": normalize_grok_model(grok_model_raw),
+        },
         llm_reasoning_effort={
             "codex": _normalize_reasoning_effort(codex_effort_raw),
+            "grok": _normalize_reasoning_effort(grok_effort_raw),
         },
     )
 
@@ -98,7 +124,7 @@ def _normalize_reasoning_effort(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return ""
-    if normalized in LLM_CODEX_REASONING_EFFORT_OPTIONS:
+    if normalized in LLM_REASONING_EFFORT_OPTIONS:
         return normalized
     return ""
 
@@ -158,17 +184,28 @@ class UnifiedLlmClient:
             transcript_text=transcript_text,
         )
 
-        article = await self._invoke_codex(
-            prompt,
-            source_title=source_title,
-            model=normalized.llm_model.get("codex", LLM_CODEX_MODEL_DEFAULT),
-            reasoning_effort=normalized.llm_reasoning_effort.get("codex", ""),
-        )
-        article["_llm_provider"] = LLM_PROVIDER_CODEX
-        article["_llm_model"] = str(normalized.llm_model.get("codex", "") or "")
-        article["_llm_reasoning_effort"] = str(
-            normalized.llm_reasoning_effort.get("codex", "") or ""
-        )
+        provider = normalized.provider_primary
+        if provider == LLM_PROVIDER_GROK:
+            model = str(normalized.llm_model.get(provider, "") or LLM_GROK_MODEL_DEFAULT)
+            reasoning_effort = str(normalized.llm_reasoning_effort.get(provider, "") or "")
+            article = await self._invoke_grok(
+                prompt,
+                source_title=source_title,
+                model=model,
+                reasoning_effort=reasoning_effort,
+            )
+        else:
+            model = str(normalized.llm_model.get(provider, "") or LLM_CODEX_MODEL_DEFAULT)
+            reasoning_effort = str(normalized.llm_reasoning_effort.get(provider, "") or "")
+            article = await self._invoke_codex(
+                prompt,
+                source_title=source_title,
+                model=model,
+                reasoning_effort=reasoning_effort,
+            )
+        article["_llm_provider"] = provider
+        article["_llm_model"] = model
+        article["_llm_reasoning_effort"] = reasoning_effort
         article["_llm_generated_at"] = datetime.now(UTC).isoformat()
         return article
 
@@ -223,6 +260,38 @@ class UnifiedLlmClient:
         )
         return self._parse_and_capture_provider_output(
             provider=LLM_PROVIDER_CODEX,
+            source_title=source_title,
+            result=result,
+        )
+
+    async def _invoke_grok(
+        self,
+        prompt: str,
+        *,
+        source_title: str,
+        model: str,
+        reasoning_effort: str,
+    ) -> dict[str, str]:
+        result = await run_grok_provider_command(
+            prompt=prompt,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            schema_json=self._provider_schema_compact(LLM_PROVIDER_GROK),
+            timeout_seconds=self.timeout_seconds,
+            runner=self._runner,
+            command_exists=self._command_exists,
+        )
+
+        raise_for_provider_command_failure(
+            provider=LLM_PROVIDER_GROK,
+            source_title=source_title,
+            result=result,
+            capture_dir=self._response_capture_dir,
+            capture_max_chars=self._response_capture_max_chars,
+            include_content=self._capture_full_response_content,
+        )
+        return self._parse_and_capture_provider_output(
+            provider=LLM_PROVIDER_GROK,
             source_title=source_title,
             result=result,
         )

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.i18n import get_texts, normalize_language
+from app.llm_policy import LLM_PROVIDER_VALUES
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.routers.helpers import htmx_trigger_header
@@ -19,19 +20,24 @@ from app.services.llm_runtime import (
 )
 
 router = APIRouter(tags=["api"])
+_ALLOWED_MODEL_KEYS = frozenset({"codex", "grok"})
 
 
 def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
     return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
-def _codex_only_setting(payload: dict[str, Any], field: str) -> dict[str, str]:
+def _provider_model_setting(payload: dict[str, Any], field: str) -> dict[str, str]:
     value = payload.get(field)
     if not isinstance(value, dict):
         raise HTTPException(status_code=400, detail=f"{field} must be object")
-    if set(value) != {"codex"}:
-        raise HTTPException(status_code=400, detail=f"{field} must contain only codex")
-    return {"codex": str(value.get("codex") or "")}
+    keys = set(value.keys())
+    if not keys or not keys.issubset(_ALLOWED_MODEL_KEYS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field} must contain only codex and/or grok",
+        )
+    return {str(key): str(value.get(key) or "") for key in keys}
 
 
 async def resolve_llm_runtime_status_payload(request: Request) -> dict[str, Any]:
@@ -65,6 +71,7 @@ async def resolve_llm_capabilities_payload(
 @router.put("/settings/llm")
 async def set_llm_settings(request: Request):
     content_type = request.headers.get("content-type", "")
+    provider_primary: str | None = None
     prompt_template: str | None = None
     llm_model: dict[str, str] | None = None
     llm_reasoning_effort: dict[str, str] | None = None
@@ -74,11 +81,14 @@ async def set_llm_settings(request: Request):
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="llm payload must be object")
-        if (
-            "provider_primary" in payload
-            and str(payload.get("provider_primary", "codex")).strip().lower() != "codex"
-        ):
-            raise HTTPException(status_code=400, detail="only codex provider is supported")
+        if "provider_primary" in payload:
+            provider_primary = str(payload.get("provider_primary", "")).strip().lower()
+            if provider_primary not in LLM_PROVIDER_VALUES:
+                allowed = ", ".join(sorted(LLM_PROVIDER_VALUES))
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"provider_primary must be one of: {allowed}",
+                )
         if (
             "provider_fallback" in payload
             and str(payload.get("provider_fallback", "none")).strip().lower() != "none"
@@ -89,16 +99,19 @@ async def set_llm_settings(request: Request):
         if "max_concurrent" in payload:
             max_concurrent = str(payload.get("max_concurrent", "")).strip()
         if "llm_model" in payload:
-            llm_model = _codex_only_setting(payload, "llm_model")
+            llm_model = _provider_model_setting(payload, "llm_model")
         if "llm_reasoning_effort" in payload:
-            llm_reasoning_effort = _codex_only_setting(payload, "llm_reasoning_effort")
+            llm_reasoning_effort = _provider_model_setting(payload, "llm_reasoning_effort")
     else:
         form = await request.form()
-        if (
-            "llm_provider_primary" in form
-            and str(form.get("llm_provider_primary", "codex")).strip().lower() != "codex"
-        ):
-            raise HTTPException(status_code=400, detail="only codex provider is supported")
+        if "llm_provider_primary" in form:
+            provider_primary = str(form.get("llm_provider_primary", "")).strip().lower()
+            if provider_primary not in LLM_PROVIDER_VALUES:
+                allowed = ", ".join(sorted(LLM_PROVIDER_VALUES))
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"provider_primary must be one of: {allowed}",
+                )
         if (
             "llm_provider_fallback" in form
             and str(form.get("llm_provider_fallback", "none")).strip().lower() != "none"
@@ -108,13 +121,24 @@ async def set_llm_settings(request: Request):
             prompt_template = str(form.get("llm_prompt_template", ""))
         if "llm_max_concurrent" in form:
             max_concurrent = str(form.get("llm_max_concurrent", "")).strip()
+        model_updates: dict[str, str] = {}
         if "llm_model_codex" in form:
-            llm_model = {"codex": str(form.get("llm_model_codex", ""))}
+            model_updates["codex"] = str(form.get("llm_model_codex", ""))
+        if "llm_model_grok" in form:
+            model_updates["grok"] = str(form.get("llm_model_grok", ""))
+        if model_updates:
+            llm_model = model_updates
+        effort_updates: dict[str, str] = {}
         if "llm_reasoning_effort_codex" in form:
-            llm_reasoning_effort = {"codex": str(form.get("llm_reasoning_effort_codex", ""))}
+            effort_updates["codex"] = str(form.get("llm_reasoning_effort_codex", ""))
+        if "llm_reasoning_effort_grok" in form:
+            effort_updates["grok"] = str(form.get("llm_reasoning_effort_grok", ""))
+        if effort_updates:
+            llm_reasoning_effort = effort_updates
 
     if (
-        prompt_template is None
+        provider_primary is None
+        and prompt_template is None
         and llm_model is None
         and llm_reasoning_effort is None
         and max_concurrent is None
@@ -125,6 +149,7 @@ async def set_llm_settings(request: Request):
         current = await settings_repo.get_llm_settings(request.app.state.runtime.db)
         candidate = await settings_repo.set_llm_settings(
             request.app.state.runtime.db,
+            provider_primary=provider_primary,
             prompt_template=prompt_template,
             llm_model=llm_model,
             llm_reasoning_effort=llm_reasoning_effort,
@@ -168,6 +193,7 @@ async def set_llm_settings(request: Request):
 
     saved = await settings_repo.set_llm_settings(
         request.app.state.runtime.db,
+        provider_primary=provider_primary,
         prompt_template=prompt_template,
         llm_model=llm_model,
         llm_reasoning_effort=llm_reasoning_effort,

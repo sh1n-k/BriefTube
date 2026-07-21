@@ -313,7 +313,7 @@
       id="llm-settings-form"
       hx-put="/api/settings/llm"
       hx-swap="none"
-      hx-trigger="change from:select[name='llm_max_concurrent'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], input changed delay:1s from:textarea[name='llm_prompt_template']"
+      hx-trigger="change from:select[name='llm_provider_primary'], change from:select[name='llm_max_concurrent'], change from:select[name='llm_model_codex'], change from:select[name='llm_reasoning_effort_codex'], change from:select[name='llm_model_grok'], change from:select[name='llm_reasoning_effort_grok'], input changed delay:1s from:textarea[name='llm_prompt_template']"
       data-save-toast="{{ txt.settings_saved_toast }}"
       data-settings-section="llm"
     >
@@ -331,8 +331,15 @@
             <h3 class="text-sm font-semibold text-slate-700">{{ txt.settings_llm_execution_title }}</h3>
             <div class="mt-3 grid gap-3">
               <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
-                <span class="text-sm text-slate-600">{{ txt.settings_llm_provider_label }}</span>
-                <span class="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
+                <label class="text-sm text-slate-600" for="llm-provider-primary">{{ txt.settings_llm_provider_label }}</label>
+                <select
+                  id="llm-provider-primary"
+                  name="llm_provider_primary"
+                  class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="codex" {% if llm_settings.provider_primary == 'codex' %}selected{% endif %}>{{ txt.settings_llm_provider_codex }}</option>
+                  <option value="grok" {% if llm_settings.provider_primary == 'grok' %}selected{% endif %}>{{ txt.settings_llm_provider_grok }}</option>
+                </select>
               </div>
 
               <div class="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start">
@@ -360,7 +367,7 @@
               </a>
             </div>
             <div class="mt-3 flex-1 overflow-hidden rounded-md border border-slate-200 bg-white">
-              <div class="grid gap-2 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
+              <div class="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
                 <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_codex }}</span>
                 <select
                   name="llm_model_codex"
@@ -382,7 +389,28 @@
                   {% endfor %}
                 </select>
               </div>
-
+              <div class="grid gap-2 p-3 sm:grid-cols-[120px_minmax(0,1fr)_170px] sm:items-center">
+                <span class="text-sm font-medium text-slate-700">{{ txt.settings_llm_provider_grok }}</span>
+                <select
+                  name="llm_model_grok"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+                >
+                  {% for model_value, model_label in grok_model_options %}
+                  <option value="{{ model_value }}" {% if llm_settings.llm_model.grok == model_value %}selected{% endif %}>{{ model_label }}</option>
+                  {% endfor %}
+                </select>
+                <select
+                  name="llm_reasoning_effort_grok"
+                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="" {% if not llm_settings.llm_reasoning_effort.grok %}selected{% endif %}>{{ txt.settings_llm_reasoning_effort_default }}</option>
+                  {% for effort_value in grok_reasoning_effort_options %}
+                  <option value="{{ effort_value }}" {% if llm_settings.llm_reasoning_effort.grok == effort_value %}selected{% endif %}>
+                    {% if effort_value == 'low' %}{{ txt.settings_llm_reasoning_effort_low }}{% elif effort_value == 'medium' %}{{ txt.settings_llm_reasoning_effort_medium }}{% elif effort_value == 'high' %}{{ txt.settings_llm_reasoning_effort_high }}{% elif effort_value == 'xhigh' %}{{ txt.settings_llm_reasoning_effort_xhigh }}{% else %}{{ effort_value }}{% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
             </div>
             <p class="mt-2 text-xs text-slate-500">{{ txt.settings_llm_model_effort_help }}</p>
           </section>

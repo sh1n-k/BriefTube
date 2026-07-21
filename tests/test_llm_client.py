@@ -10,6 +10,7 @@ import pytest
 from app.services import llm_invocation
 from app.services.llm import (
     LLM_CODEX_MODEL_DEFAULT,
+    LLM_GROK_MODEL_DEFAULT,
     CommandExecutionResult,
     LlmClientError,
     UnifiedLlmClient,
@@ -485,3 +486,143 @@ def test_response_capture_redacts_content_by_default(tmp_path) -> None:
         "fact_box_chars": len('{"secret":"value"}'),
         "timestamps_chars": len('["00:00"]'),
     }
+
+
+def test_runtime_plan_accepts_grok_when_command_exists() -> None:
+    client = UnifiedLlmClient(
+        timeout_seconds=10,
+        command_exists=lambda name: name == "grok",
+    )
+    plan = client.resolve_runtime_plan(
+        {
+            "provider_primary": "grok",
+            "provider_fallback": "none",
+            "prompt_template": "{transcript_text}",
+        }
+    )
+    assert plan.blocking_reason is None
+    assert plan.providers_to_try == ["grok"]
+
+
+def test_runtime_plan_blocks_when_grok_command_missing() -> None:
+    client = UnifiedLlmClient(
+        timeout_seconds=10,
+        command_exists=lambda name: name == "codex",
+    )
+    reason = client.runtime_not_ready_reason(
+        {
+            "provider_primary": "grok",
+            "provider_fallback": "none",
+            "prompt_template": "{transcript_text}",
+        }
+    )
+    assert reason == "llm_provider_unavailable_grok"
+
+
+def test_restructure_grok_success_uses_prompt_file_and_structured_output() -> None:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
+        assert args[0] == _expected_provider_command("grok")
+        assert stdin_text is None
+        assert "--prompt-file" in args
+        assert "--json-schema" in args
+        assert args[args.index("-m") + 1] == LLM_GROK_MODEL_DEFAULT
+        assert "--max-turns" in args
+        assert args[args.index("--tools") + 1] == ""
+        assert "--disable-web-search" in args
+        assert "--no-subagents" in args
+        assert "--no-memory" in args
+        assert args[args.index("--output-format") + 1] == "json"
+        assert "--reasoning-effort" not in args
+
+        prompt_path = Path(args[args.index("--prompt-file") + 1])
+        assert prompt_path.exists()
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert "Source" in prompt_text
+        assert "Transcript" in prompt_text
+
+        schema_raw = args[args.index("--json-schema") + 1]
+        schema = json.loads(schema_raw)
+        assert set(schema["properties"].keys()) == {
+            "title",
+            "lead",
+            "body",
+            "fact_box",
+            "timestamps",
+        }
+
+        payload = {
+            "text": "{}",
+            "structuredOutput": {
+                "title": "Grok title",
+                "lead": "Grok lead",
+                "body": "Grok body",
+                "fact_box": "{}",
+                "timestamps": "[]",
+            },
+        }
+        return CommandExecutionResult(
+            exit_code=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "grok",
+                "provider_fallback": "none",
+                "prompt_template": "Title={source_title}\nBody={transcript_text}",
+            },
+        )
+    )
+
+    assert article["title"] == "Grok title"
+    assert article["lead"] == "Grok lead"
+    assert article["body"] == "Grok body"
+    assert article["_llm_provider"] == "grok"
+    assert article["_llm_model"] == LLM_GROK_MODEL_DEFAULT
+    assert article["_llm_reasoning_effort"] == ""
+    assert article["_llm_generated_at"]
+
+
+def test_restructure_grok_applies_model_and_reasoning_effort() -> None:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None
+    ) -> CommandExecutionResult:
+        assert args[0] == _expected_provider_command("grok")
+        assert args[args.index("-m") + 1] == "grok-4.5"
+        assert args[args.index("--reasoning-effort") + 1] == "high"
+        payload = {
+            "structuredOutput": {
+                "title": "Grok title",
+                "lead": "Grok lead",
+                "body": "Grok body",
+                "fact_box": "{}",
+                "timestamps": "[]",
+            }
+        }
+        return CommandExecutionResult(exit_code=0, stdout=json.dumps(payload), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "grok",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+                "llm_model": {"grok": "grok-4.5"},
+                "llm_reasoning_effort": {"grok": "high"},
+            },
+        )
+    )
+
+    assert article["_llm_provider"] == "grok"
+    assert article["_llm_model"] == "grok-4.5"
+    assert article["_llm_reasoning_effort"] == "high"

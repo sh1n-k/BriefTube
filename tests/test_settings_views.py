@@ -67,15 +67,20 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'hx-post="/views/settings/llm/resume"' in response.text
     assert 'name="llm_max_concurrent"' in response.text
     assert "change from:select[name='llm_max_concurrent']" in response.text
+    assert 'name="llm_provider_primary"' in response.text
     assert 'name="llm_model_codex"' in response.text
     assert 'value="gpt-5.4"' in response.text
     assert 'name="llm_reasoning_effort_codex"' in response.text
-    assert 'name="llm_provider_primary"' not in response.text
+    assert 'name="llm_model_grok"' in response.text
+    assert 'value="grok-4.5"' in response.text
+    assert 'name="llm_reasoning_effort_grok"' in response.text
     assert 'name="llm_provider_fallback"' not in response.text
     assert 'name="llm_model_claude"' not in response.text
     assert 'name="llm_model_gemini"' not in response.text
     assert 'name="llm_reasoning_effort_claude"' not in response.text
     assert 'name="llm_reasoning_effort_gemini"' not in response.text
+    assert "change from:select[name='llm_provider_primary']" in response.text
+    assert "change from:select[name='llm_model_grok']" in response.text
     assert 'name="llm_prompt_template"' in response.text
     assert response.text.count('name="llm_prompt_template"') == 1
     assert 'hx-put="/api/settings/llm"' in response.text
