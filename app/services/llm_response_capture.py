@@ -30,6 +30,8 @@ def capture_provider_response(
     parse_error_code: str | None = None,
     parse_error_message: str | None = None,
     article: Mapping[str, str] | None = None,
+    force_include_streams: bool = False,
+    stream_max_chars: int = 4_000,
 ) -> None:
     if capture_dir is None:
         return
@@ -38,8 +40,16 @@ def capture_provider_response(
         day = datetime.now(UTC).strftime("%Y%m%d")
         capture_file = capture_dir / f"llm_response_{day}.jsonl"
         max_chars = max(1_000, int(capture_max_chars))
-        stdout_text, stdout_truncated, stdout_chars = _capture_text(stdout, max_chars)
-        stderr_text, stderr_truncated, stderr_chars = _capture_text(stderr, max_chars)
+        # Failures may force stderr/stdout text for diagnostics without storing
+        # full successful article bodies (include_content still gates those).
+        stream_limit = max(256, min(max_chars, int(stream_max_chars)))
+        include_streams = bool(include_content or force_include_streams)
+        stdout_text, stdout_truncated, stdout_chars = _capture_text(
+            stdout, stream_limit if force_include_streams and not include_content else max_chars
+        )
+        stderr_text, stderr_truncated, stderr_chars = _capture_text(
+            stderr, stream_limit if force_include_streams and not include_content else max_chars
+        )
         raw_text, raw_truncated, raw_chars = _capture_text(raw_output, max_chars)
         payload: dict[str, Any] = {
             "id": str(uuid4()),
@@ -53,12 +63,12 @@ def capture_provider_response(
                 "error_message": parse_error_message or "",
             },
             "stdout": {
-                "text": stdout_text if include_content else "",
+                "text": stdout_text if include_streams else "",
                 "chars": stdout_chars,
                 "truncated": stdout_truncated,
             },
             "stderr": {
-                "text": stderr_text if include_content else "",
+                "text": stderr_text if include_streams else "",
                 "chars": stderr_chars,
                 "truncated": stderr_truncated,
             },

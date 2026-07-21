@@ -36,12 +36,21 @@ class ColorCapableStream(Protocol):
     def isatty(self) -> bool: ...
 
 
+# LLM restructure failures carry stderr_summary for ops; never drop them.
+NOISE_GATE_NEVER_SUPPRESS_EVENTS = frozenset(
+    {
+        "llm.restructure_failed",
+        "llm.restructure_non_retryable",
+    }
+)
+
+
 class NoiseGateFilter(logging.Filter):
     def __init__(self, window_seconds: int, suppress_threshold: int):
         super().__init__()
         self.window_seconds = max(1, int(window_seconds))
         self.suppress_threshold = max(1, int(suppress_threshold))
-        self._state: dict[tuple[str, int, str, str, str], dict[str, float | int]] = {}
+        self._state: dict[tuple[str, int, str, str, str], dict[str, float | int | str]] = {}
         self._lock = threading.Lock()
         self._summary_logger = logging.getLogger("app.logging.noise_gate")
 
@@ -52,17 +61,24 @@ class NoiseGateFilter(logging.Filter):
         message_template = str(record.msg)
         return (record.name, record.levelno, event, category, code or message_template)
 
-    def _emit_summary(self, key: tuple[str, int, str, str, str], suppressed: int) -> None:
+    def _emit_summary(
+        self,
+        key: tuple[str, int, str, str, str],
+        suppressed: int,
+        *,
+        last_stderr_summary: str = "",
+    ) -> None:
         logger_name, levelno, event, category, code_or_message = key
         self._summary_logger.log(
             levelno,
-            "event=logging.noise_suppressed logger=%s event_key=%s category=%s key=%s suppressed=%s window_seconds=%s",
+            "event=logging.noise_suppressed logger=%s event_key=%s category=%s key=%s suppressed=%s window_seconds=%s last_stderr_summary=%s",
             logger_name,
             event or "-",
             category or "-",
             code_or_message,
             suppressed,
             self.window_seconds,
+            last_stderr_summary or "-",
             extra={"noise_gate_summary": True},
         )
 
@@ -72,24 +88,42 @@ class NoiseGateFilter(logging.Filter):
         if record.levelno < logging.WARNING:
             return True
 
+        event = str(getattr(record, "event", "") or "")
+        if event in NOISE_GATE_NEVER_SUPPRESS_EVENTS:
+            return True
+
         now = time.monotonic()
         key = self._make_key(record)
+        stderr_summary = str(getattr(record, "stderr_summary", "") or "")
 
         with self._lock:
             slot = self._state.get(key)
             if slot is None:
-                self._state[key] = {"window_start": now, "count": 1, "suppressed": 0}
+                self._state[key] = {
+                    "window_start": now,
+                    "count": 1,
+                    "suppressed": 0,
+                    "last_stderr_summary": stderr_summary,
+                }
                 return True
 
             elapsed = now - float(slot["window_start"])
             if elapsed >= self.window_seconds:
                 suppressed = int(slot["suppressed"])
-                self._state[key] = {"window_start": now, "count": 1, "suppressed": 0}
+                last = str(slot.get("last_stderr_summary") or "")
+                self._state[key] = {
+                    "window_start": now,
+                    "count": 1,
+                    "suppressed": 0,
+                    "last_stderr_summary": stderr_summary,
+                }
                 if suppressed > 0:
-                    self._emit_summary(key, suppressed)
+                    self._emit_summary(key, suppressed, last_stderr_summary=last)
                 return True
 
             slot["count"] = int(slot["count"]) + 1
+            if stderr_summary:
+                slot["last_stderr_summary"] = stderr_summary
             if int(slot["count"]) <= self.suppress_threshold:
                 return True
             slot["suppressed"] = int(slot["suppressed"]) + 1

@@ -36,7 +36,15 @@ uv run pytest -q tests/test_channel_reactivate.py tests/test_channel_list_ui.py 
 
 # LLM
 uv run pytest -q tests/test_llm_client.py tests/test_llm_capabilities.py \
-  tests/test_llm_worker_runtime.py tests/test_settings_api.py tests/test_settings_views.py
+  tests/test_llm_worker_runtime.py tests/test_settings_api.py tests/test_settings_views.py \
+  tests/test_logging_policy.py
+
+# LLM 실패 진단 (로컬/prod)
+# - 캡처 dir: BRIEFTUBE_LLM_RESPONSE_CAPTURE_DIR (prod 기본 ./logs/prod/llm_raw)
+# - 성공 본문 포함: BRIEFTUBE_LLM_RESPONSE_CAPTURE_INCLUDE_CONTENT=1 (기본 off)
+# - 캡처 끄기: BRIEFTUBE_LLM_RESPONSE_CAPTURE_DISABLED=1
+# 실패 시 로그 필드: stderr_summary, stdout_summary, exit_code
+# 실패 시 캡처 jsonl에는 stderr/stdout 스트림이 강제 포함된다 (article body는 INCLUDE_CONTENT 필요)
 
 # remote sync
 uv run pytest -q tests/test_remote_sync_config.py tests/test_remote_sync_local_repository.py \

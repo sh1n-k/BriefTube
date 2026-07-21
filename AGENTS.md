@@ -34,7 +34,12 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `state.transcript_worker_lock`으로 보장한다.
 - pytest에서는 background worker를 기본 비활성화하고 필요한 테스트만
   `BRIEFTUBE_ENABLE_<NAME>_WORKER_IN_TESTS=1`로 활성화한다.
-- LLM은 Codex/Grok CLI의 schema-validated JSON만 저장한다. 원문과 provider 원응답 전문을 로그에 남기지 않는다.
+- LLM은 Codex/Grok CLI의 schema-validated JSON만 저장한다. 로그에는 provider 원응답 전문 대신
+  길이 제한·마스킹된 `stderr_summary`/`stdout_summary`만 남긴다.
+- LLM 응답 캡처 디렉터리는 dev=`./output/llm_raw`, prod=`./logs/prod/llm_raw`(또는
+  `BRIEFTUBE_LLM_RESPONSE_CAPTURE_DIR`). 성공 본문은 `BRIEFTUBE_LLM_RESPONSE_CAPTURE_INCLUDE_CONTENT=1`
+  일 때만 저장하고, 실패 시에는 스트림(stderr/stdout)만 강제 저장한다.
+  끄려면 `BRIEFTUBE_LLM_RESPONSE_CAPTURE_DISABLED=1`.
 - remote sync는 공유 데이터만 Postgres에 mirror하며 로컬 작업 상태와 설정을 공유하지 않는다.
   장애·schema 불일치는 sync만 비활성화하고 로컬 앱 실행을 막지 않는다.
 - remote sync 삭제는 tombstone과 LWW 계약을 유지한다. `channels.is_active=0`을 tombstone으로 해석하지 않는다.

@@ -115,8 +115,12 @@ def _resolve_llm_response_capture_dir(env_name: str) -> str | None:
     if explicit:
         return explicit
 
-    if str(env_name).strip().lower() == "dev":
+    normalized = str(env_name).strip().lower()
+    if normalized in {"dev", "local", "development"}:
         return "./output/llm_raw"
+    if normalized in {"prod", "production"}:
+        # Failure streams are force-captured even when INCLUDE_CONTENT is off.
+        return "./logs/prod/llm_raw"
     return None
 
 

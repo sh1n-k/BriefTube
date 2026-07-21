@@ -279,3 +279,26 @@ def test_noise_gate_filter_suppresses_repeated_logs_and_emits_summary(monkeypatc
     assert len(summary_calls) == 1
     assert "event=logging.noise_suppressed" in summary_calls[0][1]
     assert summary_calls[0][2][4] == 2
+
+
+def test_noise_gate_never_suppresses_llm_restructure_failed() -> None:
+    gate = NoiseGateFilter(window_seconds=60, suppress_threshold=1)
+
+    def _record(lineno: int) -> logging.LogRecord:
+        rec = logging.LogRecord(
+            name="app.workers.llm_worker",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=lineno,
+            msg="event=llm.restructure_failed worker=llm video_id=x",
+            args=(),
+            exc_info=None,
+        )
+        rec.event = "llm.restructure_failed"  # type: ignore[attr-defined]
+        rec.code = "llm_provider_command_failed"  # type: ignore[attr-defined]
+        rec.stderr_summary = f"boom-{lineno}"  # type: ignore[attr-defined]
+        return rec
+
+    assert gate.filter(_record(1)) is True
+    assert gate.filter(_record(2)) is True
+    assert gate.filter(_record(3)) is True

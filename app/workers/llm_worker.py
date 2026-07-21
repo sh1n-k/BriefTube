@@ -171,6 +171,11 @@ async def _run_single_llm_job(
             )
             return True
 
+        stderr_summary = str(getattr(exc, "stderr_summary", "") or "") or "-"
+        stdout_summary = str(getattr(exc, "stdout_summary", "") or "") or "-"
+        exit_code = getattr(exc, "exit_code", None)
+        exit_code_label = "-" if exit_code is None else str(exit_code)
+
         if getattr(exc, "retryable", True) is False:
             next_status, affected = await llm_repo.mark_restructure_failed(
                 state.db,
@@ -179,17 +184,22 @@ async def _run_single_llm_job(
                 max_retry_count=state.config.max_retry_count,
             )
             logger.warning(
-                "event=llm.restructure_non_retryable worker=llm video_id=%s next_status=%s affected=%s error_type=%s error_code=%s provider=%s",
+                "event=llm.restructure_non_retryable worker=llm video_id=%s next_status=%s affected=%s error_type=%s error_code=%s provider=%s exit_code=%s stderr_summary=%s stdout_summary=%s",
                 video_id,
                 next_status,
                 affected,
                 exc.__class__.__name__,
                 error_code,
                 getattr(exc, "provider", None),
+                exit_code_label,
+                stderr_summary,
+                stdout_summary,
                 extra={
                     "event": "llm.restructure_non_retryable",
                     "worker": "llm",
                     "code": error_code,
+                    "stderr_summary": stderr_summary,
+                    "stdout_summary": stdout_summary,
                 },
             )
             return False
@@ -210,16 +220,21 @@ async def _run_single_llm_job(
             error_code = getattr(exc, "code", "unknown")
             provider = getattr(exc, "provider", None)
             logger.exception(
-                "event=llm.restructure_failed worker=llm video_id=%s next_status=%s error_type=%s error_code=%s provider=%s",
+                "event=llm.restructure_failed worker=llm video_id=%s next_status=%s error_type=%s error_code=%s provider=%s exit_code=%s stderr_summary=%s stdout_summary=%s",
                 video_id,
                 next_status,
                 exc.__class__.__name__,
                 error_code,
                 provider,
+                exit_code_label,
+                stderr_summary,
+                stdout_summary,
                 extra={
                     "event": "llm.restructure_failed",
                     "worker": "llm",
                     "code": error_code,
+                    "stderr_summary": stderr_summary,
+                    "stdout_summary": stdout_summary,
                 },
             )
             if next_status == "llm_failed":

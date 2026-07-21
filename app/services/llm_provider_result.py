@@ -37,6 +37,7 @@ def raise_for_provider_command_failure(
         raw_output=result.raw_output,
         parse_error_code=classified.code,
         parse_error_message=str(classified),
+        force_include_streams=True,
     )
     raise classified
 
@@ -65,6 +66,7 @@ def parse_and_capture_provider_result(
             raw_output=result.raw_output,
             parse_error_code=exc.code,
             parse_error_message=str(exc),
+            force_include_streams=True,
         )
         raise
 
