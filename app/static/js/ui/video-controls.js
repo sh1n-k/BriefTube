@@ -120,6 +120,117 @@
       : 0;
   }
 
+  function formatTemplate(template, values) {
+    return String(template || "").replace(/\{(\w+)\}/g, (_, key) => (
+      values[key] != null ? String(values[key]) : ""
+    ));
+  }
+
+  function listArticlePreviewButtons() {
+    const wrap = document.getElementById("video-list-wrap");
+    if (!(wrap instanceof HTMLElement)) return [];
+    return Array.from(wrap.querySelectorAll("[data-video-article-preview-load]"))
+      .filter((node) => node instanceof HTMLButtonElement);
+  }
+
+  function syncListArticlePreviewNav(modal, previewKey) {
+    if (!(modal instanceof HTMLElement) || !modal.hasAttribute("data-video-list-article-modal")) {
+      return;
+    }
+    const buttons = listArticlePreviewButtons();
+    const index = buttons.findIndex((btn) => (btn.dataset.articlePreviewUrl || "") === previewKey);
+    const total = buttons.length;
+    const position = modal.querySelector("[data-article-preview-position]");
+    const prevBtn = modal.querySelector("[data-article-preview-prev]");
+    const nextBtn = modal.querySelector("[data-article-preview-next]");
+    const positionTemplate = position?.dataset.positionTemplate
+      || "{current} / {total}";
+    if (position instanceof HTMLElement) {
+      if (total > 0 && index >= 0) {
+        position.hidden = false;
+        position.textContent = formatTemplate(positionTemplate, {
+          current: index + 1,
+          total,
+        });
+      } else {
+        position.hidden = true;
+      }
+    }
+    if (prevBtn instanceof HTMLButtonElement) {
+      prevBtn.disabled = index <= 0 || total === 0;
+      prevBtn.dataset.navIndex = String(index);
+    }
+    if (nextBtn instanceof HTMLButtonElement) {
+      nextBtn.disabled = index < 0 || index >= total - 1;
+      nextBtn.dataset.navIndex = String(index);
+    }
+  }
+
+  async function loadVideoListArticlePreview(previewUrl, { resetScroll = false } = {}) {
+    const response = await fetch(previewUrl || "", {
+      headers: { "Accept": "text/html", "HX-Request": "true" },
+    });
+    if (!response.ok) throw new Error("article preview load failed");
+    const html = await response.text();
+    if (!resetScroll) {
+      rememberVideoListArticlePreviewScroll();
+    } else {
+      lastVideoListArticlePreviewKey = "";
+      lastVideoListArticlePreviewScrollTop = 0;
+    }
+    document.querySelectorAll("[data-video-list-article-modal]").forEach((node) => {
+      node.remove();
+    });
+    const container = document.createElement("div");
+    container.innerHTML = html.trim();
+    const modal = container.querySelector("[data-article-preview-modal]");
+    if (!(modal instanceof HTMLElement)) throw new Error("article preview modal missing");
+    modal.dataset.articlePreviewKey = previewUrl;
+    document.body.appendChild(modal);
+    ensureArticlePreviewEscapeHandler();
+    ensureListSwapClosesArticleModal();
+    setupArticlePreviewModal(modal);
+    bindCopyButtons(modal);
+    openArticlePreviewModal(modal);
+    restoreVideoListArticlePreviewScroll(modal, previewUrl);
+    syncListArticlePreviewNav(modal, previewUrl);
+    return modal;
+  }
+
+  function getOpenListArticlePreviewModal() {
+    const modal = document.querySelector(
+      "[data-video-list-article-modal][data-modal-open='1']",
+    );
+    return modal instanceof HTMLElement ? modal : null;
+  }
+
+  async function navigateOpenListArticlePreview(delta) {
+    const modal = getOpenListArticlePreviewModal();
+    if (!modal) return false;
+    const previewKey = modal.dataset.articlePreviewKey || "";
+    const buttons = listArticlePreviewButtons();
+    const index = buttons.findIndex((btn) => (btn.dataset.articlePreviewUrl || "") === previewKey);
+    const next = buttons[index + delta];
+    if (!(next instanceof HTMLButtonElement)) return false;
+    const nextUrl = next.dataset.articlePreviewUrl || "";
+    if (!nextUrl) return false;
+    try {
+      await loadVideoListArticlePreview(nextUrl, { resetScroll: true });
+      return true;
+    } catch (_err) {
+      showToast(next.dataset.loadFailed || "Could not load article.", "error");
+      return false;
+    }
+  }
+
+  function isEditableKeyTarget(target) {
+    if (!(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (target.isContentEditable) return true;
+    return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
   function setupArticlePreviewModal(modal) {
     if (!(modal instanceof HTMLElement) || modal.dataset.articlePreviewModalBound === "1") return;
     modal.dataset.articlePreviewModalBound = "1";
@@ -133,6 +244,16 @@
         closeArticlePreviewModal(modal);
       }
     });
+    modal.querySelector("[data-article-preview-prev]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void navigateOpenListArticlePreview(-1);
+    });
+    modal.querySelector("[data-article-preview-next]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void navigateOpenListArticlePreview(1);
+    });
   }
 
   function ensureArticlePreviewEscapeHandler() {
@@ -140,12 +261,45 @@
     if (!root || root.dataset.articlePreviewEscapeBound === "1") return;
     root.dataset.articlePreviewEscapeBound = "1";
     document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      document.querySelectorAll("[data-article-preview-modal]").forEach((node) => {
-        if (!(node instanceof HTMLElement)) return;
-        if (node.dataset.modalOpen === "1") {
-          closeArticlePreviewModal(node);
-        }
+      if (event.key === "Escape") {
+        document.querySelectorAll("[data-article-preview-modal]").forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (node.dataset.modalOpen === "1") {
+            closeArticlePreviewModal(node);
+          }
+        });
+        return;
+      }
+
+      // List article modal: ←/j 이전, →/k 다음 (입력 포커스 중에는 무시)
+      if (isEditableKeyTarget(event.target)) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const openListModal = getOpenListArticlePreviewModal();
+      if (!openListModal) return;
+
+      const key = event.key;
+      if (key === "ArrowLeft" || key === "j" || key === "J") {
+        event.preventDefault();
+        void navigateOpenListArticlePreview(-1);
+        return;
+      }
+      if (key === "ArrowRight" || key === "k" || key === "K") {
+        event.preventDefault();
+        void navigateOpenListArticlePreview(1);
+      }
+    });
+  }
+
+  function ensureListSwapClosesArticleModal() {
+    const root = document.body;
+    if (!root || root.dataset.articlePreviewListSwapBound === "1") return;
+    root.dataset.articlePreviewListSwapBound = "1";
+    document.body.addEventListener("htmx:beforeSwap", (event) => {
+      const target = event.detail?.target;
+      if (!(target instanceof Element)) return;
+      if (target.id !== "video-list-wrap" && !target.querySelector?.("#video-list-wrap")) return;
+      document.querySelectorAll("[data-video-list-article-modal]").forEach((node) => {
+        if (node instanceof HTMLElement) node.remove();
       });
     });
   }
@@ -247,26 +401,7 @@
       button.disabled = true;
       const previewKey = button.dataset.articlePreviewUrl || "";
       try {
-        const response = await fetch(button.dataset.articlePreviewUrl || "", {
-          headers: { "Accept": "text/html", "HX-Request": "true" },
-        });
-        if (!response.ok) throw new Error("article preview load failed");
-        const html = await response.text();
-        rememberVideoListArticlePreviewScroll();
-        document.querySelectorAll("[data-video-list-article-modal]").forEach((node) => {
-          node.remove();
-        });
-        const container = document.createElement("div");
-        container.innerHTML = html.trim();
-        const modal = container.querySelector("[data-article-preview-modal]");
-        if (!(modal instanceof HTMLElement)) throw new Error("article preview modal missing");
-        modal.dataset.articlePreviewKey = previewKey;
-        document.body.appendChild(modal);
-        ensureArticlePreviewEscapeHandler();
-        setupArticlePreviewModal(modal);
-        bindCopyButtons(modal);
-        openArticlePreviewModal(modal);
-        restoreVideoListArticlePreviewScroll(modal, previewKey);
+        await loadVideoListArticlePreview(previewKey);
       } catch (_err) {
         showToast(button.dataset.loadFailed || "Could not load article.", "error");
       } finally {
@@ -278,6 +413,7 @@
 
   function bindVideoArticlePreviewLoadButtons(scope) {
     const root = scope instanceof Element ? scope : document;
+    ensureListSwapClosesArticleModal();
     root.querySelectorAll("[data-video-article-preview-load]").forEach((button) => {
       if (button instanceof HTMLButtonElement) {
         initVideoArticlePreviewLoadButton(button);
@@ -335,16 +471,51 @@
     if (form.dataset.videoManageBound === "1") return;
     form.dataset.videoManageBound = "1";
 
+    const wrap = form.closest("#video-list-wrap") || form.parentElement;
     const selectAll = form.querySelector("[data-video-select-all]");
     const deleteBtn = form.querySelector("[data-video-delete-selected]");
     const downloadBtn = form.querySelector("[data-video-download-selected]");
     const articleBtn = form.querySelector("[data-video-article-request-selected]");
+    const selectEligibleBtn = form.querySelector("[data-video-select-eligible]");
+    const selectHasArticleBtn = form.querySelector("[data-video-select-has-article]");
+    const sticky = wrap?.querySelector?.("[data-video-selection-sticky]") || null;
     const items = () => form.querySelectorAll("[data-video-select-item]");
     if (!selectAll || !deleteBtn || !downloadBtn || !articleBtn) return;
-    const downloadDefaultLabel = downloadBtn.textContent || "";
+
+    const downloadDefaultLabel = (downloadBtn.textContent || "").trim();
     const downloadBusyLabel = downloadBtn.dataset.busyLabel || downloadDefaultLabel;
-    const articleDefaultLabel = articleBtn.textContent || "";
+    const articleDefaultLabel = articleBtn.dataset.labelDefault
+      || articleBtn.querySelector("[data-video-bulk-article-text]")?.textContent?.trim()
+      || (articleBtn.textContent || "").trim();
     const articleBusyLabel = articleBtn.dataset.busyLabel || articleDefaultLabel;
+    const articleTextEl = articleBtn.querySelector("[data-video-bulk-article-text]");
+    const articleCountEl = articleBtn.querySelector("[data-video-bulk-article-count]");
+    const stickyArticle = sticky?.querySelector?.("[data-video-selection-article]") || null;
+    const stickyDownload = sticky?.querySelector?.("[data-video-selection-download]") || null;
+    const stickyDelete = sticky?.querySelector?.("[data-video-selection-delete]") || null;
+    const stickyClear = sticky?.querySelector?.("[data-video-selection-clear]") || null;
+    const stickyCount = sticky?.querySelector?.("[data-video-selection-count]") || null;
+    const stickyEligible = sticky?.querySelector?.("[data-video-selection-eligible]") || null;
+    const countTemplate = sticky?.dataset?.countTemplate || "{count}";
+    const eligibleTemplate = sticky?.dataset?.eligibleTemplate || "{count}";
+
+    function setArticleButtonLabel(checked, isArticleBusy) {
+      if (articleTextEl instanceof HTMLElement) {
+        articleTextEl.textContent = isArticleBusy ? articleBusyLabel : articleDefaultLabel;
+      } else if (!isArticleBusy) {
+        articleBtn.textContent = articleDefaultLabel;
+      } else {
+        articleBtn.textContent = articleBusyLabel;
+      }
+      if (articleCountEl instanceof HTMLElement) {
+        if (isArticleBusy) {
+          articleCountEl.classList.add("hidden");
+        } else {
+          articleCountEl.classList.remove("hidden");
+          articleCountEl.textContent = `(${checked})`;
+        }
+      }
+    }
 
     function setBulkBusy(kind, isBusy) {
       if (kind === "download") {
@@ -357,12 +528,45 @@
       const isAnyBusy = isDownloadBusy || isArticleBusy;
       form.setAttribute("aria-busy", isAnyBusy ? "true" : "false");
       downloadBtn.textContent = isDownloadBusy ? downloadBusyLabel : downloadDefaultLabel;
-      articleBtn.textContent = isArticleBusy ? articleBusyLabel : articleDefaultLabel;
+      const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
+      setArticleButtonLabel(checked, isArticleBusy);
       sync();
     }
 
+    function syncSticky(checked, eligibleChecked, isAnyBusy) {
+      if (!(sticky instanceof HTMLElement)) return;
+      if (checked > 0) {
+        sticky.hidden = false;
+        sticky.classList.remove("opacity-0", "pointer-events-none");
+        sticky.classList.add("pointer-events-auto");
+      } else {
+        sticky.hidden = true;
+        sticky.classList.add("opacity-0", "pointer-events-none");
+        sticky.classList.remove("pointer-events-auto");
+      }
+      if (stickyCount instanceof HTMLElement) {
+        stickyCount.textContent = formatTemplate(countTemplate, { count: checked });
+      }
+      if (stickyEligible instanceof HTMLElement) {
+        stickyEligible.textContent = formatTemplate(eligibleTemplate, { count: eligibleChecked });
+      }
+      if (stickyArticle instanceof HTMLButtonElement) {
+        stickyArticle.disabled = checked === 0 || isAnyBusy;
+      }
+      if (stickyDownload instanceof HTMLButtonElement) {
+        stickyDownload.disabled = checked === 0 || isAnyBusy;
+      }
+      if (stickyDelete instanceof HTMLButtonElement) {
+        stickyDelete.disabled = checked === 0 || isAnyBusy;
+      }
+    }
+
     function sync() {
-      const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
+      const checkedNodes = form.querySelectorAll("[data-video-select-item]:checked");
+      const checked = checkedNodes.length;
+      const eligibleChecked = Array.from(checkedNodes)
+        .filter((node) => node.getAttribute("data-article-eligible") === "1")
+        .length;
       const all = items();
       const isDownloadBusy = form.dataset.videoDownloadBulkInFlight === "1";
       const isArticleBusy = form.dataset.videoArticleRequestBulkInFlight === "1";
@@ -370,8 +574,17 @@
       deleteBtn.disabled = checked === 0;
       downloadBtn.disabled = checked === 0 || isAnyBusy;
       articleBtn.disabled = checked === 0 || isAnyBusy;
+      setArticleButtonLabel(checked, isArticleBusy);
       selectAll.checked = all.length > 0 && checked === all.length;
       selectAll.indeterminate = checked > 0 && checked < all.length;
+      syncSticky(checked, eligibleChecked, isAnyBusy);
+    }
+
+    function selectByPredicate(predicate) {
+      items().forEach((cb) => {
+        cb.checked = predicate(cb);
+      });
+      sync();
     }
 
     selectAll.addEventListener("change", () => {
@@ -379,6 +592,12 @@
         cb.checked = selectAll.checked;
       });
       sync();
+    });
+    selectEligibleBtn?.addEventListener("click", () => {
+      selectByPredicate((cb) => cb.getAttribute("data-article-eligible") === "1");
+    });
+    selectHasArticleBtn?.addEventListener("click", () => {
+      selectByPredicate((cb) => cb.getAttribute("data-has-article") === "1");
     });
     form.addEventListener("change", (event) => {
       if (event.target.matches("[data-video-select-item]")) sync();
@@ -401,14 +620,30 @@
       }
       setBulkBusy("article", true);
     });
+    stickyArticle?.addEventListener("click", () => {
+      if (!articleBtn.disabled) articleBtn.click();
+    });
+    stickyDownload?.addEventListener("click", () => {
+      if (!downloadBtn.disabled) downloadBtn.click();
+    });
+    stickyDelete?.addEventListener("click", () => {
+      if (!deleteBtn.disabled) deleteBtn.click();
+    });
+    stickyClear?.addEventListener("click", () => {
+      items().forEach((cb) => {
+        cb.checked = false;
+      });
+      sync();
+    });
+
     const settleDownloadBulk = (event) => {
       const source = event.detail?.requestConfig?.elt;
-      if (source !== downloadBtn) return;
+      if (source !== downloadBtn && source !== stickyDownload) return;
       setBulkBusy("download", false);
     };
     const settleArticleBulk = (event) => {
       const source = event.detail?.requestConfig?.elt;
-      if (source !== articleBtn) return;
+      if (source !== articleBtn && source !== stickyArticle) return;
       setBulkBusy("article", false);
     };
     form.addEventListener("htmx:afterRequest", settleDownloadBulk);
@@ -419,11 +654,50 @@
     form.addEventListener("htmx:sendError", settleArticleBulk);
     form.addEventListener("htmx:timeout", settleDownloadBulk);
     form.addEventListener("htmx:timeout", settleArticleBulk);
+
+    form.querySelectorAll("[data-video-list-inline-article]").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement) || button.dataset.inlineArticleBound === "1") return;
+      button.dataset.inlineArticleBound = "1";
+      button.dataset.defaultLabel = (button.textContent || "").trim();
+      button.addEventListener("click", (event) => {
+        if (button.dataset.inlineInFlight === "1") {
+          event.preventDefault();
+          return;
+        }
+        button.dataset.inlineInFlight = "1";
+        button.disabled = true;
+        if (button.dataset.busyLabel) {
+          button.textContent = button.dataset.busyLabel;
+        }
+      });
+    });
+
     sync();
+  }
+
+  function ensureInlineArticleRequestSettle() {
+    const root = document.body;
+    if (!root || root.dataset.inlineArticleSettleBound === "1") return;
+    root.dataset.inlineArticleSettleBound = "1";
+    const settle = (event) => {
+      const source = event.detail?.requestConfig?.elt;
+      if (!(source instanceof HTMLButtonElement)) return;
+      if (!source.hasAttribute("data-video-list-inline-article")) return;
+      delete source.dataset.inlineInFlight;
+      source.disabled = false;
+      if (source.dataset.defaultLabel) {
+        source.textContent = source.dataset.defaultLabel;
+      }
+    };
+    document.body.addEventListener("htmx:afterRequest", settle);
+    document.body.addEventListener("htmx:responseError", settle);
+    document.body.addEventListener("htmx:sendError", settle);
+    document.body.addEventListener("htmx:timeout", settle);
   }
 
   function bindVideoManageForms(scope) {
     const root = scope instanceof Element ? scope : document;
+    ensureInlineArticleRequestSettle();
     root.querySelectorAll("[data-video-manage-form]").forEach(initVideoManageForm);
   }
 
