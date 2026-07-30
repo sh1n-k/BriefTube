@@ -63,6 +63,10 @@ uv run pytest -q tests/test_database_migrations.py \
 uv run pytest -q tests/test_retention_page.py tests/test_search_results.py \
   tests/test_alert_toasts.py tests/test_notifier_worker.py
 
+# 아키텍처 계약과 공유 헬퍼
+uv run pytest -q tests/test_architecture_contracts.py tests/test_repository_common.py \
+  tests/test_worker_wake_sleep.py
+
 # 전체 unit test와 E2E
 uv run pytest -q
 uv run pytest -q -m e2e tests/e2e
@@ -95,11 +99,12 @@ Shell 변경은 `bash -n run-*.sh scripts/*.sh`로 문법을 확인합니다. HT
 - 전역 ignore는 동일한 위반이 반복되고 후속 정리 기준이 있을 때만 추가합니다.
 - Pyright strict 영역은 `app/config.py`, `app/state.py`, `app/repositories/`, `app/domains/`입니다.
 
-계층 import 방향은 다음과 같습니다.
+계층 import 방향은 `pyproject.toml`의 import-linter 계약과 동일합니다.
 
 ```text
 routers : workers → domains → services → repositories → logging_setup → time_utils
   → database/i18n/download_error_registry/download_policy/llm_policy/timezone_policy/config
+  → pipeline_status
 ```
 
 상위 layer만 하위 layer를 import할 수 있습니다. `app.state`, `app.main`, `app.cli`는 composition
