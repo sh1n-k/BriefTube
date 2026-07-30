@@ -14,7 +14,6 @@ from app.services.transcript_guard import (
     _classify_transcript_error,
     _compute_jittered_interval_seconds,
     _compute_retry_delay_seconds,
-    _wait_until,
     claim_transcript_fetch_permit,
     mark_transcript_guard_half_open,
     read_transcript_guard,
@@ -25,6 +24,7 @@ from app.services.transcript_guard import (
     transcript_guard_mutation,
 )
 from app.state import AppState
+from app.workers.wake_sleep import wait_until_monotonic as _wait_until
 
 logger = logging.getLogger(__name__)
 

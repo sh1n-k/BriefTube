@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -8,6 +9,11 @@ from fastapi.responses import RedirectResponse
 
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.repositories import settings as settings_repo
+
+
+def manual_transcript_requests_disabled() -> bool:
+    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_REQUESTS", "")).strip().lower()
+    return disabled in {"1", "true", "yes", "on"}
 
 
 def parse_bool_input(value: object, default: bool) -> bool:
@@ -91,6 +97,10 @@ def build_rss_poll_preview(
 
 def htmx_trigger_header(event_name: str, payload: dict[str, object]) -> dict[str, str]:
     return {"HX-Trigger": json.dumps({event_name: payload}, ensure_ascii=True)}
+
+
+def llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
+    return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
 def full_page_redirect_for_non_fragment_request(

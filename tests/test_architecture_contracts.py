@@ -54,3 +54,27 @@ def test_worker_registry_names_and_environment_keys_are_unique() -> None:
     assert len({spec.worker_name for spec in WORKER_SPECS}) == len(WORKER_SPECS)
     assert len({spec.task_name for spec in WORKER_SPECS}) == len(WORKER_SPECS)
     assert len({spec.disable_env_name for spec in WORKER_SPECS}) == len(WORKER_SPECS)
+
+
+def test_repository_row_helpers_are_not_redefined_outside_common() -> None:
+    root = Path(__file__).resolve().parents[1] / "app" / "repositories"
+    redefined: list[str] = []
+    for path in sorted(root.glob("*.py")):
+        if path.name in {"_common.py", "__init__.py"}:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in {
+                "row_to_dict",
+                "_row_to_dict",
+                "rows_to_dicts",
+                "_rows_to_dicts",
+                "thumbnail_url",
+                "_thumbnail_url",
+                "with_thumbnail_url",
+                "_with_thumbnail_url",
+                "normalize_error_message",
+                "_normalize_error_message",
+            }:
+                redefined.append(f"{path.name}:{node.name}")
+    assert redefined == []

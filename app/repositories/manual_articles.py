@@ -7,7 +7,6 @@ MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES = (
 )
 
 get_manual_article_job = repository.get_manual_article_job
-get_active_manual_article_job_for_video = repository.get_active_manual_article_job_for_video
 enqueue_manual_article_jobs = repository.enqueue_manual_article_jobs
 claim_next_manual_article_job = repository.claim_next_manual_article_job
 mark_manual_article_job_succeeded = repository.mark_manual_article_job_succeeded

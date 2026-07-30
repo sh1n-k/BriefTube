@@ -23,7 +23,6 @@ get_transcript = repository.get_transcript
 get_article = repository.get_article
 mark_video_retry = repository.mark_video_retry
 requeue_done_video_for_manual_article_retry = repository.requeue_done_video_for_manual_article_retry
-update_video_thumbnail = repository.update_video_thumbnail
 
 delete_videos_by_ids = repository.delete_videos_by_ids
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
 
 import aiosqlite
@@ -12,39 +11,15 @@ from app.remote_sync_metadata import (
     is_remote_sync_runtime_enabled,
     sync_dirty_set_clause,
 )
-
-
-def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {k: row[k] for k in row.keys()}
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{k: row[k] for k in row.keys()} for row in rows]
-
-
-def _thumbnail_url(path: str | None, video_id: str | None = None) -> str | None:
-    if not path:
-        safe_video_id = str(video_id or "").strip()
-        if not safe_video_id:
-            return None
-        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
-    filename = Path(path).name
-    if not filename:
-        safe_video_id = str(video_id or "").strip()
-        if not safe_video_id:
-            return None
-        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
-    return f"/thumbnails/{filename}"
-
-
-def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
-    item["thumbnail_url"] = _thumbnail_url(
-        item.get("thumbnail_path"),
-        item.get("video_id"),
-    )
-    return item
+from app.repositories._common import (
+    row_to_dict as _row_to_dict,
+)
+from app.repositories._common import (
+    rows_to_dicts as _rows_to_dicts,
+)
+from app.repositories._common import (
+    with_thumbnail_url as _with_thumbnail_url,
+)
 
 
 def normalize_pipeline_status_filter(value: str | None) -> str | None:
@@ -513,24 +488,6 @@ async def requeue_done_video_for_manual_article_retry(
     )
     await db.commit()
     return int(cursor.rowcount or 0)
-
-
-async def update_video_thumbnail(
-    db: aiosqlite.Connection,
-    video_id: str,
-    thumbnail_path: str | None,
-) -> None:
-    if not thumbnail_path:
-        return
-    await db.execute(
-        """
-        UPDATE videos
-        SET thumbnail_path = ?
-        WHERE video_id = ?
-        """,
-        (thumbnail_path, video_id),
-    )
-    await db.commit()
 
 
 async def delete_videos_by_ids(

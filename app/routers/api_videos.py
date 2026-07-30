@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -12,17 +11,13 @@ from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
+from app.routers.helpers import manual_transcript_requests_disabled
 
 ARTICLE_REQUEST_BULK_LIMIT = 10
 
 logger = logging.getLogger("app.routers.api")
 
 router = APIRouter(tags=["api"])
-
-
-def _manual_transcript_requests_disabled() -> bool:
-    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_REQUESTS", "")).strip().lower()
-    return disabled in {"1", "true", "yes", "on"}
 
 
 @router.get("/videos")
@@ -86,7 +81,7 @@ async def retry_video(video_id: str, request: Request):
 
 @router.post("/videos/{video_id}/transcript-request")
 async def request_video_transcript(video_id: str, request: Request):
-    if _manual_transcript_requests_disabled():
+    if manual_transcript_requests_disabled():
         raise HTTPException(status_code=403, detail="manual transcript requests are disabled")
 
     result = await manual_transcripts_repo.enqueue_manual_transcript_job(

@@ -5,7 +5,12 @@ from app.services.takeout_parser import (
     parse_bulk_text_inputs,
     parse_takeout_file,
     parse_takeout_file_details,
+    unique_preserve_order,
 )
+
+
+def test_unique_preserve_order_strips_and_dedupes() -> None:
+    assert unique_preserve_order([" a ", "a", "b", "", "b", "c"]) == ["a", "b", "c"]
 
 
 def test_parse_bulk_text_inputs_supports_delimiters_and_dedupe() -> None:

@@ -20,8 +20,8 @@ from app.repositories._channels import (
     CHANNEL_METADATA_STATUS_SUCCESS,
     _normalize_optional_int,  # pyright: ignore[reportPrivateUsage]
     _normalize_optional_text,  # pyright: ignore[reportPrivateUsage]
-    _row_to_dict,  # pyright: ignore[reportPrivateUsage]
 )
+from app.repositories._common import row_to_dict as _row_to_dict
 
 
 def _next_metadata_backoff_minutes(

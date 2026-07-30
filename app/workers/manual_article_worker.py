@@ -23,25 +23,17 @@ from app.services.transcript_guard import (
     transcript_guard_mutation,
 )
 from app.state import AppState
-from app.workers.wake_sleep import sleep_with_wake_event
+from app.workers.wake_sleep import (
+    runtime_recover_policy as _runtime_recover_policy,
+)
+from app.workers.wake_sleep import (
+    sleep_with_wake_event,
+)
+from app.workers.wake_sleep import (
+    wait_until_monotonic as _wait_until,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _runtime_recover_policy(
-    *,
-    idle_sleep_seconds: int,
-    request_interval_seconds: int,
-    fetch_timeout_seconds: int,
-) -> tuple[int, int]:
-    stale_after_seconds = max(
-        300,
-        fetch_timeout_seconds * 6,
-        request_interval_seconds * 8,
-        idle_sleep_seconds * 12,
-    )
-    check_interval_seconds = max(30, min(120, stale_after_seconds // 4))
-    return stale_after_seconds, check_interval_seconds
 
 
 async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
@@ -51,14 +43,6 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
         timeout_seconds,
         min_timeout_seconds=0.1,
     )
-
-
-async def _wait_until(monotonic_deadline: float) -> None:
-    while True:
-        remaining = monotonic_deadline - time.monotonic()
-        if remaining <= 0:
-            return
-        await asyncio.sleep(min(remaining, 0.5))
 
 
 async def _recover_stale_running_manual_article_jobs(

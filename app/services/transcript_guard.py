@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
-import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -153,15 +152,6 @@ def _adaptive_decay_rate(adaptive_factor: float, adaptive_max_factor: float) -> 
     if adaptive_factor >= mid:
         return 0.65
     return 0.8
-
-
-async def _wait_until(monotonic_deadline: float) -> None:
-    while True:
-        now = time.monotonic()
-        remaining = monotonic_deadline - now
-        if remaining <= 0:
-            return
-        await asyncio.sleep(min(remaining, 0.5))
 
 
 @dataclass(slots=True)

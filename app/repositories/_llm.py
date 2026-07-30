@@ -9,6 +9,7 @@ import app.repositories._alerts_retention as alerts_repository
 import app.repositories._settings as settings_repository
 import app.repositories._settings_llm as llm_settings_repository
 from app.remote_sync_metadata import SYNC_NOW_SQL
+from app.repositories._common import row_to_dict as _row_to_dict
 
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
 LLM_ARTICLE_PROVIDER_VALUES = {"codex", "grok", "claude", "gemini"}
@@ -20,12 +21,6 @@ LLM_RUNTIME_LAST_SEEN_AT_KEY = llm_settings_repository.LLM_RUNTIME_LAST_SEEN_AT_
 
 get_setting = settings_repository.get_setting
 set_setting = settings_repository.set_setting
-
-
-def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {k: row[k] for k in row.keys()}
 
 
 def _normalize_article_provider(value: str | None) -> str:

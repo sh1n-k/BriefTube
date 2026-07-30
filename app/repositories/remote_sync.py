@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import aiosqlite
@@ -16,10 +16,7 @@ from app.remote_sync_metadata import (
     SYNC_NOW_SQL,
     sync_dirty_set_clause,
 )
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{key: row[key] for key in row.keys()} for row in rows]
+from app.repositories._common import rows_to_dicts as _rows_to_dicts
 
 
 def _is_remote_newer(remote: Mapping[str, Any], local: Mapping[str, Any] | None) -> bool:

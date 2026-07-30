@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
-from pathlib import Path
 from typing import Any, cast
 
 import aiosqlite
@@ -10,50 +8,22 @@ import aiosqlite
 import app.repositories._settings as settings_repository
 from app.pipeline_status import PIPELINE_STATUSES
 from app.remote_sync_metadata import SYNC_NOW_SQL
+from app.repositories._common import (
+    normalize_error_message as _normalize_error_message,
+)
+from app.repositories._common import (
+    rows_to_dicts as _rows_to_dicts,
+)
+from app.repositories._common import (
+    with_thumbnail_url as _with_thumbnail_url,
+)
 
-TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
 TRANSCRIPT_REQUEST_HEADERS_OVERRIDES_KEY = "transcript_request_headers_overrides_json"
 PIPELINE_STATUS_KEYS = PIPELINE_STATUSES
 
 get_settings_map = settings_repository.get_settings_map
 get_setting = settings_repository.get_setting
 set_setting = settings_repository.set_setting
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{k: row[k] for k in row.keys()} for row in rows]
-
-
-def _thumbnail_url(path: str | None, video_id: str | None = None) -> str | None:
-    if not path:
-        safe_video_id = str(video_id or "").strip()
-        if not safe_video_id:
-            return None
-        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
-    filename = Path(path).name
-    if not filename:
-        safe_video_id = str(video_id or "").strip()
-        if not safe_video_id:
-            return None
-        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
-    return f"/thumbnails/{filename}"
-
-
-def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
-    item["thumbnail_url"] = _thumbnail_url(
-        item.get("thumbnail_path"),
-        item.get("video_id"),
-    )
-    return item
-
-
-def _normalize_error_message(value: str | None) -> str:
-    if not value:
-        return ""
-    trimmed = str(value).strip()
-    if len(trimmed) <= TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH:
-        return trimmed
-    return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
 
 
 async def list_queue_items(

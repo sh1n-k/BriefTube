@@ -1,43 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any, cast
 
 import aiosqlite
+
+from app.repositories._common import (
+    rows_to_dicts as _rows_to_dicts,
+)
+from app.repositories._common import (
+    with_thumbnail_url as _with_thumbnail_url,
+)
 
 ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = "rss_channel_not_found"
 ALERT_TYPE_LLM_CONFIG_MISSING = "llm_config_missing"
 ALERT_TYPE_LLM_SCHEMA_INVALID = "llm_schema_invalid"
 ALERT_TYPE_TELEGRAM_SEND_FAILED = "telegram_send_failed"
 RETENTION_MATCH_BATCH_SIZE = 500
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{k: row[k] for k in row.keys()} for row in rows]
-
-
-def _thumbnail_url(path: str | None, video_id: str | None = None) -> str | None:
-    if not path:
-        safe_video_id = str(video_id or "").strip()
-        if not safe_video_id:
-            return None
-        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
-    filename = Path(path).name
-    if not filename:
-        safe_video_id = str(video_id or "").strip()
-        if not safe_video_id:
-            return None
-        return f"https://i.ytimg.com/vi/{safe_video_id}/hqdefault.jpg"
-    return f"/thumbnails/{filename}"
-
-
-def _with_thumbnail_url(item: dict[str, Any]) -> dict[str, Any]:
-    item["thumbnail_url"] = _thumbnail_url(
-        item.get("thumbnail_path"),
-        item.get("video_id"),
-    )
-    return item
 
 
 async def create_system_alert(
@@ -56,24 +35,6 @@ async def create_system_alert(
     )
     await db.commit()
     return int(cursor.lastrowid or 0)
-
-
-async def list_unacknowledged_alerts(
-    db: aiosqlite.Connection,
-    limit: int = 5,
-) -> list[dict[str, Any]]:
-    cursor = await db.execute(
-        """
-        SELECT id, alert_type, channel_id, channel_name, message, created_at
-        FROM system_alerts
-        WHERE acknowledged_at IS NULL
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-        """,
-        (max(1, limit),),
-    )
-    rows = await cursor.fetchall()
-    return _rows_to_dicts(rows)
 
 
 async def list_unacknowledged_alert_groups(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from collections.abc import Iterable
 from typing import Any
 
 import aiosqlite
@@ -12,8 +11,13 @@ from app.remote_sync_metadata import (
     is_remote_sync_runtime_enabled,
     sync_dirty_set_clause,
 )
+from app.repositories._common import (
+    row_to_dict as _row_to_dict,
+)
+from app.repositories._common import (
+    rows_to_dicts as _rows_to_dicts,
+)
 
-DEFAULT_CATEGORY_NAME = "미분류"
 CATEGORY_PROCESSING_STAGE_OFF = "off"
 CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY = "transcript_only"
 CATEGORY_PROCESSING_STAGE_FULL = "full"
@@ -22,16 +26,6 @@ CATEGORY_PROCESSING_STAGE_OPTIONS = {
     CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY,
     CATEGORY_PROCESSING_STAGE_FULL,
 }
-
-
-def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {key: row[key] for key in row.keys()}
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{key: row[key] for key in row.keys()} for row in rows]
 
 
 def normalize_category_processing_stage(

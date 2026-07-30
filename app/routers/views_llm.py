@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from app.routers.helpers import full_page_redirect_for_non_fragment_request, htmx_trigger_header
+from app.routers.helpers import (
+    full_page_redirect_for_non_fragment_request,
+    llm_runtime_toast_header,
+)
 from app.routers.template_context import build_template_context
 from app.services.llm_runtime import LlmRuntimeStatus, is_runtime_ready_for_resume
 
 router = APIRouter(tags=["views"])
-
-
-def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
-    return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
 @router.get("/settings/llm/runtime-status")
@@ -72,5 +71,5 @@ async def resume_llm_runtime(request: Request):
         request=request,
         name="fragments/llm_runtime_status.html",
         context=context,
-        headers=_llm_runtime_toast_header(message, tone),
+        headers=llm_runtime_toast_header(message, tone),
     )
