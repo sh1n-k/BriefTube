@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import Request
 
+from app.pipeline_status import MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
 from app.repositories import settings as settings_repo
@@ -79,6 +80,7 @@ async def build_video_list_context(
         results=search_results,
         categories_for_filter=categories,
         status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
+        article_enqueue_skip_statuses=MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES,
         pagination={
             "page": current_page,
             "limit": resolved_limit,

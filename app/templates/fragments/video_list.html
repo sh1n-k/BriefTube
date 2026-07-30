@@ -86,12 +86,45 @@
     {% endif %}
 
     {# ── Control bar ── #}
+    {% set skip_statuses = article_enqueue_skip_statuses if article_enqueue_skip_statuses is defined else [] %}
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
-      <label class="inline-flex items-center gap-2 text-xs text-slate-600">
-        <input type="checkbox" data-video-select-all class="h-4 w-4 rounded border-slate-300" />
-        {{ txt.video_select_all }}
-      </label>
+      <div class="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <label class="inline-flex items-center gap-2">
+          <input type="checkbox" data-video-select-all class="h-4 w-4 rounded border-slate-300" />
+          {{ txt.video_select_all }}
+        </label>
+        <button
+          type="button"
+          data-video-select-eligible
+          class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {{ txt.video_select_eligible_only }}
+        </button>
+        <button
+          type="button"
+          data-video-select-has-article
+          class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {{ txt.video_select_has_article_only }}
+        </button>
+      </div>
       <div class="flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          data-video-article-request-selected
+          data-label-default="{{ txt.video_article_request_selected }}"
+          data-busy-label="{{ txt.video_article_request_selected_busy }}"
+          data-skip-save-toast="1"
+          disabled
+          hx-post="/views/videos/article-request-selected"
+          hx-include="closest form"
+          hx-target="#video-list-wrap"
+          hx-swap="outerHTML"
+          class="inline-flex items-center rounded-md border border-teal-700 bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span data-video-bulk-article-text>{{ txt.video_article_request_selected }}</span>
+          <span data-video-bulk-article-count class="ml-1 opacity-90">(0)</span>
+        </button>
         <button
           type="button"
           data-video-download-selected
@@ -106,20 +139,6 @@
         >
           {{ txt.video_download_selected }}
         </button>
-        <button
-          type="button"
-          data-video-article-request-selected
-          data-busy-label="{{ txt.video_article_request_selected_busy }}"
-          data-skip-save-toast="1"
-          disabled
-          hx-post="/views/videos/article-request-selected"
-          hx-include="closest form"
-          hx-target="#video-list-wrap"
-          hx-swap="outerHTML"
-          class="rounded-md border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {{ txt.video_article_request_selected }}
-        </button>
         <button type="submit" data-video-delete-selected disabled
                 class="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50">
           {{ txt.video_delete_selected }}
@@ -128,15 +147,15 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full min-w-0 md:min-w-[1040px] table-fixed text-sm">
+      <table class="w-full min-w-0 md:min-w-[1120px] table-fixed text-sm">
         <colgroup>
           <col class="w-10" />
           <col class="w-32" />
           <col />
           <col class="w-44" />
           <col class="w-40" />
+          <col class="w-36" />
           <col class="w-40" />
-          <col class="w-24" />
         </colgroup>
         <thead class="border-b border-slate-200 bg-slate-50">
           <tr>
@@ -167,10 +186,17 @@
         </thead>
         <tbody class="divide-y divide-slate-100">
           {% for video in videos %}
-          <tr class="h-24 transition-colors hover:bg-indigo-50/50">
+          {% set pipeline_key = (video.pipeline_status or '')|string|lower %}
+          {% set article_eligible = pipeline_key != '' and pipeline_key not in skip_statuses %}
+          <tr class="video-list-row h-24 transition-colors hover:bg-indigo-50/50{% if video.has_article %} video-list-row--has-article{% endif %}"
+              data-video-row
+              data-video-id="{{ video.video_id }}">
             <td class="p-3 align-middle">
               <input type="checkbox" name="video_id" value="{{ video.video_id }}"
-                     data-video-select-item class="h-4 w-4 rounded border-slate-300" />
+                     data-video-select-item
+                     data-article-eligible="{{ '1' if article_eligible else '0' }}"
+                     data-has-article="{{ '1' if video.has_article else '0' }}"
+                     class="h-4 w-4 rounded border-slate-300" />
             </td>
             <td class="p-3 align-middle">
               <div class="group relative inline-block" data-thumb-hover>
@@ -238,42 +264,62 @@
               </div>
             </td>
             <td class="p-3 align-middle">
-              <div class="flex h-7 items-center justify-center gap-1" data-video-row-actions>
-                {% if video.has_transcript %}
-                <button
-                  type="button"
-                  data-video-transcript-copy
-                  data-transcript-url="/api/videos/{{ video.video_id }}/transcript"
-                  data-copy-toast="{{ txt.detail_copy_transcript }}"
-                  data-copy-failed="{{ txt.video_transcript_copy_failed }}"
-                  aria-label="{{ txt.video_action_copy_transcript }}"
-                  title="{{ txt.video_action_copy_transcript }}"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 hover:text-indigo-700"
-                >
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/>
-                  </svg>
-                </button>
-                {% else %}
-                <span class="invisible inline-flex h-7 w-7" aria-hidden="true"></span>
-                {% endif %}
-                {% if video.has_article %}
-                <button
-                  type="button"
-                  data-video-article-preview-load
-                  data-article-preview-url="/views/videos/{{ video.video_id }}/article-preview-modal"
-                  data-load-failed="{{ txt.video_article_preview_load_failed }}"
-                  aria-label="{{ txt.video_action_view_article }}"
-                  title="{{ txt.video_action_view_article }}"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100"
-                >
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5"/>
-                  </svg>
-                </button>
-                {% else %}
-                <span class="invisible inline-flex h-7 w-7" aria-hidden="true"></span>
-                {% endif %}
+              {# Fixed two-slot layout: [CTA chip w-20] + gap + [icon w-7] keeps columns aligned. #}
+              <div class="ml-auto flex h-7 w-[6.25rem] items-center justify-end gap-1.5 whitespace-nowrap" data-video-row-actions>
+                <div class="flex h-7 w-20 shrink-0 items-center justify-stretch">
+                  {% if video.has_article %}
+                  <button
+                    type="button"
+                    data-video-article-preview-load
+                    data-article-preview-url="/views/videos/{{ video.video_id }}/article-preview-modal"
+                    data-video-id="{{ video.video_id }}"
+                    data-load-failed="{{ txt.video_article_preview_load_failed }}"
+                    aria-label="{{ txt.video_action_view_article }}"
+                    title="{{ txt.video_action_view_article }}"
+                    class="inline-flex h-7 w-full items-center justify-center rounded-md border border-teal-300 bg-transparent px-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50"
+                  >
+                    {{ txt.video_action_view_article }}
+                  </button>
+                  {% elif article_eligible %}
+                  <button
+                    type="button"
+                    data-video-list-inline-article
+                    data-busy-label="{{ txt.video_action_request_article_busy }}"
+                    data-skip-save-toast="1"
+                    hx-post="/views/videos/article-request-selected"
+                    hx-target="#video-list-wrap"
+                    hx-swap="outerHTML"
+                    hx-vals='{"video_id": "{{ video.video_id }}", "_page": "{{ pager.page }}", "_limit": "{{ pager.limit }}", "_sort": "{{ pager.sort }}", "_order": "{{ pager.order }}"{% if pager.channel_id %}, "_channel_id": "{{ pager.channel_id }}"{% endif %}{% if pager.category_id is defined and pager.category_id %}, "_category_id": "{{ pager.category_id }}"{% endif %}{% if pager.pipeline_status is defined and pager.pipeline_status %}, "_pipeline_status": "{{ pager.pipeline_status }}"{% endif %}}'
+                    aria-label="{{ txt.video_action_request_article }}"
+                    title="{{ txt.video_action_request_article }}"
+                    class="inline-flex h-7 w-full items-center justify-center rounded-md border border-teal-300 bg-teal-50 px-1.5 text-xs font-medium text-teal-800 hover:bg-teal-100"
+                  >
+                    {{ txt.video_action_request_article }}
+                  </button>
+                  {% else %}
+                  <span class="invisible inline-flex h-7 w-full" aria-hidden="true"></span>
+                  {% endif %}
+                </div>
+                <div class="flex h-7 w-7 shrink-0 items-center justify-center">
+                  {% if video.has_transcript %}
+                  <button
+                    type="button"
+                    data-video-transcript-copy
+                    data-transcript-url="/api/videos/{{ video.video_id }}/transcript"
+                    data-copy-toast="{{ txt.detail_copy_transcript }}"
+                    data-copy-failed="{{ txt.video_transcript_copy_failed }}"
+                    aria-label="{{ txt.video_action_copy_transcript }}"
+                    title="{{ txt.video_action_copy_transcript }}"
+                    class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 hover:text-indigo-700"
+                  >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/>
+                    </svg>
+                  </button>
+                  {% else %}
+                  <span class="invisible inline-flex h-7 w-7" aria-hidden="true"></span>
+                  {% endif %}
+                </div>
               </div>
             </td>
           </tr>
@@ -396,6 +442,53 @@
           {{ txt.video_pager_go }}
         </button>
       </form>
+    </div>
+  </div>
+
+  {# ── Sticky selection bar (shown by JS when selection ≥ 1) ── #}
+  <div
+    data-video-selection-sticky
+    data-count-template="{{ txt.video_selection_count }}"
+    data-eligible-template="{{ txt.video_selection_eligible_count }}"
+    class="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-3 opacity-0 transition-opacity"
+    hidden
+  >
+    <div class="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-2xl">
+      <div class="min-w-0 text-sm text-slate-700">
+        <span data-video-selection-count class="font-semibold text-teal-700"></span>
+        <span class="mx-1 text-slate-400">·</span>
+        <span data-video-selection-eligible class="text-xs text-slate-500"></span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-video-selection-article
+          class="rounded-md border border-teal-700 bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ txt.video_article_request_selected }}
+        </button>
+        <button
+          type="button"
+          data-video-selection-download
+          class="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ txt.video_download_selected }}
+        </button>
+        <button
+          type="button"
+          data-video-selection-clear
+          class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+        >
+          {{ txt.video_selection_clear }}
+        </button>
+        <button
+          type="button"
+          data-video-selection-delete
+          class="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {{ txt.video_delete_selected }}
+        </button>
+      </div>
     </div>
   </div>
 </div>

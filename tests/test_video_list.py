@@ -696,6 +696,12 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert 'data-transcript-url="/api/videos/vid-a-000/transcript"' in html
     assert "data-video-article-preview-load" in html
     assert 'data-article-preview-url="/views/videos/vid-a-000/article-preview-modal"' in html
+    assert "기사 보기" in html or "View article" in html
+    assert "data-video-bulk-article-count" in html
+    assert "data-video-select-eligible" in html
+    assert "data-video-select-has-article" in html
+    assert "data-video-selection-sticky" in html
+    assert "data-article-eligible=" in html
     assert "vid-a-001" in html
 
     empty_response = client.get(
@@ -705,6 +711,25 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     )
     assert empty_response.status_code == 200
     assert "영상이 없습니다" in empty_response.text or "No videos yet" in empty_response.text
+
+
+def test_video_list_marks_article_eligible_for_transcript_done(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE videos SET pipeline_status = 'transcript_done' WHERE video_id = 'vid-a-001'"
+        )
+        conn.commit()
+    _seed_video_outputs("vid-a-001", transcript=True, article=False)
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+    assert 'value="vid-a-001"' in html
+    assert 'data-article-eligible="1"' in html
+    assert "data-video-list-inline-article" in html
+    assert "기사화" in html or "Article" in html
 
 
 def test_video_article_preview_modal_fragment_matches_detail_contract(
@@ -725,6 +750,9 @@ def test_video_article_preview_modal_fragment_matches_detail_contract(
     assert "data-article-preview-content" in html
     assert 'data-copy-target="article-copy-source"' in html
     assert "data-video-list-article-modal" in html
+    assert "data-article-preview-prev" in html
+    assert "data-article-preview-next" in html
+    assert "data-article-preview-position" in html
     assert "Article for vid-a-000" in html
 
 

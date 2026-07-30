@@ -443,6 +443,31 @@ html[data-theme="dark"][data-tone="high-contrast"] {
   --status-badge-ring: var(--status-unknown-ring);
 }
 
+/* Video list: has-article row hint — quiet in both themes (avoid loud teal wash). */
+tr.video-list-row--has-article {
+  background-color: color-mix(in srgb, #0f766e 3.5%, transparent);
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #0d9488 42%, transparent);
+}
+html[data-theme="light"] tr.video-list-row--has-article {
+  /* Slightly stronger than first pass; still below old teal-50/30 wash */
+  background-color: color-mix(in srgb, #0f766e 6.5%, #ffffff);
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #0d9488 55%, transparent);
+}
+html[data-theme="light"] tr.video-list-row--has-article:hover {
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #0d9488 65%, transparent);
+}
+html[data-theme="dark"] tr.video-list-row--has-article {
+  background-color: color-mix(in srgb, #2dd4bf 10%, transparent);
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #2dd4bf 48%, transparent);
+}
+tr.video-list-row--has-article:hover {
+  /* Keep existing indigo hover language; accent bar stays as status cue */
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #0d9488 50%, transparent);
+}
+html[data-theme="dark"] tr.video-list-row--has-article:hover {
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #2dd4bf 58%, transparent);
+}
+
 .article-rendered {
   color: var(--text-subtle);
   font-size: 0.98rem;
