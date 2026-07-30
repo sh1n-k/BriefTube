@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 
 from app.services.channel_resolver import ChannelResolverService
 from app.services.takeout_parser import (
     ParsedTakeout,
     parse_bulk_text_inputs,
     parse_takeout_file_details,
+    unique_preserve_order,
 )
 
 logger = logging.getLogger(__name__)
@@ -16,20 +16,6 @@ MAX_TAKEOUT_IMPORT_BYTES = 10 * 1024 * 1024
 
 class TakeoutImportTooLargeError(ValueError):
     pass
-
-
-def _unique(values: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in values:
-        value = raw.strip()
-        if not value:
-            continue
-        if value in seen:
-            continue
-        seen.add(value)
-        out.append(value)
-    return out
 
 
 def _dedupe_channels(channels: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -60,7 +46,7 @@ def collect_inputs_from_sources(bulk_text: str, takeout_data: ParsedTakeout) -> 
     merged_direct_channels: list[dict[str, str]] = [*takeout_data.direct_channels]
 
     return {
-        "inputs": _unique(merged_inputs),
+        "inputs": unique_preserve_order(merged_inputs),
         "direct_channels": _dedupe_channels(merged_direct_channels),
     }
 

@@ -8,37 +8,16 @@ import aiosqlite
 
 import app.repositories._settings as settings_repository
 from app.download_policy import validate_download_output_dir
+from app.repositories._common import (
+    normalize_error_message as _normalize_error_message,
+)
+from app.repositories._common import (
+    row_to_dict as _row_to_dict,
+)
 
 get_settings_map = settings_repository.get_settings_map
 set_setting = settings_repository.set_setting
-
-DOWNLOAD_ERROR_MESSAGE_MAX_LENGTH = 512
-
-
-def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {key: row[key] for key in row.keys()}
-
-
-def _parse_bool_setting(value: str | None, default: bool) -> bool:
-    if value is None:
-        return default
-    normalized = str(value).strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _normalize_error_message(value: str | None) -> str:
-    if not value:
-        return ""
-    trimmed = str(value).strip()
-    if len(trimmed) <= DOWNLOAD_ERROR_MESSAGE_MAX_LENGTH:
-        return trimmed
-    return trimmed[:DOWNLOAD_ERROR_MESSAGE_MAX_LENGTH]
+parse_bool_setting = settings_repository.parse_bool_setting
 
 
 DOWNLOAD_DEFAULT_QUALITY_KEY = "download_default_quality"
@@ -105,7 +84,7 @@ async def get_download_default_settings(
         output_dir_resolved = Path(default_dir_raw).expanduser().resolve(strict=False)
     return {
         "quality": _normalize_download_quality(quality_raw),
-        "overwrite": _parse_bool_setting(overwrite_raw, default=False),
+        "overwrite": parse_bool_setting(overwrite_raw, default=False),
         "output_dir": str(output_dir_resolved),
     }
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
 
 import aiosqlite
 
+from app.repositories._common import rows_to_dicts as _rows_to_dicts
 from app.repositories._downloads import (
     DOWNLOAD_STATUS_FAILED,
     DOWNLOAD_STATUS_PENDING,
@@ -12,10 +12,6 @@ from app.repositories._downloads import (
     DOWNLOAD_STATUS_SUCCEEDED,
     normalize_download_status_filter,
 )
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{key: row[key] for key in row.keys()} for row in rows]
 
 
 async def count_download_jobs_by_status(db: aiosqlite.Connection) -> dict[str, int]:

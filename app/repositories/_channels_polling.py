@@ -6,9 +6,7 @@ from typing import Any
 import aiosqlite
 
 from app.remote_sync_metadata import sync_dirty_set_clause
-from app.repositories._channels import (
-    _row_to_dict,  # pyright: ignore[reportPrivateUsage]
-)
+from app.repositories._common import row_to_dict as _row_to_dict
 
 RSS_PRIORITY_PINNED = "pinned"
 RSS_PRIORITY_NORMAL = "normal"

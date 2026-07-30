@@ -1,12 +1,12 @@
 # BriefTube
 
-YouTube 채널의 신규 영상을 RSS로 수집하고, 자막을 Codex 기사로 재구성해 로컬에서 확인하는
+YouTube 채널의 신규 영상을 RSS로 수집하고, 자막을 Codex/Grok 기사로 재구성해 로컬에서 확인하는
 FastAPI + SQLite + HTMX 앱입니다.
 
 ## 빠른 시작
 
-요구사항은 Python 3.11+, `uv` 0.7+입니다. 다운로드에는 `ffmpeg`, 기사 생성에는 `codex` CLI가
-필요합니다.
+요구사항은 Python 3.11+, `uv` 0.7+입니다. 다운로드에는 `ffmpeg`, 기사 생성에는 선택한 provider의
+CLI(`codex` 또는 `grok`)가 필요합니다.
 
 macOS/Linux:
 
@@ -33,7 +33,7 @@ APP_CONFIG_FILE=config.dev.yaml uv run python scripts/init_db.py
 ## 주요 기능
 
 - RSS 기반 신규 영상 수집
-- YouTube 자막 추출과 schema-validated Codex 기사 생성
+- YouTube 자막 추출과 schema-validated Codex/Grok 기사 생성
 - 카테고리별 처리 단계 (`off`, `transcript_only`, `full`)
 - 영상 다운로드와 수동 기사·자막 작업 queue
 - transcript·article SQLite FTS5 검색
@@ -94,13 +94,15 @@ BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-prod.sh
 
 | 경로 | 역할 |
 |---|---|
-| `app/main.py`, `app/state.py` | 앱과 worker 조립 |
+| `app/main.py`, `app/state.py`, `app/worker_registry.py` | 앱·worker 조립 |
 | `app/routers/` | page, JSON API, HTMX fragment route |
-| `app/workers/` | background job 실행 |
-| `app/domains/`, `app/services/` | use case와 외부 I/O |
-| `app/repositories/` | SQLite와 remote sync DB 접근 |
+| `app/workers/` | background job (`wake_sleep` 공유 sleep/recover 헬퍼 포함) |
+| `app/domains/`, `app/services/` | use case와 외부 I/O (`UnifiedLlmClient`) |
+| `app/repositories/` | SQLite·remote sync facade (`_<domain>.py` private, `_common.py` 공유 헬퍼) |
+| `app/pipeline_status.py` | pipeline status 상수 |
 | `app/templates/`, `app/static/` | Jinja2 + HTMX UI |
 | `scripts/`, `run-*` | DB 초기화와 플랫폼별 실행·운영 |
+| `tests/`, `tests/e2e/` | unit / Playwright E2E |
 
 개발 규칙과 검증 명령은 [AGENTS.md](./AGENTS.md), [CONTRIBUTING.md](./CONTRIBUTING.md)를
 확인하세요.

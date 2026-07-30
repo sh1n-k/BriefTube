@@ -7,30 +7,14 @@ from typing import Any
 import aiosqlite
 
 from app.pipeline_status import MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES
+from app.repositories._common import (
+    normalize_error_message as _normalize_error_message,
+)
+from app.repositories._common import (
+    row_to_dict as _row_to_dict,
+)
 
 logger = logging.getLogger(__name__)
-
-TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH = 512
-MANUAL_TRANSCRIPT_JOB_STATUS_PENDING = "pending"
-MANUAL_TRANSCRIPT_JOB_STATUS_RUNNING = "running"
-MANUAL_TRANSCRIPT_JOB_STATUS_SUCCEEDED = "succeeded"
-MANUAL_TRANSCRIPT_JOB_STATUS_FAILED = "failed"
-MANUAL_TRANSCRIPT_JOB_STATUS_SKIPPED = "skipped"
-
-
-def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {k: row[k] for k in row.keys()}
-
-
-def _normalize_error_message(value: str | None) -> str:
-    if not value:
-        return ""
-    trimmed = str(value).strip()
-    if len(trimmed) <= TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH:
-        return trimmed
-    return trimmed[:TRANSCRIPT_ERROR_MESSAGE_MAX_LENGTH]
 
 
 async def get_manual_transcript_job(

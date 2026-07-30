@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,7 +22,7 @@ def _decode_bytes(content: bytes) -> str:
     return content.decode("utf-8", errors="ignore")
 
 
-def _unique(values: list[str]) -> list[str]:
+def unique_preserve_order(values: list[str] | Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for raw in values:
@@ -40,7 +41,7 @@ def _extract_tokens(text: str) -> list[str]:
     tokens.extend(CHANNEL_ID_RE.findall(text))
     tokens.extend(YOUTUBE_URL_RE.findall(text))
     tokens.extend(HANDLE_RE.findall(text))
-    return _unique(tokens)
+    return unique_preserve_order(tokens)
 
 
 def _normalize_header(header: str) -> str:
@@ -68,7 +69,7 @@ def parse_bulk_text_inputs(text: str) -> list[str]:
         if not line:
             continue
         raw_parts.append(line)
-    return _unique(raw_parts)
+    return unique_preserve_order(raw_parts)
 
 
 def parse_takeout_file(filename: str, content: bytes) -> list[str]:
@@ -79,7 +80,7 @@ def parse_takeout_file(filename: str, content: bytes) -> list[str]:
         flattened.append(item["channel_name"])
         flattened.append(item["channel_url"])
     flattened.extend(parsed.inputs)
-    return _unique(flattened)
+    return unique_preserve_order(flattened)
 
 
 def parse_takeout_file_details(filename: str, content: bytes) -> ParsedTakeout:
@@ -170,7 +171,7 @@ def _parse_csv(content: bytes) -> ParsedTakeout:
 
     return ParsedTakeout(
         direct_channels=direct_channels,
-        inputs=_unique(entries),
+        inputs=unique_preserve_order(entries),
     )
 
 
@@ -203,4 +204,4 @@ def _parse_json(content: bytes) -> list[str]:
                 entries.extend(_extract_tokens(stripped))
 
     walk(parsed)
-    return _unique(entries)
+    return unique_preserve_order(entries)

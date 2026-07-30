@@ -6,7 +6,6 @@ ALERT_TYPE_RSS_CHANNEL_NOT_FOUND = repository.ALERT_TYPE_RSS_CHANNEL_NOT_FOUND
 ALERT_TYPE_TELEGRAM_SEND_FAILED = repository.ALERT_TYPE_TELEGRAM_SEND_FAILED
 
 create_system_alert = repository.create_system_alert
-list_unacknowledged_alerts = repository.list_unacknowledged_alerts
 list_unacknowledged_alert_groups = repository.list_unacknowledged_alert_groups
 acknowledge_alert = repository.acknowledge_alert
 acknowledge_alerts_by_type = repository.acknowledge_alerts_by_type

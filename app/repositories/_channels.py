@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 from typing import Any, TypedDict
 
 import aiosqlite
@@ -12,6 +11,12 @@ from app.remote_sync_metadata import (
     SYNC_NOW_SQL,
     is_remote_sync_runtime_enabled,
     sync_dirty_set_clause,
+)
+from app.repositories._common import (
+    row_to_dict as _row_to_dict,
+)
+from app.repositories._common import (
+    rows_to_dicts as _rows_to_dicts,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,16 +53,6 @@ CHANNEL_METADATA_REFRESH_INTERVAL_DAYS_DEFAULT = 30
 CHANNEL_METADATA_RATE_LIMIT_BACKOFF_MINUTES = (360, 720, 1440)
 CHANNEL_METADATA_FAILURE_BACKOFF_MINUTES = (15, 30, 60, 180)
 CHANNEL_METADATA_MAX_RETRY_COUNT = 12
-
-
-def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    return {k: row[k] for k in row.keys()}
-
-
-def _rows_to_dicts(rows: Iterable[aiosqlite.Row]) -> list[dict[str, Any]]:
-    return [{k: row[k] for k in row.keys()} for row in rows]
 
 
 def normalize_channel_metadata_status(value: str | None) -> str:

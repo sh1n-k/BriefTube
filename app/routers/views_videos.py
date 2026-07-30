@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
@@ -12,6 +11,7 @@ from app.repositories import videos as videos_repo
 from app.routers.helpers import (
     full_page_redirect_for_non_fragment_request,
     htmx_trigger_header,
+    manual_transcript_requests_disabled,
     parse_optional_int,
     request_texts,
     safe_int,
@@ -62,11 +62,6 @@ def _video_article_request_toast_header(message: str, tone: str) -> dict[str, st
 
 def _video_transcript_request_toast_header(message: str, tone: str) -> dict[str, str]:
     return htmx_trigger_header("video-transcript-request-toast", {"message": message, "tone": tone})
-
-
-def _manual_transcript_requests_disabled() -> bool:
-    disabled = str(os.getenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_REQUESTS", "")).strip().lower()
-    return disabled in {"1", "true", "yes", "on"}
 
 
 def _manual_transcript_toast_from_result(
@@ -303,7 +298,7 @@ async def article_request_selected_videos(request: Request):
 @router.post("/videos/{video_id}/transcript-request")
 async def transcript_request_single_video(video_id: str, request: Request):
     txt = await request_texts(request)
-    if _manual_transcript_requests_disabled():
+    if manual_transcript_requests_disabled():
         response = await video_detail(video_id=video_id, request=request)
         response.status_code = 403
         response.headers.update(

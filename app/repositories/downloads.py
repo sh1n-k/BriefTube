@@ -17,7 +17,6 @@ get_download_default_settings = repository.get_download_default_settings
 set_download_default_settings = repository.set_download_default_settings
 
 get_download_job = repository.get_download_job
-get_active_download_job_for_video = repository.get_active_download_job_for_video
 create_download_job = repository.create_download_job
 claim_next_download_job = repository.claim_next_download_job
 mark_download_job_succeeded = repository.mark_download_job_succeeded
@@ -28,6 +27,4 @@ count_download_jobs_by_status = queries_repository.count_download_jobs_by_status
 list_download_jobs = queries_repository.list_download_jobs
 count_download_jobs = queries_repository.count_download_jobs
 clear_download_jobs = repository.clear_download_jobs
-latest_download_event_id = queries_repository.latest_download_event_id
-list_download_events_after = queries_repository.list_download_events_after
 get_download_progress = queries_repository.get_download_progress

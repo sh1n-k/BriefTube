@@ -9,7 +9,7 @@ from app.i18n import get_texts, normalize_language
 from app.llm_policy import LLM_PROVIDER_VALUES
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
-from app.routers.helpers import htmx_trigger_header
+from app.routers.helpers import llm_runtime_toast_header
 from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
     LlmRuntimeStatus,
@@ -21,10 +21,6 @@ from app.services.llm_runtime import (
 
 router = APIRouter(tags=["api"])
 _ALLOWED_MODEL_KEYS = frozenset({"codex", "grok"})
-
-
-def _llm_runtime_toast_header(message: str, tone: str) -> dict[str, str]:
-    return htmx_trigger_header("llm-runtime-toast", {"message": message, "tone": tone})
 
 
 def _provider_model_setting(payload: dict[str, Any], field: str) -> dict[str, str]:
@@ -188,7 +184,7 @@ async def set_llm_settings(request: Request):
                 "code": runtime_reason,
                 "llm_settings": current,
             },
-            headers=_llm_runtime_toast_header(message, "error"),
+            headers=llm_runtime_toast_header(message, "error"),
         )
 
     saved = await settings_repo.set_llm_settings(
@@ -244,7 +240,7 @@ async def resume_llm_runtime(request: Request):
         return JSONResponse(
             status_code=409,
             content={"ok": False, "status": status_payload},
-            headers=_llm_runtime_toast_header(message, "error"),
+            headers=llm_runtime_toast_header(message, "error"),
         )
 
     pending_count = int(status_payload["pending_count"])
@@ -259,5 +255,5 @@ async def resume_llm_runtime(request: Request):
     return JSONResponse(
         status_code=200,
         content={"ok": True, "resumed_count": pending_count, "status": status_payload},
-        headers=_llm_runtime_toast_header(message, tone),
+        headers=llm_runtime_toast_header(message, tone),
     )

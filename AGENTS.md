@@ -1,6 +1,6 @@
 # AGENTS.md
 
-BriefTube는 YouTube RSS 수집, 자막 수집, Codex 기사화, 다운로드와 알림을 단일
+BriefTube는 YouTube RSS 수집, 자막 수집, Codex/Grok 기사화, 다운로드와 알림을 단일
 FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 규칙의 canonical source는
 `CONTRIBUTING.md`다.
 
@@ -13,14 +13,17 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 
 ## 탐색 경로
 
-- `app/main.py`, `app/state.py`, `app/config.py`, `app/database.py`: 앱 조립, 설정, DB 초기화·복구
-- `app/routers/`: page, `/api` JSON, `/views` HTMX route 구현
-- `app/workers/`: RSS, transcript, LLM, download, manual job, metadata, notifier worker
-- `app/services/`: 외부 I/O와 변환 로직. LLM entry point는 `UnifiedLlmClient`
-- `app/repositories/<domain>.py`: 앱 코드가 사용하는 DB 접근 facade
-- `app/templates/fragments/`: HTMX swap 계약이 있는 fragment
-- `app/static/js/ui/`: 기능별 브라우저 동작
-- `scripts/`, `run-*`: DB 초기화, 실행, macOS LaunchAgent 관리
+- `app/main.py`, `app/state.py`, `app/config.py`, `app/database.py`, `app/worker_registry.py`:
+  앱 조립, 설정, DB 초기화·복구, worker registry
+- `app/pipeline_status.py`, `app/remote_sync_metadata.py`: pipeline status·remote sync 메타 계약
+- `app/routers/`: page, `/api` JSON, `/views` HTMX route
+- `app/workers/`: RSS, transcript, manual transcript/article, LLM, download, channel metadata,
+  notifier, remote sync. 공유 sleep/recover는 `wake_sleep.py`
+- `app/services/`: 외부 I/O와 변환. LLM entry point는 `UnifiedLlmClient`
+- `app/repositories/<domain>.py`: 공개 facade. private 구현은 `_<domain>.py`,
+  공유 private 헬퍼는 `_common.py` (`app/repositories/AGENTS.md`)
+- `app/templates/fragments/`, `app/static/js/ui/`: HTMX fragment 계약과 브라우저 동작
+- `scripts/`, `run-*`: DB 초기화, 실행, macOS LaunchAgent
 
 ## 핵심 불변조건
 
