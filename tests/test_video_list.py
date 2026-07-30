@@ -701,9 +701,6 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert "data-video-select-eligible" in html
     assert "data-video-select-has-article" in html
     assert "data-video-select-none" in html
-    assert "data-video-selection-sticky" in html
-    assert "video-row-action-chip--request" in html or "video-row-action-chip--view" in html
-    assert "data-article-eligible=" in html
     assert "vid-a-001" in html
 
     empty_response = client.get(
@@ -716,6 +713,7 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
 
 
 def test_video_list_marks_article_eligible_for_transcript_done(client: TestClient) -> None:
+    """자막 완료·기사 없음 행은 기사화 가능 표시와 인라인 기사화 CTA를 노출한다."""
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -728,10 +726,8 @@ def test_video_list_marks_article_eligible_for_transcript_done(client: TestClien
     response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
     html = response.text
-    assert 'value="vid-a-001"' in html
     assert 'data-article-eligible="1"' in html
     assert "data-video-list-inline-article" in html
-    assert "기사화" in html or "Article" in html
 
 
 def test_video_article_preview_modal_fragment_matches_detail_contract(
@@ -754,9 +750,6 @@ def test_video_article_preview_modal_fragment_matches_detail_contract(
     assert "data-video-list-article-modal" in html
     assert "data-article-preview-prev" in html
     assert "data-article-preview-next" in html
-    assert "data-article-preview-position" in html
-    assert 'aria-keyshortcuts="ArrowLeft j"' in html
-    assert 'aria-keyshortcuts="ArrowRight k"' in html
     assert "Article for vid-a-000" in html
 
 

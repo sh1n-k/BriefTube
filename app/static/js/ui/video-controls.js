@@ -471,7 +471,6 @@
     if (form.dataset.videoManageBound === "1") return;
     form.dataset.videoManageBound = "1";
 
-    const wrap = form.closest("#video-list-wrap") || form.parentElement;
     const selectAll = form.querySelector("[data-video-select-all]");
     const deleteBtn = form.querySelector("[data-video-delete-selected]");
     const downloadBtn = form.querySelector("[data-video-download-selected]");
@@ -479,7 +478,6 @@
     const selectEligibleBtn = form.querySelector("[data-video-select-eligible]");
     const selectHasArticleBtn = form.querySelector("[data-video-select-has-article]");
     const selectNoneBtn = form.querySelector("[data-video-select-none]");
-    const sticky = wrap?.querySelector?.("[data-video-selection-sticky]") || null;
     const items = () => form.querySelectorAll("[data-video-select-item]");
     if (!selectAll || !deleteBtn || !downloadBtn || !articleBtn) return;
 
@@ -491,14 +489,6 @@
     const articleBusyLabel = articleBtn.dataset.busyLabel || articleDefaultLabel;
     const articleTextEl = articleBtn.querySelector("[data-video-bulk-article-text]");
     const articleCountEl = articleBtn.querySelector("[data-video-bulk-article-count]");
-    const stickyArticle = sticky?.querySelector?.("[data-video-selection-article]") || null;
-    const stickyDownload = sticky?.querySelector?.("[data-video-selection-download]") || null;
-    const stickyDelete = sticky?.querySelector?.("[data-video-selection-delete]") || null;
-    const stickyClear = sticky?.querySelector?.("[data-video-selection-clear]") || null;
-    const stickyCount = sticky?.querySelector?.("[data-video-selection-count]") || null;
-    const stickyEligible = sticky?.querySelector?.("[data-video-selection-eligible]") || null;
-    const countTemplate = sticky?.dataset?.countTemplate || "{count}";
-    const eligibleTemplate = sticky?.dataset?.eligibleTemplate || "{count}";
 
     function setArticleButtonLabel(checked, isArticleBusy) {
       if (articleTextEl instanceof HTMLElement) {
@@ -534,40 +524,8 @@
       sync();
     }
 
-    function syncSticky(checked, eligibleChecked, isAnyBusy) {
-      if (!(sticky instanceof HTMLElement)) return;
-      if (checked > 0) {
-        sticky.hidden = false;
-        sticky.classList.remove("opacity-0", "pointer-events-none");
-        sticky.classList.add("pointer-events-auto");
-      } else {
-        sticky.hidden = true;
-        sticky.classList.add("opacity-0", "pointer-events-none");
-        sticky.classList.remove("pointer-events-auto");
-      }
-      if (stickyCount instanceof HTMLElement) {
-        stickyCount.textContent = formatTemplate(countTemplate, { count: checked });
-      }
-      if (stickyEligible instanceof HTMLElement) {
-        stickyEligible.textContent = formatTemplate(eligibleTemplate, { count: eligibleChecked });
-      }
-      if (stickyArticle instanceof HTMLButtonElement) {
-        stickyArticle.disabled = checked === 0 || isAnyBusy;
-      }
-      if (stickyDownload instanceof HTMLButtonElement) {
-        stickyDownload.disabled = checked === 0 || isAnyBusy;
-      }
-      if (stickyDelete instanceof HTMLButtonElement) {
-        stickyDelete.disabled = checked === 0 || isAnyBusy;
-      }
-    }
-
     function sync() {
-      const checkedNodes = form.querySelectorAll("[data-video-select-item]:checked");
-      const checked = checkedNodes.length;
-      const eligibleChecked = Array.from(checkedNodes)
-        .filter((node) => node.getAttribute("data-article-eligible") === "1")
-        .length;
+      const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
       const all = items();
       const isDownloadBusy = form.dataset.videoDownloadBulkInFlight === "1";
       const isArticleBusy = form.dataset.videoArticleRequestBulkInFlight === "1";
@@ -578,7 +536,6 @@
       setArticleButtonLabel(checked, isArticleBusy);
       selectAll.checked = all.length > 0 && checked === all.length;
       selectAll.indeterminate = checked > 0 && checked < all.length;
-      syncSticky(checked, eligibleChecked, isAnyBusy);
     }
 
     function selectByPredicate(predicate) {
@@ -624,30 +581,15 @@
       }
       setBulkBusy("article", true);
     });
-    stickyArticle?.addEventListener("click", () => {
-      if (!articleBtn.disabled) articleBtn.click();
-    });
-    stickyDownload?.addEventListener("click", () => {
-      if (!downloadBtn.disabled) downloadBtn.click();
-    });
-    stickyDelete?.addEventListener("click", () => {
-      if (!deleteBtn.disabled) deleteBtn.click();
-    });
-    stickyClear?.addEventListener("click", () => {
-      items().forEach((cb) => {
-        cb.checked = false;
-      });
-      sync();
-    });
 
     const settleDownloadBulk = (event) => {
       const source = event.detail?.requestConfig?.elt;
-      if (source !== downloadBtn && source !== stickyDownload) return;
+      if (source !== downloadBtn) return;
       setBulkBusy("download", false);
     };
     const settleArticleBulk = (event) => {
       const source = event.detail?.requestConfig?.elt;
-      if (source !== articleBtn && source !== stickyArticle) return;
+      if (source !== articleBtn) return;
       setBulkBusy("article", false);
     };
     form.addEventListener("htmx:afterRequest", settleDownloadBulk);
