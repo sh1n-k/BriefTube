@@ -443,6 +443,41 @@ html[data-theme="dark"][data-tone="high-contrast"] {
   --status-badge-ring: var(--status-unknown-ring);
 }
 
+/* Video list row action chips — theme-safe contrast (esp. dark “기사화”). */
+.video-row-action-chip--view {
+  border: 1px solid color-mix(in srgb, #0d9488 45%, #cbd5e1);
+  background-color: transparent;
+  color: #0f766e;
+}
+.video-row-action-chip--view:hover {
+  background-color: color-mix(in srgb, #ccfbf1 55%, transparent);
+}
+.video-row-action-chip--request {
+  border: 1px solid color-mix(in srgb, #0d9488 50%, #94a3b8);
+  background-color: color-mix(in srgb, #ccfbf1 70%, #ffffff);
+  color: #115e59;
+}
+.video-row-action-chip--request:hover {
+  background-color: color-mix(in srgb, #99f6e4 35%, #ffffff);
+}
+html[data-theme="dark"] .video-row-action-chip--view {
+  border-color: color-mix(in srgb, #2dd4bf 42%, var(--border-default));
+  background-color: transparent;
+  color: #5eead4;
+}
+html[data-theme="dark"] .video-row-action-chip--view:hover {
+  background-color: color-mix(in srgb, #2dd4bf 12%, transparent);
+}
+html[data-theme="dark"] .video-row-action-chip--request {
+  border-color: color-mix(in srgb, #2dd4bf 48%, var(--border-default));
+  background-color: color-mix(in srgb, #14b8a6 22%, var(--surface-1));
+  color: #ccfbf1;
+}
+html[data-theme="dark"] .video-row-action-chip--request:hover {
+  background-color: color-mix(in srgb, #14b8a6 30%, var(--surface-1));
+  color: #f0fdfa;
+}
+
 /* Video list: has-article row hint — quiet in both themes (avoid loud teal wash). */
 tr.video-list-row--has-article {
   background-color: color-mix(in srgb, #0f766e 3.5%, transparent);

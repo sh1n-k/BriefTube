@@ -107,6 +107,13 @@
         >
           {{ txt.video_select_has_article_only }}
         </button>
+        <button
+          type="button"
+          data-video-select-none
+          class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {{ txt.video_select_clear_all }}
+        </button>
       </div>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <button
@@ -276,7 +283,7 @@
                     data-load-failed="{{ txt.video_article_preview_load_failed }}"
                     aria-label="{{ txt.video_action_view_article }}"
                     title="{{ txt.video_action_view_article }}"
-                    class="inline-flex h-7 w-full items-center justify-center rounded-md border border-teal-300 bg-transparent px-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50"
+                    class="video-row-action-chip video-row-action-chip--view inline-flex h-7 w-full items-center justify-center rounded-md px-1.5 text-xs font-medium"
                   >
                     {{ txt.video_action_view_article }}
                   </button>
@@ -292,7 +299,7 @@
                     hx-vals='{"video_id": "{{ video.video_id }}", "_page": "{{ pager.page }}", "_limit": "{{ pager.limit }}", "_sort": "{{ pager.sort }}", "_order": "{{ pager.order }}"{% if pager.channel_id %}, "_channel_id": "{{ pager.channel_id }}"{% endif %}{% if pager.category_id is defined and pager.category_id %}, "_category_id": "{{ pager.category_id }}"{% endif %}{% if pager.pipeline_status is defined and pager.pipeline_status %}, "_pipeline_status": "{{ pager.pipeline_status }}"{% endif %}}'
                     aria-label="{{ txt.video_action_request_article }}"
                     title="{{ txt.video_action_request_article }}"
-                    class="inline-flex h-7 w-full items-center justify-center rounded-md border border-teal-300 bg-teal-50 px-1.5 text-xs font-medium text-teal-800 hover:bg-teal-100"
+                    class="video-row-action-chip video-row-action-chip--request inline-flex h-7 w-full items-center justify-center rounded-md px-1.5 text-xs font-medium"
                   >
                     {{ txt.video_action_request_article }}
                   </button>

@@ -700,7 +700,9 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert "data-video-bulk-article-count" in html
     assert "data-video-select-eligible" in html
     assert "data-video-select-has-article" in html
+    assert "data-video-select-none" in html
     assert "data-video-selection-sticky" in html
+    assert "video-row-action-chip--request" in html or "video-row-action-chip--view" in html
     assert "data-article-eligible=" in html
     assert "vid-a-001" in html
 

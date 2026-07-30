@@ -478,6 +478,7 @@
     const articleBtn = form.querySelector("[data-video-article-request-selected]");
     const selectEligibleBtn = form.querySelector("[data-video-select-eligible]");
     const selectHasArticleBtn = form.querySelector("[data-video-select-has-article]");
+    const selectNoneBtn = form.querySelector("[data-video-select-none]");
     const sticky = wrap?.querySelector?.("[data-video-selection-sticky]") || null;
     const items = () => form.querySelectorAll("[data-video-select-item]");
     if (!selectAll || !deleteBtn || !downloadBtn || !articleBtn) return;
@@ -598,6 +599,9 @@
     });
     selectHasArticleBtn?.addEventListener("click", () => {
       selectByPredicate((cb) => cb.getAttribute("data-has-article") === "1");
+    });
+    selectNoneBtn?.addEventListener("click", () => {
+      selectByPredicate(() => false);
     });
     form.addEventListener("change", (event) => {
       if (event.target.matches("[data-video-select-item]")) sync();
