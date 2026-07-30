@@ -753,6 +753,8 @@ def test_video_article_preview_modal_fragment_matches_detail_contract(
     assert "data-article-preview-prev" in html
     assert "data-article-preview-next" in html
     assert "data-article-preview-position" in html
+    assert 'aria-keyshortcuts="ArrowLeft j"' in html
+    assert 'aria-keyshortcuts="ArrowRight k"' in html
     assert "Article for vid-a-000" in html
 
 

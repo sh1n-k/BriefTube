@@ -197,6 +197,40 @@
     return modal;
   }
 
+  function getOpenListArticlePreviewModal() {
+    const modal = document.querySelector(
+      "[data-video-list-article-modal][data-modal-open='1']",
+    );
+    return modal instanceof HTMLElement ? modal : null;
+  }
+
+  async function navigateOpenListArticlePreview(delta) {
+    const modal = getOpenListArticlePreviewModal();
+    if (!modal) return false;
+    const previewKey = modal.dataset.articlePreviewKey || "";
+    const buttons = listArticlePreviewButtons();
+    const index = buttons.findIndex((btn) => (btn.dataset.articlePreviewUrl || "") === previewKey);
+    const next = buttons[index + delta];
+    if (!(next instanceof HTMLButtonElement)) return false;
+    const nextUrl = next.dataset.articlePreviewUrl || "";
+    if (!nextUrl) return false;
+    try {
+      await loadVideoListArticlePreview(nextUrl, { resetScroll: true });
+      return true;
+    } catch (_err) {
+      showToast(next.dataset.loadFailed || "Could not load article.", "error");
+      return false;
+    }
+  }
+
+  function isEditableKeyTarget(target) {
+    if (!(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (target.isContentEditable) return true;
+    return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
   function setupArticlePreviewModal(modal) {
     if (!(modal instanceof HTMLElement) || modal.dataset.articlePreviewModalBound === "1") return;
     modal.dataset.articlePreviewModalBound = "1";
@@ -210,29 +244,15 @@
         closeArticlePreviewModal(modal);
       }
     });
-    const navigate = async (delta) => {
-      const previewKey = modal.dataset.articlePreviewKey || "";
-      const buttons = listArticlePreviewButtons();
-      const index = buttons.findIndex((btn) => (btn.dataset.articlePreviewUrl || "") === previewKey);
-      const next = buttons[index + delta];
-      if (!(next instanceof HTMLButtonElement)) return;
-      const nextUrl = next.dataset.articlePreviewUrl || "";
-      if (!nextUrl) return;
-      try {
-        await loadVideoListArticlePreview(nextUrl, { resetScroll: true });
-      } catch (_err) {
-        showToast(next.dataset.loadFailed || "Could not load article.", "error");
-      }
-    };
     modal.querySelector("[data-article-preview-prev]")?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void navigate(-1);
+      void navigateOpenListArticlePreview(-1);
     });
     modal.querySelector("[data-article-preview-next]")?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void navigate(1);
+      void navigateOpenListArticlePreview(1);
     });
   }
 
@@ -241,13 +261,32 @@
     if (!root || root.dataset.articlePreviewEscapeBound === "1") return;
     root.dataset.articlePreviewEscapeBound = "1";
     document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      document.querySelectorAll("[data-article-preview-modal]").forEach((node) => {
-        if (!(node instanceof HTMLElement)) return;
-        if (node.dataset.modalOpen === "1") {
-          closeArticlePreviewModal(node);
-        }
-      });
+      if (event.key === "Escape") {
+        document.querySelectorAll("[data-article-preview-modal]").forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (node.dataset.modalOpen === "1") {
+            closeArticlePreviewModal(node);
+          }
+        });
+        return;
+      }
+
+      // List article modal: ←/j 이전, →/k 다음 (입력 포커스 중에는 무시)
+      if (isEditableKeyTarget(event.target)) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const openListModal = getOpenListArticlePreviewModal();
+      if (!openListModal) return;
+
+      const key = event.key;
+      if (key === "ArrowLeft" || key === "j" || key === "J") {
+        event.preventDefault();
+        void navigateOpenListArticlePreview(-1);
+        return;
+      }
+      if (key === "ArrowRight" || key === "k" || key === "K") {
+        event.preventDefault();
+        void navigateOpenListArticlePreview(1);
+      }
     });
   }
 

@@ -30,11 +30,15 @@
         {% if article_preview_from_list is defined and article_preview_from_list %}
         <button type="button"
                 data-article-preview-prev
+                title="{{ txt.video_article_preview_prev }} (← / J)"
+                aria-keyshortcuts="ArrowLeft j"
                 class="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
           ← {{ txt.video_article_preview_prev }}
         </button>
         <button type="button"
                 data-article-preview-next
+                title="{{ txt.video_article_preview_next }} (→ / K)"
+                aria-keyshortcuts="ArrowRight k"
                 class="whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
           {{ txt.video_article_preview_next }} →
         </button>
