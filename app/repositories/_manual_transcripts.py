@@ -45,10 +45,9 @@ async def get_manual_transcript_job(
                 SELECT 1
                 FROM transcripts t
                 WHERE t.video_id = j.video_id
-                  AND t.deleted_at IS NULL
             ) AS has_transcript
         FROM manual_transcript_jobs j
-        LEFT JOIN videos v ON v.video_id = j.video_id AND v.deleted_at IS NULL
+        LEFT JOIN videos v ON v.video_id = j.video_id
         WHERE j.id = ?
         """,
         (int(job_id),),
@@ -95,11 +94,9 @@ async def enqueue_manual_transcript_job(
                 SELECT 1
                 FROM transcripts t
                 WHERE t.video_id = v.video_id
-                  AND t.deleted_at IS NULL
             ) AS has_transcript
         FROM videos v
         WHERE v.video_id = ?
-          AND v.deleted_at IS NULL
         """,
         (normalized_video_id,),
     )

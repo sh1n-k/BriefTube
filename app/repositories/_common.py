@@ -9,6 +9,8 @@ from typing import Any
 import aiosqlite
 
 DEFAULT_ERROR_MESSAGE_MAX_LENGTH = 512
+DEFAULT_CATEGORY_UID = "default"
+UPDATED_AT_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')"
 
 
 def row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:

@@ -70,45 +70,89 @@ def test_init_database_rejects_newer_schema_version(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_legacy_video_rebuild_preserves_remote_sync_metadata(tmp_path: Path) -> None:
-    db_path = tmp_path / "legacy-sync-video.db"
+def test_v2_migration_drops_sync_and_tombstone_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-sync-drop.db"
     with sqlite3.connect(db_path) as conn:
         conn.executescript(
             """
-            CREATE TABLE channels (
-                channel_id TEXT PRIMARY KEY,
-                channel_name TEXT NOT NULL,
-                rss_url TEXT NOT NULL
+            CREATE TABLE app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT
             );
-            INSERT INTO channels(channel_id, channel_name, rss_url)
-            VALUES ('UClegacysync001', 'Legacy Sync', 'https://example.test/rss');
-            CREATE TABLE videos (
-                video_id TEXT PRIMARY KEY,
-                channel_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                upload_time TEXT NOT NULL,
-                thumbnail_path TEXT,
-                transcript_status TEXT,
-                restructure_status TEXT,
+            INSERT INTO app_settings(key, value) VALUES ('remote_sync_device_id', 'device-a');
+            CREATE TABLE categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_uid TEXT UNIQUE,
+                name TEXT NOT NULL UNIQUE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                llm_enabled INTEGER NOT NULL DEFAULT 1,
+                processing_stage TEXT NOT NULL DEFAULT 'off',
+                is_default INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT,
-                viewed_at TEXT,
                 updated_at TEXT,
                 deleted_at TEXT,
                 sync_dirty INTEGER NOT NULL DEFAULT 1,
                 sync_last_pushed_at TEXT,
                 origin_device_id TEXT NOT NULL DEFAULT ''
             );
-            INSERT INTO videos(
-                video_id, channel_id, title, upload_time, thumbnail_path,
-                transcript_status, restructure_status, created_at, viewed_at,
-                updated_at, deleted_at, sync_dirty, sync_last_pushed_at, origin_device_id
-            )
-            VALUES (
-                'vid-legacy-sync-001', 'UClegacysync001', 'Legacy', '2026-06-01T00:00:00+00:00',
-                NULL, 'done', 'done', '2026-06-01T00:00:00.000Z', NULL,
-                '2026-06-01T00:00:01.000Z', '2026-06-02T00:00:00.000Z', 0,
-                '2026-06-01T00:00:02.000Z', 'device-a'
+            INSERT INTO categories(category_uid, name, sort_order, is_default, deleted_at, sync_dirty, origin_device_id)
+            VALUES ('default', '미분류', 0, 1, NULL, 0, 'device-a');
+            INSERT INTO categories(category_uid, name, sort_order, is_default, deleted_at, sync_dirty, origin_device_id)
+            VALUES ('gone', 'Gone', 1, 0, '2026-01-01T00:00:00.000Z', 1, 'device-a');
+            CREATE TABLE channels (
+                channel_id TEXT PRIMARY KEY,
+                channel_name TEXT NOT NULL,
+                rss_url TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                category_id INTEGER,
+                deleted_at TEXT,
+                sync_dirty INTEGER NOT NULL DEFAULT 1,
+                sync_last_pushed_at TEXT,
+                origin_device_id TEXT NOT NULL DEFAULT ''
             );
+            INSERT INTO channels(channel_id, channel_name, rss_url, category_id, deleted_at, sync_dirty, origin_device_id)
+            VALUES ('UClive001', 'Live', 'https://example.test/live', 1, NULL, 0, 'device-a');
+            INSERT INTO channels(channel_id, channel_name, rss_url, category_id, deleted_at, sync_dirty, origin_device_id)
+            VALUES ('UCgome001', 'GoneCh', 'https://example.test/gone', 1, '2026-01-02T00:00:00.000Z', 1, 'device-a');
+            CREATE TABLE videos (
+                video_id TEXT PRIMARY KEY,
+                channel_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                upload_time TEXT NOT NULL,
+                pipeline_status TEXT NOT NULL DEFAULT 'transcript_pending',
+                deleted_at TEXT,
+                sync_dirty INTEGER NOT NULL DEFAULT 1,
+                sync_last_pushed_at TEXT,
+                origin_device_id TEXT NOT NULL DEFAULT ''
+            );
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, deleted_at, sync_dirty, origin_device_id)
+            VALUES ('vid-live', 'UClive001', 'Live V', '2026-06-01T00:00:00+00:00', 'done', NULL, 0, 'device-a');
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, deleted_at, sync_dirty, origin_device_id)
+            VALUES ('vid-gone', 'UClive001', 'Gone V', '2026-06-01T00:00:00+00:00', 'done', '2026-06-02T00:00:00.000Z', 1, 'device-a');
+            CREATE TABLE transcripts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL UNIQUE,
+                raw_text TEXT NOT NULL,
+                language TEXT,
+                source_type TEXT NOT NULL,
+                deleted_at TEXT,
+                sync_dirty INTEGER NOT NULL DEFAULT 1,
+                sync_last_pushed_at TEXT,
+                origin_device_id TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE articles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                lead TEXT NOT NULL,
+                body TEXT NOT NULL,
+                deleted_at TEXT,
+                sync_dirty INTEGER NOT NULL DEFAULT 1,
+                sync_last_pushed_at TEXT,
+                origin_device_id TEXT NOT NULL DEFAULT ''
+            );
+            PRAGMA user_version = 1;
             """
         )
 
@@ -116,28 +160,66 @@ def test_legacy_video_rebuild_preserves_remote_sync_metadata(tmp_path: Path) -> 
         db = await open_database(str(db_path))
         try:
             await init_database(db)
-            cursor = await db.execute(
-                """
-                SELECT pipeline_status, updated_at, deleted_at, sync_dirty,
-                       sync_last_pushed_at, origin_device_id
-                FROM videos
-                WHERE video_id = 'vid-legacy-sync-001'
-                """
-            )
-            row = await cursor.fetchone()
-            assert row is not None
-            return {key: row[key] for key in row.keys()}
+            version = await get_schema_version(db)
+            cols = {}
+            for table in ("categories", "channels", "videos", "transcripts", "articles"):
+                cursor = await db.execute(f"PRAGMA table_info({table})")
+                rows = await cursor.fetchall()
+                cols[table] = {str(row["name"]) for row in rows}
+            live_videos = await (
+                await db.execute("SELECT video_id FROM videos ORDER BY video_id")
+            ).fetchall()
+            live_channels = await (
+                await db.execute("SELECT channel_id FROM channels ORDER BY channel_id")
+            ).fetchall()
+            cats = await (
+                await db.execute("SELECT category_uid FROM categories ORDER BY category_uid")
+            ).fetchall()
+            settings = await (
+                await db.execute(
+                    "SELECT COUNT(*) AS cnt FROM app_settings WHERE key LIKE 'remote_sync_%'"
+                )
+            ).fetchone()
+            return {
+                "version": version,
+                "cols": cols,
+                "videos": [str(r["video_id"]) for r in live_videos],
+                "channels": [str(r["channel_id"]) for r in live_channels],
+                "categories": [str(r["category_uid"]) for r in cats],
+                "remote_settings": int(settings["cnt"]),
+            }
         finally:
             await db.close()
 
-    assert asyncio.run(_run()) == {
-        "pipeline_status": "done",
-        "updated_at": "2026-06-01T00:00:01.000Z",
-        "deleted_at": "2026-06-02T00:00:00.000Z",
-        "sync_dirty": 0,
-        "sync_last_pushed_at": "2026-06-01T00:00:02.000Z",
-        "origin_device_id": "device-a",
-    }
+    result = asyncio.run(_run())
+    assert result["version"] == CURRENT_SCHEMA_VERSION
+    for table, names in result["cols"].items():
+        for banned in ("deleted_at", "sync_dirty", "sync_last_pushed_at", "origin_device_id"):
+            assert banned not in names, f"{table}.{banned} still present"
+    assert result["videos"] == ["vid-live"]
+    assert result["channels"] == ["UClive001"]
+    assert result["categories"] == ["default"]
+    assert result["remote_settings"] == 0
+
+
+def test_fresh_schema_has_no_remote_sync_columns(tmp_path: Path) -> None:
+    async def _run() -> dict[str, set[str]]:
+        db = await open_database(str(tmp_path / "fresh.db"))
+        try:
+            await init_database(db)
+            out: dict[str, set[str]] = {}
+            for table in ("categories", "channels", "videos", "transcripts", "articles"):
+                cursor = await db.execute(f"PRAGMA table_info({table})")
+                rows = await cursor.fetchall()
+                out[table] = {str(row["name"]) for row in rows}
+            return out
+        finally:
+            await db.close()
+
+    cols = asyncio.run(_run())
+    for table, names in cols.items():
+        for banned in ("deleted_at", "sync_dirty", "sync_last_pushed_at", "origin_device_id"):
+            assert banned not in names, f"{table}.{banned} still present"
 
 
 def test_legacy_channels_gain_adaptive_rss_columns(tmp_path: Path) -> None:
@@ -151,8 +233,7 @@ def test_legacy_channels_gain_adaptive_rss_columns(tmp_path: Path) -> None:
                 rss_url TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 last_seen_published_at TEXT,
-                rss_last_polled_at TEXT,
-                deleted_at TEXT
+                rss_last_polled_at TEXT
             );
             INSERT INTO channels(
                 channel_id, channel_name, rss_url, is_active,

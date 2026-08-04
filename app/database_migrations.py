@@ -6,19 +6,15 @@ Extracted verbatim from app.database to keep the public DB surface thin.
 from __future__ import annotations
 
 import logging
-import uuid
 
 import aiosqlite
 
 from app.pipeline_status import PIPELINE_STATUSES
-from app.remote_sync_metadata import (
-    DEFAULT_CATEGORY_UID,
-    REMOTE_SYNC_DEVICE_ID_KEY,
-    SYNC_NOW_SQL,
-)
 
 logger = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
+DEFAULT_CATEGORY_UID = "default"
+UPDATED_AT_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')"
 
 
 async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> bool:
@@ -123,19 +119,12 @@ async def _rebuild_videos_table_with_pipeline_status(
     updated_at_expr = _source_column_expr(
         columns,
         "updated_at",
-        f"COALESCE({created_at_expr}, {SYNC_NOW_SQL})",
-    )
-    deleted_at_expr = _source_column_expr(columns, "deleted_at", "NULL")
-    sync_dirty_expr = _source_column_expr(columns, "sync_dirty", "1")
-    sync_last_pushed_at_expr = _source_column_expr(columns, "sync_last_pushed_at", "NULL")
-    origin_device_id_expr = _source_column_expr(
-        columns,
-        "origin_device_id",
-        "COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')",
+        f"COALESCE({created_at_expr}, {UPDATED_AT_SQL})",
     )
     processing_stage_snapshot_expr = _source_column_expr(
         columns, "processing_stage_snapshot", "'full'"
     )
+    live_filter = "WHERE deleted_at IS NULL" if "deleted_at" in columns else ""
 
     pragma_cursor = await db.execute("PRAGMA foreign_keys")
     pragma_row = await pragma_cursor.fetchone()
@@ -166,11 +155,7 @@ async def _rebuild_videos_table_with_pipeline_status(
                 retry_count             INTEGER NOT NULL DEFAULT 0,
                 created_at              TEXT NOT NULL DEFAULT (datetime('now')),
                 viewed_at               TEXT,
-                updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-                deleted_at              TEXT,
-                sync_dirty              INTEGER NOT NULL DEFAULT 1,
-                sync_last_pushed_at     TEXT,
-                origin_device_id        TEXT NOT NULL DEFAULT ''
+                updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             )
             """
         )
@@ -192,11 +177,7 @@ async def _rebuild_videos_table_with_pipeline_status(
                 retry_count,
                 created_at,
                 viewed_at,
-                updated_at,
-                deleted_at,
-                sync_dirty,
-                sync_last_pushed_at,
-                origin_device_id
+                updated_at
             )
             SELECT
                 video_id,
@@ -219,12 +200,9 @@ async def _rebuild_videos_table_with_pipeline_status(
                 {retry_count_expr},
                 {created_at_expr},
                 {viewed_at_expr},
-                COALESCE(NULLIF(trim({updated_at_expr}), ''), {created_at_expr}, {SYNC_NOW_SQL}),
-                {deleted_at_expr},
-                COALESCE({sync_dirty_expr}, 1),
-                {sync_last_pushed_at_expr},
-                COALESCE(NULLIF({origin_device_id_expr}, ''), (SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')
+                COALESCE(NULLIF(trim({updated_at_expr}), ''), {created_at_expr}, {UPDATED_AT_SQL})
             FROM videos
+            {live_filter}
             """
         )
         await db.execute("DROP TABLE videos")
@@ -264,72 +242,20 @@ async def _ensure_app_settings_table(db: aiosqlite.Connection) -> None:
     )
 
 
-async def _ensure_remote_sync_device_id(db: aiosqlite.Connection) -> None:
-    cursor = await db.execute(
-        "SELECT value FROM app_settings WHERE key = ?",
-        (REMOTE_SYNC_DEVICE_ID_KEY,),
-    )
-    row = await cursor.fetchone()
-    if row is not None and str(row["value"] or "").strip():
-        return
-    await db.execute(
-        """
-        INSERT INTO app_settings(key, value, updated_at)
-        VALUES (?, ?, datetime('now'))
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            updated_at = datetime('now')
-        """,
-        (REMOTE_SYNC_DEVICE_ID_KEY, str(uuid.uuid4())),
-    )
-
-
-async def _ensure_sync_metadata_columns(
+async def _ensure_updated_at_column(
     db: aiosqlite.Connection,
     table: str,
 ) -> None:
     columns = await _table_columns(db, table)
     if "updated_at" not in columns:
         await db.execute(f"ALTER TABLE {table} ADD COLUMN updated_at TEXT")
-    if "deleted_at" not in columns:
-        await db.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT")
-    if "sync_dirty" not in columns:
-        await db.execute(f"ALTER TABLE {table} ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1")
-    if "sync_last_pushed_at" not in columns:
-        await db.execute(f"ALTER TABLE {table} ADD COLUMN sync_last_pushed_at TEXT")
-    if "origin_device_id" not in columns:
-        await db.execute(
-            f"ALTER TABLE {table} ADD COLUMN origin_device_id TEXT NOT NULL DEFAULT ''"
-        )
     await db.execute(
         f"""
         UPDATE {table}
-        SET updated_at = COALESCE(NULLIF(trim(updated_at), ''), created_at, {SYNC_NOW_SQL})
+        SET updated_at = COALESCE(NULLIF(trim(updated_at), ''), created_at, {UPDATED_AT_SQL})
         WHERE updated_at IS NULL OR trim(updated_at) = ''
         """
     )
-    await db.execute(
-        f"""
-        UPDATE {table}
-        SET origin_device_id = COALESCE(
-            NULLIF(origin_device_id, ''),
-            (SELECT value FROM app_settings WHERE key = ?),
-            ''
-        )
-        WHERE origin_device_id IS NULL OR trim(origin_device_id) = ''
-        """,
-        (REMOTE_SYNC_DEVICE_ID_KEY,),
-    )
-
-
-async def _ensure_remote_sync_indexes(db: aiosqlite.Connection) -> None:
-    for table in ("categories", "channels", "videos", "transcripts", "articles"):
-        await db.execute(
-            f"""
-            CREATE INDEX IF NOT EXISTS idx_{table}_sync_dirty_updated
-            ON {table}(sync_dirty, updated_at)
-            """
-        )
 
 
 async def _ensure_video_columns(db: aiosqlite.Connection) -> None:
@@ -494,11 +420,7 @@ async def _ensure_category_tables(db: aiosqlite.Connection) -> None:
             processing_stage TEXT NOT NULL DEFAULT 'off',
             is_default  INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            deleted_at  TEXT,
-            sync_dirty  INTEGER NOT NULL DEFAULT 1,
-            sync_last_pushed_at TEXT,
-            origin_device_id TEXT NOT NULL DEFAULT ''
+            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )
         """
     )
@@ -626,8 +548,6 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE channels ADD COLUMN last_seen_published_at TEXT")
     if not await _column_exists(db, "channels", "is_active"):
         await db.execute("ALTER TABLE channels ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
-    if not await _column_exists(db, "channels", "deleted_at"):
-        await db.execute("ALTER TABLE channels ADD COLUMN deleted_at TEXT")
     if not await _column_exists(db, "channels", "created_at"):
         await db.execute("ALTER TABLE channels ADD COLUMN created_at TEXT")
     await db.execute(
@@ -744,7 +664,6 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
             ELSE datetime(rss_last_polled_at, '+' || rss_poll_interval_seconds || ' seconds')
         END
         WHERE is_active = 1
-          AND deleted_at IS NULL
           AND (rss_next_poll_at IS NULL OR trim(rss_next_poll_at) = '')
         """
     )
@@ -764,7 +683,6 @@ async def _ensure_channel_metadata_columns(db: aiosqlite.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_channels_rss_next_poll
         ON channels(is_active, rss_next_poll_at, rss_priority)
-        WHERE deleted_at IS NULL
         """
     )
 
@@ -778,7 +696,6 @@ async def get_schema_version(db: aiosqlite.Connection) -> int:
 async def _migrate_to_v1(db: aiosqlite.Connection) -> None:
     await _ensure_app_settings_table(db)
     await _ensure_video_columns(db)
-    await _ensure_remote_sync_device_id(db)
     await _ensure_article_columns(db)
     await _ensure_video_indexes(db)
     await _ensure_download_columns(db)
@@ -786,11 +703,119 @@ async def _migrate_to_v1(db: aiosqlite.Connection) -> None:
     await _ensure_category_tables(db)
     await _ensure_channel_metadata_columns(db)
     for table in ("categories", "channels", "videos", "transcripts", "articles"):
-        await _ensure_sync_metadata_columns(db, table)
-    await _ensure_remote_sync_indexes(db)
+        await _ensure_updated_at_column(db, table)
 
 
-MIGRATIONS = ((1, _migrate_to_v1),)
+async def _drop_column_if_exists(db: aiosqlite.Connection, table: str, column: str) -> None:
+    if await _column_exists(db, table, column):
+        await db.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+
+
+async def _purge_tombstoned_rows(db: aiosqlite.Connection) -> None:
+    """Physically delete soft-deleted rows before dropping deleted_at."""
+    article_columns = await _table_columns(db, "articles")
+    transcript_columns = await _table_columns(db, "transcripts")
+    video_columns = await _table_columns(db, "videos")
+    channel_columns = await _table_columns(db, "channels")
+
+    if "deleted_at" in article_columns:
+        await db.execute("DELETE FROM articles WHERE deleted_at IS NOT NULL")
+    if "deleted_at" in transcript_columns:
+        await db.execute("DELETE FROM transcripts WHERE deleted_at IS NOT NULL")
+    if "deleted_at" in video_columns:
+        await db.execute("DELETE FROM videos WHERE deleted_at IS NOT NULL")
+
+    # Tombstoned channels may still have non-tombstoned children; drop dependents first.
+    if "deleted_at" in channel_columns:
+        await db.execute(
+            """
+            DELETE FROM articles
+            WHERE video_id IN (
+                SELECT v.video_id
+                FROM videos v
+                JOIN channels c ON c.channel_id = v.channel_id
+                WHERE c.deleted_at IS NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
+            DELETE FROM transcripts
+            WHERE video_id IN (
+                SELECT v.video_id
+                FROM videos v
+                JOIN channels c ON c.channel_id = v.channel_id
+                WHERE c.deleted_at IS NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
+            DELETE FROM videos
+            WHERE channel_id IN (
+                SELECT channel_id FROM channels WHERE deleted_at IS NOT NULL
+            )
+            """
+        )
+        await db.execute("DELETE FROM channels WHERE deleted_at IS NOT NULL")
+
+    cat_columns = await _table_columns(db, "categories")
+    if "deleted_at" not in cat_columns:
+        return
+    default_cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1 LIMIT 1")
+    default_row = await default_cursor.fetchone()
+    if default_row is not None:
+        default_id = int(default_row["id"])
+        await db.execute(
+            """
+            UPDATE channels
+            SET category_id = ?
+            WHERE category_id IN (
+                SELECT id FROM categories
+                WHERE deleted_at IS NOT NULL AND is_default = 0
+            )
+            """,
+            (default_id,),
+        )
+    await db.execute("DELETE FROM categories WHERE deleted_at IS NOT NULL AND is_default = 0")
+
+
+async def _migrate_to_v2(db: aiosqlite.Connection) -> None:
+    await _purge_tombstoned_rows(db)
+    for table in ("categories", "channels", "videos", "transcripts", "articles"):
+        await db.execute(f"DROP INDEX IF EXISTS idx_{table}_sync_dirty_updated")
+        for column in (
+            "deleted_at",
+            "sync_dirty",
+            "sync_last_pushed_at",
+            "origin_device_id",
+        ):
+            await _drop_column_if_exists(db, table, column)
+    await db.execute(
+        """
+        DELETE FROM app_settings
+        WHERE key IN (
+            'remote_sync_device_id',
+            'remote_sync_runtime_enabled',
+            'remote_sync_last_success_at',
+            'remote_sync_last_failure_code',
+            'remote_sync_schema_version_status'
+        )
+        """
+    )
+    # Recreate rss poll index without deleted_at predicate when adaptive RSS columns exist.
+    await db.execute("DROP INDEX IF EXISTS idx_channels_rss_next_poll")
+    channel_columns = await _table_columns(db, "channels")
+    if {"rss_next_poll_at", "rss_priority"}.issubset(channel_columns):
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_channels_rss_next_poll
+            ON channels(is_active, rss_next_poll_at, rss_priority)
+            """
+        )
+
+
+MIGRATIONS = ((1, _migrate_to_v1), (2, _migrate_to_v2))
 
 
 async def run_database_migrations(db: aiosqlite.Connection) -> None:

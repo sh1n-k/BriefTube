@@ -6,11 +6,6 @@ from pathlib import Path
 from app.config import YAML_CONFIG_KEYS
 from app.i18n import _TRANSLATIONS, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 from app.pipeline_status import PIPELINE_STATUSES
-from app.remote_sync_metadata import (
-    REMOTE_SYNC_KEY_COLUMNS,
-    REMOTE_SYNC_PRUNE_ORDER,
-    REMOTE_SYNC_TABLES,
-)
 from app.worker_registry import WORKER_SPECS
 
 
@@ -31,11 +26,6 @@ def test_locale_keys_have_full_parity() -> None:
 
 def test_pipeline_statuses_are_unique() -> None:
     assert len(PIPELINE_STATUSES) == len(set(PIPELINE_STATUSES))
-
-
-def test_remote_sync_metadata_covers_every_entity() -> None:
-    assert tuple(REMOTE_SYNC_KEY_COLUMNS) == REMOTE_SYNC_TABLES
-    assert set(REMOTE_SYNC_PRUNE_ORDER) == set(REMOTE_SYNC_TABLES)
 
 
 def test_project_yaml_keys_match_supported_config_fields() -> None:

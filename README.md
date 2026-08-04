@@ -59,23 +59,6 @@ APP_CONFIG_FILE=config.dev.local.yaml ./run-dev.sh
 앱은 `.env`를 자동으로 읽지 않습니다. 설정 화면에서 저장한 LLM, worker, Telegram, download,
 retention, page-size 값은 SQLite `app_settings`에 유지됩니다.
 
-## 원격 동기화
-
-Remote sync는 category, channel, video, transcript, article만 Postgres mirror에 공유합니다. 로컬
-설정, queue 상태, 다운로드 파일과 경로는 공유하지 않습니다. DSN은 YAML이 아닌 환경변수로만
-전달합니다.
-
-```bash
-export BRIEFTUBE_REMOTE_SYNC_DSN='postgresql://user:password@host:5432/dbname'
-uv run python scripts/init_remote_sync_db.py
-./run-dev-remote-sync.sh
-```
-
-Windows에서는 같은 환경변수를 설정하고 `run-dev-remote-sync.ps1`을 실행합니다. 운영 설정은
-각각 `run-prod-remote-sync.sh`와 `run-prod-remote-sync.ps1`을 사용합니다. DSN 누락 시 전용
-script는 즉시 중단하며, 원격 장애나 schema 불일치는 sync만 비활성화하고 로컬 앱은 계속
-실행합니다. 상태는 `/api/settings`의 `remote_sync`에서 확인할 수 있습니다.
-
 ## macOS LaunchAgent
 
 ```bash
@@ -98,7 +81,6 @@ BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-prod.sh
 | `app/routers/` | page, JSON API, HTMX fragment route |
 | `app/workers/` | background job (`wake_sleep` 공유 sleep/recover 헬퍼 포함) |
 | `app/domains/`, `app/services/` | use case와 외부 I/O (`UnifiedLlmClient`) |
-| `app/repositories/` | SQLite·remote sync facade (`_<domain>.py` private, `_common.py` 공유 헬퍼) |
 | `app/pipeline_status.py` | pipeline status 상수 |
 | `app/templates/`, `app/static/` | Jinja2 + HTMX UI |
 | `scripts/`, `run-*` | DB 초기화와 플랫폼별 실행·운영 |

@@ -4,7 +4,6 @@ from fastapi.responses import RedirectResponse
 from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
 from app.repositories import llm as llm_repo
-from app.repositories import remote_sync as remote_sync_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers.helpers import build_rss_poll_preview
@@ -44,11 +43,6 @@ async def settings_page(request: Request):
         stored_bot_token=telegram_raw_settings["bot_token"],
         stored_chat_id=telegram_raw_settings["chat_id"],
     )
-    remote_sync_status = await remote_sync_repo.get_status(
-        request.app.state.runtime.db,
-        configured=bool(request.app.state.runtime.config.remote_sync_dsn),
-        requested=bool(request.app.state.runtime.config.remote_sync_enabled),
-    )
     compact = compact_header_overrides(transcript_header_overrides, strict=False)
     values = merge_with_default_headers(compact)
     defaults = default_transcript_request_headers()
@@ -74,7 +68,6 @@ async def settings_page(request: Request):
         download_defaults=download_defaults,
         llm_settings=llm_settings,
         telegram_settings=telegram_settings,
-        remote_sync_status=remote_sync_status,
         ffmpeg_available=is_ffmpeg_available(),
         guard_reset_done=reset_done,
     )

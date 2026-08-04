@@ -8,7 +8,7 @@ import aiosqlite
 import app.repositories._alerts_retention as alerts_repository
 import app.repositories._settings as settings_repository
 import app.repositories._settings_llm as llm_settings_repository
-from app.remote_sync_metadata import SYNC_NOW_SQL
+from app.repositories._common import UPDATED_AT_SQL
 from app.repositories._common import row_to_dict as _row_to_dict
 
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
@@ -57,12 +57,10 @@ async def repair_orphan_llm_candidates(db: aiosqlite.Connection) -> int:
         UPDATE videos
         SET pipeline_status = 'manual_review'
         WHERE pipeline_status IN ('llm_pending', 'llm_failed', 'llm_processing')
-          AND deleted_at IS NULL
           AND NOT EXISTS (
               SELECT 1
               FROM transcripts t
               WHERE t.video_id = videos.video_id
-                AND t.deleted_at IS NULL
           )
         """
     )
@@ -85,8 +83,6 @@ async def pop_llm_candidate(
         JOIN transcripts t ON t.video_id = v.video_id
         WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
           AND v.retry_count < ?
-          AND v.deleted_at IS NULL
-          AND t.deleted_at IS NULL
         ORDER BY v.created_at ASC
         LIMIT 1
         """,
@@ -116,7 +112,6 @@ async def mark_restructure_processing(db: aiosqlite.Connection, video_id: str) -
         SET pipeline_status = 'llm_processing'
         WHERE video_id = ?
           AND pipeline_status IN ('llm_pending', 'llm_failed')
-          AND deleted_at IS NULL
         """,
         (video_id,),
     )
@@ -148,7 +143,6 @@ async def save_article(
         SET pipeline_status = 'done'
         WHERE video_id = ?
           AND pipeline_status = 'llm_processing'
-          AND deleted_at IS NULL
         """,
         (video_id,),
     )
@@ -170,10 +164,9 @@ async def save_article(
                 llm_provider,
                 llm_model,
                 llm_reasoning_effort,
-                llm_generated_at,
-                origin_device_id
+                llm_generated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), ''))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
             ON CONFLICT(video_id) DO UPDATE SET
                 title=excluded.title,
                 lead=excluded.lead,
@@ -184,10 +177,7 @@ async def save_article(
                 llm_model=excluded.llm_model,
                 llm_reasoning_effort=excluded.llm_reasoning_effort,
                 llm_generated_at=excluded.llm_generated_at,
-                deleted_at=NULL,
-                updated_at={SYNC_NOW_SQL},
-                sync_dirty=1,
-                origin_device_id=excluded.origin_device_id
+                updated_at={UPDATED_AT_SQL}
             """,
             (
                 video_id,
@@ -251,7 +241,6 @@ async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
         SELECT COUNT(1) AS cnt
         FROM videos
         WHERE pipeline_status IN ('llm_pending', 'llm_failed')
-          AND deleted_at IS NULL
         """
     )
     row = await cursor.fetchone()
@@ -300,7 +289,6 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
         SELECT COUNT(1) AS cnt
         FROM videos
         WHERE pipeline_status IN ('llm_pending', 'llm_failed')
-          AND deleted_at IS NULL
         """
     )
     row = await cursor.fetchone()
@@ -398,7 +386,6 @@ async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
         SELECT COUNT(1) AS cnt
         FROM videos v
         WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
-          AND v.deleted_at IS NULL
         """
     )
     row = await cursor.fetchone()

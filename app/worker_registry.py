@@ -12,7 +12,6 @@ from app.workers.manual_article_worker import run_manual_article_worker
 from app.workers.manual_transcript_worker import run_manual_transcript_worker
 from app.workers.notifier_worker import run_telegram_notifier
 from app.workers.poller import run_rss_poller
-from app.workers.remote_sync_worker import run_remote_sync_worker
 from app.workers.transcript_worker import run_transcript_fetcher
 
 WorkerFactory = Callable[[AppState], Coroutine[Any, Any, None]]
@@ -42,7 +41,6 @@ WORKER_SPECS: tuple[WorkerSpec, ...] = (
     WorkerSpec("manual_article", "manual_article_worker", run_manual_article_worker, order=30),
     WorkerSpec("llm", "llm_queue_worker", run_llm_queue_worker, order=40),
     WorkerSpec("notifier", "telegram_notifier", run_telegram_notifier, order=50),
-    WorkerSpec("remote_sync", "remote_sync_worker", run_remote_sync_worker, order=55),
     WorkerSpec(
         "channel_metadata",
         "channel_metadata_worker",

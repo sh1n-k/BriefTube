@@ -26,7 +26,6 @@ from app.routers import api, files, pages, system, views
 from app.services.channel_resolver import ChannelResolverService
 from app.services.llm import UnifiedLlmClient
 from app.services.llm_capabilities import LlmCapabilityProbe
-from app.services.remote_sync import run_startup_pull
 from app.services.rss import RSSService
 from app.services.telegram import TelegramNotifier, configure_telegram_notifier
 from app.services.transcript import TranscriptService
@@ -156,7 +155,6 @@ async def lifespan(app: FastAPI):
 
     db = await open_database(config.db_path)
     await init_database(db)
-    await run_startup_pull(config, db)
     recovered = await recover_stuck_jobs(db)
     orphan_repaired = await llm_repo.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
@@ -165,8 +163,6 @@ async def lifespan(app: FastAPI):
         await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
     )
     enabled_worker_names = _enabled_worker_names()
-    if not config.remote_sync_enabled:
-        enabled_worker_names.discard("remote_sync")
     metadata_worker_enabled = "channel_metadata" in enabled_worker_names
     recovered_metadata_running = 0
     scheduled_metadata_targets = 0

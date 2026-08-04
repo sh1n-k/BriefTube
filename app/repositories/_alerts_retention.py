@@ -148,7 +148,6 @@ async def count_retention_expired_videos(db: aiosqlite.Connection, retention_day
         SELECT COUNT(1) AS cnt
         FROM videos
         WHERE datetime(upload_time) <= datetime('now', ?)
-          AND deleted_at IS NULL
         """,
         (modifier,),
     )
@@ -174,7 +173,6 @@ async def list_retention_expired_video_ids(
         SELECT video_id
         FROM videos
         WHERE datetime(upload_time) <= datetime('now', ?)
-          AND deleted_at IS NULL
         ORDER BY datetime(upload_time) ASC, created_at ASC
         {limit_clause}
         """,
@@ -206,7 +204,6 @@ async def list_retention_expired_matching_video_ids(
             FROM videos
             WHERE video_id IN ({placeholders})
               AND datetime(upload_time) <= datetime('now', ?)
-              AND deleted_at IS NULL
             """,
             (*batch, modifier),
         )
@@ -242,7 +239,6 @@ async def list_retention_expired_videos(
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE datetime(v.upload_time) <= datetime('now', ?)
-          AND v.deleted_at IS NULL
         ORDER BY datetime(v.upload_time) ASC, v.created_at ASC
         {limit_clause}
         """,

@@ -43,10 +43,9 @@ async def get_manual_article_job(
                 SELECT 1
                 FROM transcripts t
                 WHERE t.video_id = j.video_id
-                  AND t.deleted_at IS NULL
             ) AS has_transcript
         FROM manual_article_jobs j
-        LEFT JOIN videos v ON v.video_id = j.video_id AND v.deleted_at IS NULL
+        LEFT JOIN videos v ON v.video_id = j.video_id
         WHERE j.id = ?
         """,
         (int(job_id),),
@@ -114,7 +113,6 @@ async def enqueue_manual_article_jobs(
             pipeline_status
         FROM videos
         WHERE video_id IN ({placeholders})
-          AND deleted_at IS NULL
         """,
         tuple(normalized_ids),
     )
@@ -382,7 +380,6 @@ async def ensure_video_llm_pending_for_manual_article(
             retry_count = 0
         WHERE video_id = ?
           AND pipeline_status NOT IN ('llm_pending', 'llm_processing', 'done')
-          AND deleted_at IS NULL
         """,
         (normalized_video_id,),
     )
@@ -411,7 +408,6 @@ async def force_mark_video_transcript_failed_for_manual_article(
             transcript_last_error = ?,
             transcript_last_error_at = datetime('now')
         WHERE video_id = ?
-          AND deleted_at IS NULL
         """,
         (safe_retry_count, safe_error_message, normalized_video_id),
     )
