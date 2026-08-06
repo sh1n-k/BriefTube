@@ -428,8 +428,8 @@ def test_video_list_fragment_has_hx_push_url_for_stateful_paging(client: TestCli
     assert 'hx-push-url="?page=10&limit=10' not in html
     assert 'name="page"' in html
     assert 'name="limit" value="10"' in html
-    assert "맨 앞" in html
-    assert "맨 뒤" in html
+    assert "처음" in html or "First" in html
+    assert "끝" in html or "Last" in html
 
 
 def test_home_uses_default_videos_per_page_when_limit_is_missing(client: TestClient) -> None:
@@ -672,6 +672,11 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert "data-video-select-has-article" in html
     assert "data-video-select-none" in html
     assert "vid-a-001" in html
+    assert "data-video-list-cards" in html
+    assert "video-list-table" in html
+    assert "min-w-[1040px]" in html
+    assert "md:hidden" in html
+    assert "hidden overflow-x-auto md:block" in html
 
     empty_response = client.get(
         "/views/video-list",

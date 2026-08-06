@@ -34,19 +34,19 @@
         </a>
       </div>
       <form
-        class="flex items-center gap-2"
+        class="flex flex-wrap items-center gap-2"
         hx-post="/views/downloads/clear"
         hx-target="#download-history-fragment"
         hx-swap="outerHTML"
         hx-confirm="{{ txt.download_clear_confirm }}"
       >
-        <select name="status" class="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700">
+        <select name="status" aria-label="{{ txt.download_clear_button }}" class="ui-control min-w-[9rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700">
           <option value="{{ download_status }}">{{ txt.download_clear_current }}</option>
           <option value="failed">{{ txt.download_clear_failed }}</option>
           <option value="succeeded">{{ txt.download_clear_succeeded }}</option>
           <option value="all">{{ txt.download_clear_all }}</option>
         </select>
-        <button type="submit" class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
+        <button type="submit" class="ui-control rounded-md border border-rose-300 bg-rose-50 px-2.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
           {{ txt.download_clear_button }}
         </button>
       </form>

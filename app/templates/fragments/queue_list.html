@@ -23,7 +23,7 @@
       <button type="button"
               data-queue-clear-section="transcript"
               data-confirm-message="{{ txt.queue_clear_transcript_confirm }}"
-              class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100">
+              class="ui-control rounded-md border border-rose-300 bg-rose-50 px-2.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
         {{ txt.queue_clear_button }}
       </button>
       <span data-queue-transcript-count class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">{{ t_count }}</span>
@@ -36,29 +36,31 @@
     {% if transcript_items %}
       <div class="divide-y divide-slate-100">
         {% for item in transcript_items %}
-        <div class="flex items-center gap-3 py-3 {% if item.pipeline_status in failed_statuses %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}">
-          <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
-            {% if item.thumbnail_url %}
-            <img src="{{ item.thumbnail_url }}" alt="" class="h-full w-full object-cover" loading="lazy">
-            {% else %}
-            <div class="flex h-full w-full items-center justify-center bg-slate-100 text-xs text-slate-400">No img</div>
-            {% endif %}
+        <div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3 {% if item.pipeline_status in failed_statuses %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}">
+          <div class="flex min-w-0 flex-1 items-center gap-3">
+            <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
+              {% if item.thumbnail_url %}
+              <img src="{{ item.thumbnail_url }}" alt="" class="h-full w-full object-cover" loading="lazy">
+              {% else %}
+              <div class="flex h-full w-full items-center justify-center bg-slate-100 text-xs text-slate-400">No img</div>
+              {% endif %}
+            </div>
+            <div class="min-w-0 flex-1">
+              <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600" title="{{ item.title or item.video_id }}">{{ item.title or item.video_id }}</a>
+              <p class="truncate text-xs text-slate-500" title="{{ item.channel_name or item.channel_id or '' }}">{{ item.channel_name or item.channel_id or '' }}</p>
+            </div>
           </div>
-          <div class="min-w-0 flex-1">
-            <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600">{{ item.title or item.video_id }}</a>
-            <p class="truncate text-xs text-slate-500">{{ item.channel_name or item.channel_id or '' }}</p>
-          </div>
-          <div class="flex-shrink-0">
+          <div class="flex shrink-0 items-center justify-end gap-2">
             {% set status = item.pipeline_status %}
             {% include "fragments/status_badge.html" %}
+            {% if item.pipeline_status in ('transcript_failed', 'no_subtitle') %}
+            <button type="button"
+                    data-queue-retry-transcript="{{ item.video_id }}"
+                    class="ui-control flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+              {{ txt.queue_retry_button }}
+            </button>
+            {% endif %}
           </div>
-          {% if item.pipeline_status in ('transcript_failed', 'no_subtitle') %}
-          <button type="button"
-                  data-queue-retry-transcript="{{ item.video_id }}"
-                  class="flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
-            {{ txt.queue_retry_button }}
-          </button>
-          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -87,7 +89,7 @@
       <button type="button"
               data-queue-clear-section="llm"
               data-confirm-message="{{ txt.queue_clear_llm_confirm }}"
-              class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100">
+              class="ui-control rounded-md border border-rose-300 bg-rose-50 px-2.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
         {{ txt.queue_clear_button }}
       </button>
       <span data-queue-llm-count class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">{{ l_count }}</span>
@@ -100,29 +102,31 @@
     {% if llm_items %}
       <div class="divide-y divide-slate-100">
         {% for item in llm_items %}
-        <div class="flex items-center gap-3 py-3 {% if item.pipeline_status in failed_statuses %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}">
-          <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
-            {% if item.thumbnail_url %}
-            <img src="{{ item.thumbnail_url }}" alt="" class="h-full w-full object-cover" loading="lazy">
-            {% else %}
-            <div class="flex h-full w-full items-center justify-center bg-slate-100 text-xs text-slate-400">No img</div>
-            {% endif %}
+        <div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3 {% if item.pipeline_status in failed_statuses %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}">
+          <div class="flex min-w-0 flex-1 items-center gap-3">
+            <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
+              {% if item.thumbnail_url %}
+              <img src="{{ item.thumbnail_url }}" alt="" class="h-full w-full object-cover" loading="lazy">
+              {% else %}
+              <div class="flex h-full w-full items-center justify-center bg-slate-100 text-xs text-slate-400">No img</div>
+              {% endif %}
+            </div>
+            <div class="min-w-0 flex-1">
+              <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600" title="{{ item.title or item.video_id }}">{{ item.title or item.video_id }}</a>
+              <p class="truncate text-xs text-slate-500" title="{{ item.channel_name or item.channel_id or '' }}">{{ item.channel_name or item.channel_id or '' }}</p>
+            </div>
           </div>
-          <div class="min-w-0 flex-1">
-            <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600">{{ item.title or item.video_id }}</a>
-            <p class="truncate text-xs text-slate-500">{{ item.channel_name or item.channel_id or '' }}</p>
-          </div>
-          <div class="flex-shrink-0">
+          <div class="flex shrink-0 items-center justify-end gap-2">
             {% set status = item.pipeline_status %}
             {% include "fragments/status_badge.html" %}
+            {% if item.pipeline_status in ('llm_failed', 'manual_review') %}
+            <button type="button"
+                    data-queue-retry-llm="{{ item.video_id }}"
+                    class="ui-control flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+              {{ txt.queue_retry_button }}
+            </button>
+            {% endif %}
           </div>
-          {% if item.pipeline_status in ('llm_failed', 'manual_review') %}
-          <button type="button"
-                  data-queue-retry-llm="{{ item.video_id }}"
-                  class="flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
-            {{ txt.queue_retry_button }}
-          </button>
-          {% endif %}
         </div>
         {% endfor %}
       </div>

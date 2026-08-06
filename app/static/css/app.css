@@ -443,6 +443,66 @@ html[data-theme="dark"][data-tone="high-contrast"] {
   --status-badge-ring: var(--status-unknown-ring);
 }
 
+/* Shared compact control height for filters/toolbars/pagers */
+.ui-control {
+  box-sizing: border-box;
+  min-height: 2.25rem; /* 36px */
+  height: 2.25rem;
+  line-height: 1.25rem;
+}
+.ui-control--ghost {
+  min-height: 2.25rem;
+  height: 2.25rem;
+}
+button.ui-control,
+a.ui-control,
+.ui-control[type="button"],
+.ui-control[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+select.ui-control,
+input.ui-control {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Video list: keep title/actions usable while horizontally scrolling */
+.video-list-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.video-list-sticky-col {
+  position: sticky;
+  z-index: 2;
+  background-color: var(--surface-1, #fff);
+}
+.video-list-sticky-col--check {
+  left: 0;
+}
+.video-list-sticky-col--thumb {
+  left: 2.5rem; /* w-10 */
+}
+.video-list-sticky-col--actions {
+  right: 0;
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+}
+thead .video-list-sticky-col {
+  z-index: 3;
+  background-color: var(--surface-2, #f8fafc);
+}
+.video-list-row:hover .video-list-sticky-col {
+  background-color: color-mix(in srgb, #eef2ff 50%, var(--surface-1, #fff));
+}
+html[data-theme="dark"] .video-list-sticky-col--actions {
+  box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.45);
+}
+html[data-theme="dark"] .video-list-row:hover .video-list-sticky-col {
+  background-color: color-mix(in srgb, var(--surface-1), white 6%);
+}
+
 /* Video list row action chips — theme-safe contrast (esp. dark “기사화”). */
 .video-row-action-chip--view {
   border: 1px solid color-mix(in srgb, #0d9488 45%, #cbd5e1);

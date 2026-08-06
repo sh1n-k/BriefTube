@@ -142,62 +142,62 @@
 <body class="bg-slate-100 text-slate-900" style="scrollbar-gutter: stable;">
   <header class="bg-gradient-to-r from-indigo-700 to-indigo-600 shadow-md">
     <div class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <a href="/" class="flex items-center gap-2 text-white">
-        <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <a href="/" class="inline-flex h-9 items-center gap-2 text-white">
+        <svg class="h-7 w-7 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
         <span class="text-xl font-bold tracking-tight">{{ txt.brand }}</span>
       </a>
-      <nav class="flex flex-wrap items-center justify-end gap-1 text-sm sm:w-auto">
+      <nav class="flex flex-wrap items-center gap-1 text-sm sm:justify-end sm:w-auto">
         {% set path = request.url.path %}
         <a href="/"
            data-nav-transition
            {% if path == '/' or path.startswith('/videos') %}aria-current="page"{% endif %}
-           class="rounded-md px-3 py-1.5 font-medium transition-colors
-                  {% if path == '/' or path.startswith('/videos') %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+            class="inline-flex h-9 items-center rounded-md px-3 font-medium transition-colors
+                   {% if path == '/' or path.startswith('/videos') %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_videos }}
         </a>
         <a href="/channels"
            data-nav-transition
            {% if path == '/channels' %}aria-current="page"{% endif %}
-           class="rounded-md px-3 py-1.5 font-medium transition-colors
-                  {% if path == '/channels' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+           class="inline-flex h-9 items-center rounded-md px-3 font-medium transition-colors
+                   {% if path == '/channels' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_channels }}
         </a>
         <a href="/settings"
            data-nav-transition
            {% if path == '/settings' %}aria-current="page"{% endif %}
-           class="rounded-md px-3 py-1.5 font-medium transition-colors
-                  {% if path == '/settings' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+           class="inline-flex h-9 items-center rounded-md px-3 font-medium transition-colors
+                   {% if path == '/settings' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_settings }}
         </a>
         <a href="/downloads"
            data-nav-transition
            {% if path == '/downloads' %}aria-current="page"{% endif %}
-           class="rounded-md px-3 py-1.5 font-medium transition-colors
-                  {% if path == '/downloads' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+           class="inline-flex h-9 items-center rounded-md px-3 font-medium transition-colors
+                   {% if path == '/downloads' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           <span>{{ txt.nav_downloads }}</span>
           <span data-download-nav-badge class="ml-1 hidden rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">0</span>
         </a>
         <a href="/queue"
            data-nav-transition
            {% if path == '/queue' %}aria-current="page"{% endif %}
-           class="rounded-md px-3 py-1.5 font-medium transition-colors
-                  {% if path == '/queue' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+           class="inline-flex h-9 items-center rounded-md px-3 font-medium transition-colors
+                   {% if path == '/queue' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           <span>{{ txt.nav_queue }}</span>
           <span data-queue-nav-badge class="ml-1 hidden rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-900 dark:border-sky-500 dark:bg-sky-900/40 dark:text-sky-200">0</span>
         </a>
         <a href="/retention"
            data-nav-transition
            {% if path == '/retention' %}aria-current="page"{% endif %}
-           class="rounded-md px-3 py-1.5 font-medium transition-colors
-                  {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
+           class="inline-flex h-9 items-center rounded-md px-3 font-medium transition-colors
+                   {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
           {{ txt.nav_retention }}
         </a>
         <button
           type="button"
           data-theme-toggle
-          class="ml-2 inline-flex items-center gap-1 rounded-md border border-white/30 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-indigo-100 hover:bg-white/20 hover:text-white"
+          class="inline-flex h-9 items-center gap-1 rounded-md border border-white/30 bg-white/10 px-2.5 text-xs font-medium text-indigo-100 hover:bg-white/20 hover:text-white sm:ml-1"
           aria-label="{{ txt.theme_toggle_label }}"
           title="{{ txt.theme_toggle_label }}"
         >
