@@ -500,38 +500,20 @@ input.ui-control {
   padding-bottom: 0;
 }
 
-/* Video list: keep title/actions usable while horizontally scrolling */
-.video-list-table {
-  border-collapse: separate;
-  border-spacing: 0;
+/* Scroll FABs — follow active theme surface tokens */
+.scroll-fab-btn {
+  border: 1px solid var(--border-default);
+  background-color: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  color: var(--text-subtle);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(8px);
 }
-.video-list-sticky-col {
-  position: sticky;
-  z-index: 2;
-  background-color: var(--surface-1, #fff);
+.scroll-fab-btn:hover {
+  background-color: var(--surface-2);
+  color: var(--text-main);
 }
-.video-list-sticky-col--check {
-  left: 0;
-}
-.video-list-sticky-col--thumb {
-  left: 2.5rem; /* w-10 */
-}
-.video-list-sticky-col--actions {
-  right: 0;
-  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
-}
-thead .video-list-sticky-col {
-  z-index: 3;
-  background-color: var(--surface-2, #f8fafc);
-}
-.video-list-row:hover .video-list-sticky-col {
-  background-color: color-mix(in srgb, #eef2ff 50%, var(--surface-1, #fff));
-}
-html[data-theme="dark"] .video-list-sticky-col--actions {
-  box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.45);
-}
-html[data-theme="dark"] .video-list-row:hover .video-list-sticky-col {
-  background-color: color-mix(in srgb, var(--surface-1), white 6%);
+html[data-theme="dark"] .scroll-fab-btn {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* Video list row action chips — theme-safe contrast (esp. dark “기사화”). */
