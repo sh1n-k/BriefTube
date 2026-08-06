@@ -141,12 +141,12 @@
 </head>
 <body class="bg-slate-100 text-slate-900" style="scrollbar-gutter: stable;">
   <header class="bg-gradient-to-r from-indigo-700 to-indigo-600 shadow-md">
-    <div class="mx-auto flex max-w-7xl items-center gap-1.5 px-3 py-2 sm:gap-3 sm:px-4 sm:py-4">
-      <a href="/" class="inline-flex h-9 shrink-0 items-center gap-2 text-white" aria-label="{{ txt.brand }}" title="{{ txt.brand }}">
+    <div class="mx-auto flex max-w-7xl items-center gap-1.5 px-3 py-1.5 sm:gap-3 sm:px-4 sm:py-4">
+      <a href="/" class="hidden h-9 shrink-0 items-center gap-2 text-white sm:inline-flex" aria-label="{{ txt.brand }}" title="{{ txt.brand }}">
         <svg class="h-7 w-7 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
-        <span class="hidden text-xl font-bold tracking-tight sm:inline">{{ txt.brand }}</span>
+        <span class="text-xl font-bold tracking-tight">{{ txt.brand }}</span>
       </a>
       <nav class="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 text-sm sm:justify-end sm:gap-1">
         {% set path = request.url.path %}
@@ -251,7 +251,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <div class="fixed bottom-4 right-4 z-30 flex flex-col gap-2" data-scroll-fab>
+  <div class="fixed bottom-36 right-3 z-30 flex flex-col gap-2 md:bottom-4 md:right-4" data-scroll-fab>
     <button
       type="button"
       data-scroll-top

@@ -500,20 +500,28 @@ input.ui-control {
   padding-bottom: 0;
 }
 
-/* Scroll FABs — follow active theme surface tokens */
+/* Scroll FABs — brand-tinted so they contrast against page surfaces */
 .scroll-fab-btn {
-  border: 1px solid var(--border-default);
-  background-color: color-mix(in srgb, var(--surface-1) 94%, transparent);
-  color: var(--text-subtle);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  border: 1px solid color-mix(in srgb, var(--brand-strong) 42%, var(--border-default));
+  background-color: color-mix(in srgb, var(--brand-soft-bg) 82%, var(--surface-1));
+  color: var(--brand-strong);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--brand-strong) 22%, transparent);
   backdrop-filter: blur(8px);
 }
 .scroll-fab-btn:hover {
-  background-color: var(--surface-2);
-  color: var(--text-main);
+  background-color: color-mix(in srgb, var(--brand-soft-bg) 92%, var(--surface-1));
+  color: var(--brand-soft-text);
+  border-color: color-mix(in srgb, var(--brand-strong) 58%, var(--border-default));
 }
 html[data-theme="dark"] .scroll-fab-btn {
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  border-color: color-mix(in srgb, var(--brand-soft-border) 70%, var(--border-default));
+  background-color: color-mix(in srgb, var(--brand-soft-bg) 70%, var(--surface-1));
+  color: var(--brand-soft-text);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+html[data-theme="dark"] .scroll-fab-btn:hover {
+  background-color: color-mix(in srgb, var(--brand-soft-bg) 84%, var(--surface-1));
+  color: color-mix(in srgb, var(--brand-soft-text) 88%, white);
 }
 
 /* Video list row action chips — theme-safe contrast (esp. dark “기사화”). */
