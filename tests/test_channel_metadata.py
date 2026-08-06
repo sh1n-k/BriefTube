@@ -25,7 +25,6 @@ def _insert_channel(
     metadata_error: str | None = None,
     is_active: int = 1,
     category_id: int | None = None,
-    deleted_at: str | None = None,
 ) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -37,10 +36,9 @@ def _insert_channel(
                 is_active,
                 category_id,
                 metadata_fetch_status,
-                metadata_fetch_error,
-                deleted_at
+                metadata_fetch_error
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 channel_id,
@@ -50,7 +48,6 @@ def _insert_channel(
                 category_id,
                 metadata_status,
                 metadata_error,
-                deleted_at,
             ),
         )
         conn.commit()
@@ -201,32 +198,6 @@ def test_retry_failed_channel_metadata_endpoint_queues_failed_rows(client: TestC
         ("UCmdok001", "success", None),
         ("UCmdrate001", "pending", None),
     ]
-
-
-def test_retry_failed_channel_metadata_skips_deleted_channels(client: TestClient) -> None:
-    client.app.state.runtime.channel_metadata_wake_event = _NoopWakeEvent()
-    db_path = client.app.state.runtime.config.db_path
-    _insert_channel(
-        db_path,
-        "UCmddeleted001",
-        "Deleted Metadata",
-        metadata_status="failed",
-        metadata_error="gone",
-        deleted_at="2026-06-01T00:00:00.000Z",
-    )
-
-    response = client.post("/views/channels/metadata/retry-failed?status=active")
-    assert response.status_code == 200
-    toast = _parse_metadata_toast(response)
-    assert toast["tone"] == "info"
-
-    with sqlite3.connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT metadata_fetch_status, metadata_fetch_error FROM channels WHERE channel_id = ?",
-            ("UCmddeleted001",),
-        ).fetchone()
-    assert row is not None
-    assert tuple(row) == ("failed", "gone")
 
 
 def test_retry_failed_channel_metadata_respects_status_and_category_filters(

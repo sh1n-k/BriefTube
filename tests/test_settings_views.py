@@ -60,7 +60,6 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'href="/settings"' in response.text
     assert 'data-rss-poll-preview="settings"' in response.text
     assert 'hx-put="/api/settings/telegram"' in response.text
-    assert 'data-settings-section="remote-sync"' in response.text
     assert 'name="telegram_bot_token"' in response.text
     assert 'name="telegram_chat_id"' in response.text
     assert 'id="llm-runtime-status"' in response.text
@@ -123,43 +122,12 @@ def test_settings_page_renders(client: TestClient) -> None:
     for section in (
         "workers",
         "language",
-        "remote-sync",
         "llm",
         "telegram",
         "transcript-headers",
         "transcript-guard",
     ):
         assert f'data-settings-section="{section}"' in response.text
-
-
-def test_settings_page_renders_remote_sync_status(client: TestClient) -> None:
-    client.app.state.runtime.config.remote_sync_dsn = "sqlite:///remote.db"
-    client.app.state.runtime.config.remote_sync_enabled = True
-    db_path = os.environ["DB_PATH"]
-    with sqlite3.connect(db_path) as conn:
-        conn.executemany(
-            """
-            INSERT INTO app_settings(key, value)
-            VALUES(?, ?)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value
-            """,
-            (
-                ("remote_sync_runtime_enabled", "1"),
-                ("remote_sync_last_failure_code", "remote_unavailable"),
-            ),
-        )
-        conn.commit()
-
-    response = client.get("/settings")
-
-    assert response.status_code == 200
-    assert "Remote sync 상태" in response.text
-    assert "configured" in response.text
-    assert "requested" in response.text
-    assert "active" in response.text
-    assert "last_failure_code" in response.text
-    assert "remote_unavailable" in response.text
-    assert response.text.count(">예<") >= 3
 
 
 def test_settings_page_preserves_saved_codex_model_outside_probe_options(

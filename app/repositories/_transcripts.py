@@ -7,7 +7,7 @@ import aiosqlite
 
 import app.repositories._settings as settings_repository
 from app.pipeline_status import PIPELINE_STATUSES
-from app.remote_sync_metadata import SYNC_NOW_SQL
+from app.repositories._common import UPDATED_AT_SQL
 from app.repositories._common import (
     normalize_error_message as _normalize_error_message,
 )
@@ -51,7 +51,6 @@ async def list_queue_items(
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE v.pipeline_status IN ({placeholders})
-          AND v.deleted_at IS NULL
         ORDER BY
             CASE v.pipeline_status
                 WHEN 'transcript_processing' THEN 0
@@ -76,7 +75,6 @@ async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
             pipeline_status,
             COUNT(1) AS cnt
         FROM videos
-        WHERE deleted_at IS NULL
         GROUP BY pipeline_status
         """
     )
@@ -128,7 +126,6 @@ async def pop_pending_transcript_videos(
             transcript_target_language
         FROM videos
         WHERE pipeline_status = 'transcript_pending'
-          AND deleted_at IS NULL
           AND (
               transcript_next_attempt_at IS NULL
               OR transcript_next_attempt_at <= datetime('now')
@@ -188,16 +185,13 @@ async def save_transcript(
 ) -> None:
     await db.execute(
         f"""
-        INSERT INTO transcripts(video_id, raw_text, language, source_type, origin_device_id)
-        VALUES (?, ?, ?, ?, COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), ''))
+        INSERT INTO transcripts(video_id, raw_text, language, source_type)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(video_id) DO UPDATE SET
             raw_text=excluded.raw_text,
             language=excluded.language,
             source_type=excluded.source_type,
-            deleted_at=NULL,
-            updated_at={SYNC_NOW_SQL},
-            sync_dirty=1,
-            origin_device_id=COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), transcripts.origin_device_id, '')
+            updated_at={UPDATED_AT_SQL}
         """,
         (video_id, raw_text, language, source_type),
     )
@@ -222,7 +216,6 @@ async def save_transcript(
             transcript_last_error_at = NULL,
             thumbnail_path = COALESCE(?, thumbnail_path)
         WHERE video_id = ?
-          AND deleted_at IS NULL
         """,
         (1 if force_llm_pending else 0, language, thumbnail_path, video_id),
     )

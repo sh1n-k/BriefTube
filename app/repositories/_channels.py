@@ -7,10 +7,8 @@ import aiosqlite
 
 import app.repositories._alerts_retention as alerts_repository
 import app.repositories._categories as categories_repository
-from app.remote_sync_metadata import (
-    SYNC_NOW_SQL,
-    is_remote_sync_runtime_enabled,
-    sync_dirty_set_clause,
+from app.repositories._common import (
+    UPDATED_AT_SQL,
 )
 from app.repositories._common import (
     row_to_dict as _row_to_dict,
@@ -116,9 +114,7 @@ async def list_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]:
             metadata_last_http_status,
             category_id,
             created_at
-        FROM channels
-        WHERE deleted_at IS NULL
-        ORDER BY created_at DESC
+        FROM channels        ORDER BY created_at DESC
         """
     )
     rows = await cursor.fetchall()
@@ -187,7 +183,6 @@ async def list_channels_for_management(
               LIMIT 1
           )
         WHERE c.is_active = ?
-          AND c.deleted_at IS NULL
         {category_filter}
         ORDER BY c.created_at DESC
         """,
@@ -210,7 +205,6 @@ async def get_channel_name_map(
         SELECT channel_id, channel_name
         FROM channels
         WHERE channel_id IN ({placeholders})
-          AND deleted_at IS NULL
         """,
         tuple(normalized),
     )
@@ -224,9 +218,7 @@ async def count_channels_by_status(db: aiosqlite.Connection) -> dict[str, int]:
         SELECT
             SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_count,
             SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) AS inactive_count
-        FROM channels
-        WHERE deleted_at IS NULL
-        """
+        FROM channels        """
     )
     row = await cursor.fetchone()
     active_count = int((row["active_count"] if row else 0) or 0)
@@ -281,21 +273,16 @@ async def add_channel(
             rss_url,
             is_active,
             category_id,
-            created_at,
-            sync_dirty,
-            origin_device_id
+            created_at
         )
-        VALUES (?, ?, ?, 1, ?, datetime('now'), 1, COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), ''))
+        VALUES (?, ?, ?, 1, ?, datetime('now'))
         ON CONFLICT(channel_id) DO UPDATE SET
             channel_name=excluded.channel_name,
             rss_url=excluded.rss_url,
             is_active=1,
             category_id=excluded.category_id,
-            deleted_at=NULL,
             created_at=COALESCE(channels.created_at, datetime('now')),
-            updated_at={SYNC_NOW_SQL},
-            sync_dirty=1,
-            origin_device_id=excluded.origin_device_id
+            updated_at={UPDATED_AT_SQL}
         """,
         (
             channel_id,
@@ -344,11 +331,8 @@ async def add_channel(
                 metadata_retry_count=COALESCE(?, metadata_retry_count),
                 metadata_next_fetch_at=COALESCE(?, metadata_next_fetch_at),
                 metadata_last_http_status=COALESCE(?, metadata_last_http_status),
-                sync_dirty=1,
-                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-                origin_device_id=COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), origin_device_id, '')
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
             WHERE channel_id = ?
-              AND deleted_at IS NULL
             """,
             (
                 safe_handle,
@@ -396,7 +380,6 @@ async def add_channel(
             created_at
         FROM channels
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         """,
         (channel_id,),
     )
@@ -437,7 +420,6 @@ async def get_channel_by_id(db: aiosqlite.Connection, channel_id: str) -> dict[s
             created_at
         FROM channels
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         LIMIT 1
         """,
         (normalized_channel_id,),
@@ -450,9 +432,8 @@ async def deactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
         f"""
         UPDATE channels
         SET is_active = 0,
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         """,
         (channel_id,),
     )
@@ -468,9 +449,8 @@ async def reactivate_channel(db: aiosqlite.Connection, channel_id: str) -> int:
             is_active = 1,
             rss_fail_streak = 0,
             rss_next_poll_at = datetime('now'),
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         """,
         (channel_id,),
     )
@@ -490,9 +470,8 @@ async def reactivate_channels(db: aiosqlite.Connection, channel_ids: list[str]) 
             is_active = 1,
             rss_fail_streak = 0,
             rss_next_poll_at = datetime('now'),
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE channel_id IN ({placeholders})
-          AND deleted_at IS NULL
         """,
         tuple(normalized),
     )
@@ -521,7 +500,6 @@ async def list_active_channels(db: aiosqlite.Connection) -> list[dict[str, Any]]
             created_at
         FROM channels
         WHERE is_active = 1
-          AND deleted_at IS NULL
         ORDER BY created_at ASC
         """
     )
@@ -536,9 +514,8 @@ async def update_channel_watermark(
         f"""
         UPDATE channels
         SET last_seen_published_at = ?,
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         """,
         (published_at, channel_id),
     )
@@ -562,94 +539,38 @@ async def delete_channels_with_related_data(
         SELECT thumbnail_path
         FROM videos
         WHERE channel_id IN ({placeholders})
-          AND deleted_at IS NULL
         """,
         tuple(normalized),
     )
     rows = await cursor.fetchall()
     thumbnail_paths = [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
 
-    if await is_remote_sync_runtime_enabled(db):
-        video_cursor = await db.execute(
-            f"""
-            SELECT video_id
-            FROM videos
-            WHERE channel_id IN ({placeholders})
-              AND deleted_at IS NULL
-            """,
-            tuple(normalized),
+    await db.execute(
+        f"""
+        DELETE FROM articles
+        WHERE video_id IN (
+            SELECT video_id FROM videos WHERE channel_id IN ({placeholders})
         )
-        video_rows = await video_cursor.fetchall()
-        video_ids = [str(row["video_id"]) for row in video_rows]
-        if video_ids:
-            video_placeholders = ",".join(["?"] * len(video_ids))
-            await db.execute(
-                f"""
-                UPDATE articles
-                SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                    {sync_dirty_set_clause()}
-                WHERE video_id IN ({video_placeholders})
-                  AND deleted_at IS NULL
-                """,
-                tuple(video_ids),
-            )
-            await db.execute(
-                f"""
-                UPDATE transcripts
-                SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                    {sync_dirty_set_clause()}
-                WHERE video_id IN ({video_placeholders})
-                  AND deleted_at IS NULL
-                """,
-                tuple(video_ids),
-            )
-        videos_cursor = await db.execute(
-            f"""
-            UPDATE videos
-            SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                {sync_dirty_set_clause()}
-            WHERE channel_id IN ({placeholders})
-              AND deleted_at IS NULL
-            """,
-            tuple(normalized),
+        """,
+        tuple(normalized),
+    )
+    await db.execute(
+        f"""
+        DELETE FROM transcripts
+        WHERE video_id IN (
+            SELECT video_id FROM videos WHERE channel_id IN ({placeholders})
         )
-        channels_cursor = await db.execute(
-            f"""
-            UPDATE channels
-            SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                {sync_dirty_set_clause()}
-            WHERE channel_id IN ({placeholders})
-              AND deleted_at IS NULL
-            """,
-            tuple(normalized),
-        )
-    else:
-        await db.execute(
-            f"""
-            DELETE FROM articles
-            WHERE video_id IN (
-                SELECT video_id FROM videos WHERE channel_id IN ({placeholders})
-            )
-            """,
-            tuple(normalized),
-        )
-        await db.execute(
-            f"""
-            DELETE FROM transcripts
-            WHERE video_id IN (
-                SELECT video_id FROM videos WHERE channel_id IN ({placeholders})
-            )
-            """,
-            tuple(normalized),
-        )
-        videos_cursor = await db.execute(
-            f"DELETE FROM videos WHERE channel_id IN ({placeholders})",
-            tuple(normalized),
-        )
-        channels_cursor = await db.execute(
-            f"DELETE FROM channels WHERE channel_id IN ({placeholders})",
-            tuple(normalized),
-        )
+        """,
+        tuple(normalized),
+    )
+    videos_cursor = await db.execute(
+        f"DELETE FROM videos WHERE channel_id IN ({placeholders})",
+        tuple(normalized),
+    )
+    channels_cursor = await db.execute(
+        f"DELETE FROM channels WHERE channel_id IN ({placeholders})",
+        tuple(normalized),
+    )
     if commit:
         await db.commit()
 

@@ -6,11 +6,6 @@ from typing import Any
 import aiosqlite
 
 from app.pipeline_status import VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES
-from app.remote_sync_metadata import (
-    SYNC_NOW_SQL,
-    is_remote_sync_runtime_enabled,
-    sync_dirty_set_clause,
-)
 from app.repositories._common import (
     row_to_dict as _row_to_dict,
 )
@@ -46,9 +41,7 @@ async def insert_video_if_absent(
             title,
             upload_time,
             pipeline_status,
-            processing_stage_snapshot,
-            sync_dirty,
-            origin_device_id
+            processing_stage_snapshot
         )
         SELECT
             ?,
@@ -65,13 +58,10 @@ async def insert_video_if_absent(
                 WHEN 'transcript_only' THEN 'transcript_only'
                 WHEN 'full' THEN 'full'
                 ELSE 'full'
-            END,
-            1,
-            COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')
+            END
         FROM channels ch
         LEFT JOIN categories cat ON cat.id = ch.category_id
         WHERE ch.channel_id = ?
-          AND ch.deleted_at IS NULL
         ON CONFLICT(video_id) DO NOTHING
         """,
         (video_id, channel_id, title, upload_time, channel_id),
@@ -87,9 +77,7 @@ _INSERT_VIDEO_BATCH_SQL = """
         title,
         upload_time,
         pipeline_status,
-        processing_stage_snapshot,
-        sync_dirty,
-        origin_device_id
+        processing_stage_snapshot
     )
     SELECT
         ?,
@@ -106,13 +94,10 @@ _INSERT_VIDEO_BATCH_SQL = """
             WHEN 'transcript_only' THEN 'transcript_only'
             WHEN 'full' THEN 'full'
             ELSE 'full'
-        END,
-        1,
-        COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), '')
+        END
     FROM channels ch
     LEFT JOIN categories cat ON cat.id = ch.category_id
     WHERE ch.channel_id = ?
-      AND ch.deleted_at IS NULL
     ON CONFLICT(video_id) DO NOTHING
 """
 
@@ -168,7 +153,6 @@ async def list_videos(
     if pipeline_status:
         conditions.append("v.pipeline_status = ?")
         params.append(pipeline_status)
-    conditions.append("v.deleted_at IS NULL")
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.extend([limit, offset])
 
@@ -189,13 +173,11 @@ async def list_videos(
                 SELECT 1
                 FROM transcripts t
                 WHERE t.video_id = v.video_id
-                  AND t.deleted_at IS NULL
             ) AS has_transcript,
             EXISTS(
                 SELECT 1
                 FROM articles a
                 WHERE a.video_id = v.video_id
-                  AND a.deleted_at IS NULL
             ) AS has_article
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
@@ -227,7 +209,6 @@ async def count_videos(
     if pipeline_status:
         conditions.append("v.pipeline_status = ?")
         params.append(pipeline_status)
-    conditions.append("v.deleted_at IS NULL")
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = await db.execute(
         f"""
@@ -260,7 +241,6 @@ async def get_video(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] |
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE v.video_id = ?
-          AND v.deleted_at IS NULL
         """,
         (video_id,),
     )
@@ -293,7 +273,6 @@ async def list_videos_by_ids(
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE v.video_id IN ({placeholders})
-          AND v.deleted_at IS NULL
         """,
         tuple(normalized),
     )
@@ -344,8 +323,8 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             mtj.finished_at AS manual_transcript_finished_at
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
-        LEFT JOIN transcripts t ON t.video_id = v.video_id AND t.deleted_at IS NULL
-        LEFT JOIN articles a ON a.video_id = v.video_id AND a.deleted_at IS NULL
+        LEFT JOIN transcripts t ON t.video_id = v.video_id
+        LEFT JOIN articles a ON a.video_id = v.video_id
         LEFT JOIN manual_transcript_jobs mtj ON mtj.id = (
             SELECT id
             FROM manual_transcript_jobs
@@ -366,7 +345,6 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             LIMIT 1
         )
         WHERE v.video_id = ?
-          AND v.deleted_at IS NULL
         """,
         (video_id,),
     )
@@ -381,7 +359,6 @@ async def get_transcript(db: aiosqlite.Connection, video_id: str) -> dict[str, A
         SELECT video_id, raw_text, language, source_type, created_at
         FROM transcripts
         WHERE video_id = ?
-          AND deleted_at IS NULL
         """,
         (video_id,),
     )
@@ -406,7 +383,6 @@ async def get_article(db: aiosqlite.Connection, video_id: str) -> dict[str, Any]
             created_at
         FROM articles
         WHERE video_id = ?
-          AND deleted_at IS NULL
         """,
         (video_id,),
     )
@@ -430,8 +406,6 @@ async def search_documents(
             JOIN transcripts t ON t.id = f.rowid
             JOIN videos v ON v.video_id = t.video_id
             WHERE transcripts_fts MATCH ?
-              AND t.deleted_at IS NULL
-              AND v.deleted_at IS NULL
             UNION ALL
             SELECT
                 'article' AS source,
@@ -442,7 +416,6 @@ async def search_documents(
             FROM articles_fts af
             JOIN articles a ON a.id = af.rowid
             WHERE articles_fts MATCH ?
-              AND a.deleted_at IS NULL
         )
         ORDER BY created_at DESC
         LIMIT ?
@@ -481,7 +454,6 @@ async def requeue_done_video_for_manual_article_retry(
               SELECT 1
               FROM transcripts t
               WHERE t.video_id = videos.video_id
-                AND t.deleted_at IS NULL
           )
         """,
         (video_id,),
@@ -505,56 +477,23 @@ async def delete_videos_by_ids(
         SELECT thumbnail_path
         FROM videos
         WHERE video_id IN ({placeholders})
-          AND deleted_at IS NULL
         """,
         tuple(normalized),
     )
     rows = await cursor.fetchall()
     thumbnail_paths = [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
 
-    if await is_remote_sync_runtime_enabled(db):
-        await db.execute(
-            f"""
-            UPDATE articles
-            SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                {sync_dirty_set_clause()}
-            WHERE video_id IN ({placeholders})
-              AND deleted_at IS NULL
-            """,
-            tuple(normalized),
-        )
-        await db.execute(
-            f"""
-            UPDATE transcripts
-            SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                {sync_dirty_set_clause()}
-            WHERE video_id IN ({placeholders})
-              AND deleted_at IS NULL
-            """,
-            tuple(normalized),
-        )
-        cursor = await db.execute(
-            f"""
-            UPDATE videos
-            SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                {sync_dirty_set_clause()}
-            WHERE video_id IN ({placeholders})
-              AND deleted_at IS NULL
-            """,
-            tuple(normalized),
-        )
-    else:
-        await db.execute(
-            f"DELETE FROM articles WHERE video_id IN ({placeholders})",
-            tuple(normalized),
-        )
-        await db.execute(
-            f"DELETE FROM transcripts WHERE video_id IN ({placeholders})",
-            tuple(normalized),
-        )
-        cursor = await db.execute(
-            f"DELETE FROM videos WHERE video_id IN ({placeholders})",
-            tuple(normalized),
-        )
+    await db.execute(
+        f"DELETE FROM articles WHERE video_id IN ({placeholders})",
+        tuple(normalized),
+    )
+    await db.execute(
+        f"DELETE FROM transcripts WHERE video_id IN ({placeholders})",
+        tuple(normalized),
+    )
+    cursor = await db.execute(
+        f"DELETE FROM videos WHERE video_id IN ({placeholders})",
+        tuple(normalized),
+    )
     await db.commit()
     return {"deleted": int(cursor.rowcount or 0), "thumbnail_paths": thumbnail_paths}

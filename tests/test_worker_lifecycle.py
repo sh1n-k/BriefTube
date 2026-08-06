@@ -60,5 +60,3 @@ def test_e2e_server_env_disables_background_workers(tmp_path) -> None:
 
     for spec in WORKER_SPECS:
         assert env[spec.disable_env_name] == "1"
-    assert env["BRIEFTUBE_REMOTE_SYNC_ENABLED"] == "0"
-    assert env["BRIEFTUBE_REMOTE_SYNC_DSN"] == ""

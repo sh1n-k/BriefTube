@@ -62,27 +62,9 @@ class AppConfig:
     log_noise_window_seconds: int = 60
     log_noise_suppress_threshold: int = 1
     log_dependency_level: str = "WARNING"
-    remote_sync_enabled: bool = False
-    remote_sync_dsn: str = ""
-    remote_sync_push_interval_seconds: int = 300
-    remote_sync_batch_size: int = 100
-    remote_sync_tombstone_retention_days: int = 30
-    remote_sync_connect_timeout_seconds: int = 5
 
 
-ENV_ONLY_CONFIG_FIELDS = frozenset(
-    {
-        "remote_sync_enabled",
-        "remote_sync_dsn",
-        "remote_sync_push_interval_seconds",
-        "remote_sync_batch_size",
-        "remote_sync_tombstone_retention_days",
-        "remote_sync_connect_timeout_seconds",
-    }
-)
-YAML_CONFIG_KEYS = frozenset(
-    field.name for field in fields(AppConfig) if field.name not in ENV_ONLY_CONFIG_FIELDS
-)
+YAML_CONFIG_KEYS = frozenset(field.name for field in fields(AppConfig))
 
 
 def _parse_scalar(value: str) -> str | int | bool:
@@ -140,12 +122,7 @@ def _load_simple_yaml(path: Path) -> dict[str, Any]:
         key, value = stripped.split(":", 1)
         parsed[key.strip()] = _parse_scalar(value)
     for key in sorted(set(parsed) - YAML_CONFIG_KEYS):
-        event = (
-            "config.env_only_yaml_key_ignored"
-            if key in ENV_ONLY_CONFIG_FIELDS
-            else "config.unknown_yaml_key"
-        )
-        _logger.warning("event=%s key=%s path=%s", event, key, path)
+        _logger.warning("event=%s key=%s path=%s", "config.unknown_yaml_key", key, path)
     return parsed
 
 
@@ -480,34 +457,6 @@ def load_config() -> AppConfig:
     cfg.log_dependency_level = (
         os.getenv("LOG_DEPENDENCY_LEVEL", cfg.log_dependency_level).strip().upper()
     )
-    cfg.remote_sync_dsn = os.getenv("BRIEFTUBE_REMOTE_SYNC_DSN", "").strip()
-    remote_sync_enabled_raw = os.getenv("BRIEFTUBE_REMOTE_SYNC_ENABLED")
-    cfg.remote_sync_enabled = (
-        bool(cfg.remote_sync_dsn)
-        if remote_sync_enabled_raw is None
-        else _parse_env_bool(remote_sync_enabled_raw)
-    )
-    cfg.remote_sync_push_interval_seconds = int(
-        os.getenv(
-            "BRIEFTUBE_REMOTE_SYNC_PUSH_INTERVAL_SECONDS",
-            cfg.remote_sync_push_interval_seconds,
-        )
-    )
-    cfg.remote_sync_batch_size = int(
-        os.getenv("BRIEFTUBE_REMOTE_SYNC_BATCH_SIZE", cfg.remote_sync_batch_size)
-    )
-    cfg.remote_sync_tombstone_retention_days = int(
-        os.getenv(
-            "BRIEFTUBE_REMOTE_SYNC_TOMBSTONE_RETENTION_DAYS",
-            cfg.remote_sync_tombstone_retention_days,
-        )
-    )
-    cfg.remote_sync_connect_timeout_seconds = int(
-        os.getenv(
-            "BRIEFTUBE_REMOTE_SYNC_CONNECT_TIMEOUT_SECONDS",
-            cfg.remote_sync_connect_timeout_seconds,
-        )
-    )
 
     cfg.transcript_fetch_batch_size = max(1, cfg.transcript_fetch_batch_size)
     cfg.transcript_request_interval_seconds = max(1, cfg.transcript_request_interval_seconds)
@@ -563,11 +512,4 @@ def load_config() -> AppConfig:
     cfg.log_noise_window_seconds = max(1, cfg.log_noise_window_seconds)
     cfg.log_noise_suppress_threshold = max(1, cfg.log_noise_suppress_threshold)
     cfg.log_dependency_level = cfg.log_dependency_level or "WARNING"
-    cfg.remote_sync_enabled = bool(cfg.remote_sync_enabled and cfg.remote_sync_dsn)
-    cfg.remote_sync_push_interval_seconds = max(1, cfg.remote_sync_push_interval_seconds)
-    cfg.remote_sync_batch_size = max(1, min(1000, cfg.remote_sync_batch_size))
-    cfg.remote_sync_tombstone_retention_days = max(1, cfg.remote_sync_tombstone_retention_days)
-    cfg.remote_sync_connect_timeout_seconds = max(
-        1, min(30, cfg.remote_sync_connect_timeout_seconds)
-    )
     return cfg

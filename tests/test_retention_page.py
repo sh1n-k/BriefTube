@@ -103,9 +103,7 @@ def test_retention_page_ignores_deleted_expired_videos(client: TestClient) -> No
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "UPDATE videos SET deleted_at = datetime('now') WHERE video_id = 'vid-ret-old-001'"
-        )
+        conn.execute("DELETE FROM videos WHERE video_id = 'vid-ret-old-001'")
         conn.commit()
 
     response = client.get("/retention")
@@ -192,11 +190,10 @@ def test_retention_delete_all_batches_expired_videos(client: TestClient) -> None
             FROM videos
             WHERE channel_id = 'UCretbulk001'
               AND video_id != 'vid-ret-bulk-fresh'
-              AND deleted_at IS NULL
             """
         ).fetchone()[0]
         fresh_row = conn.execute(
-            "SELECT 1 FROM videos WHERE video_id = 'vid-ret-bulk-fresh' AND deleted_at IS NULL"
+            "SELECT 1 FROM videos WHERE video_id = 'vid-ret-bulk-fresh'"
         ).fetchone()
     assert expired_count == 0
     assert fresh_row is not None
@@ -257,7 +254,6 @@ def test_retention_delete_selected_batches_many_expired_videos(client: TestClien
             FROM videos
             WHERE channel_id = 'UCretbulk001'
               AND video_id != 'vid-ret-bulk-fresh'
-              AND deleted_at IS NULL
             """
         ).fetchone()[0]
     assert remaining == 0

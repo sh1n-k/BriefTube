@@ -15,10 +15,9 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 
 - `app/main.py`, `app/state.py`, `app/config.py`, `app/database.py`, `app/worker_registry.py`:
   앱 조립, 설정, DB 초기화·복구, worker registry
-- `app/pipeline_status.py`, `app/remote_sync_metadata.py`: pipeline status·remote sync 메타 계약
 - `app/routers/`: page, `/api` JSON, `/views` HTMX route
 - `app/workers/`: RSS, transcript, manual transcript/article, LLM, download, channel metadata,
-  notifier, remote sync. 공유 sleep/recover는 `wake_sleep.py`
+  notifier. 공유 sleep/recover는 `wake_sleep.py`
 - `app/services/`: 외부 I/O와 변환. LLM entry point는 `UnifiedLlmClient`
 - `app/repositories/<domain>.py`: 공개 facade. private 구현은 `_<domain>.py`,
   공유 private 헬퍼는 `_common.py` (`app/repositories/AGENTS.md`)
@@ -43,9 +42,6 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `BRIEFTUBE_LLM_RESPONSE_CAPTURE_DIR`). 성공 본문은 `BRIEFTUBE_LLM_RESPONSE_CAPTURE_INCLUDE_CONTENT=1`
   일 때만 저장하고, 실패 시에는 스트림(stderr/stdout)만 강제 저장한다.
   끄려면 `BRIEFTUBE_LLM_RESPONSE_CAPTURE_DISABLED=1`.
-- remote sync는 공유 데이터만 Postgres에 mirror하며 로컬 작업 상태와 설정을 공유하지 않는다.
-  장애·schema 불일치는 sync만 비활성화하고 로컬 앱 실행을 막지 않는다.
-- remote sync 삭제는 tombstone과 LWW 계약을 유지한다. `channels.is_active=0`을 tombstone으로 해석하지 않는다.
 
 ## 변경 트리거
 
@@ -61,14 +57,12 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `app/workers/llm_worker.py`
 - 다운로드: `app/domains/downloads/`, `app/services/downloads.py`,
   `app/workers/download_worker.py`, download API/page tests
-- remote sync: `app/services/remote_sync.py`, `app/repositories/remote_sync.py`,
-  `app/workers/remote_sync_worker.py`, `sql/schema.sql`
 - 다운로드·thumbnail 파일 전달 route: `app/routers/files.py`, download domain과 관련 route tests
 
 ## 변경 체크리스트
 
 - SQLite schema 변경은 `sql/schema.sql`, `app/database_migrations.py`, migration 실행 순서,
-  fresh/legacy migration test를 함께 확인한다. remote sync 대상 entity면 remote schema와 sync handler도 확인한다.
+  fresh/legacy migration test를 함께 확인한다.
 - worker 추가·삭제는 runtime registry, `AppState` wake/lock, 설정 화면 노출 여부, pytest enable alias,
   E2E disable 환경과 lifecycle test를 함께 갱신한다.
 - HTMX 변경은 route가 반환하는 fragment, `hx-target`/`hx-swap`/OOB selector, JS hydrate/event,
@@ -76,7 +70,6 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 - config 추가는 `AppConfig`, YAML key, 환경변수 override, normalization과 config contract test를 함께 확인한다.
 - 단순 CRUD는 router에서 공개 repository facade를 직접 호출할 수 있다. API·HTMX·worker가 공유하거나
   여러 repository, 외부 I/O, 상태 전이를 조합하는 흐름은 작은 domain use case로 둔다.
-- 앱 startup의 remote sync pull은 원격 schema ensure/migration을 수행한다. remote DDL 변경은 운영 DB write로 취급한다.
 
 ## 검증 주의
 

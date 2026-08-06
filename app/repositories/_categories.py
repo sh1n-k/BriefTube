@@ -6,10 +6,8 @@ from typing import Any
 
 import aiosqlite
 
-from app.remote_sync_metadata import (
-    SYNC_NOW_SQL,
-    is_remote_sync_runtime_enabled,
-    sync_dirty_set_clause,
+from app.repositories._common import (
+    UPDATED_AT_SQL,
 )
 from app.repositories._common import (
     row_to_dict as _row_to_dict,
@@ -56,24 +54,8 @@ def next_category_processing_stage(current: str | None) -> str:
     return CATEGORY_PROCESSING_STAGE_OFF
 
 
-async def _release_deleted_category_name(db: aiosqlite.Connection, name: str) -> None:
-    await db.execute(
-        """
-        UPDATE categories
-        SET name = name || ' [deleted:' || id || ']',
-            updated_at = COALESCE(updated_at, datetime('now'))
-        WHERE name = ?
-          AND deleted_at IS NOT NULL
-          AND name NOT LIKE '% [deleted:%]'
-        """,
-        (name,),
-    )
-
-
 async def get_default_category_id(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
-        "SELECT id FROM categories WHERE is_default = 1 AND deleted_at IS NULL LIMIT 1"
-    )
+    cursor = await db.execute("SELECT id FROM categories WHERE is_default = 1 LIMIT 1")
     row = await cursor.fetchone()
     if row is None:
         raise RuntimeError("default category not found")
@@ -86,8 +68,7 @@ async def list_categories(db: aiosqlite.Connection) -> list[dict[str, Any]]:
         SELECT c.id, c.category_uid, c.name, c.sort_order, c.processing_stage, c.is_default, c.created_at,
                COUNT(ch.channel_id) AS channel_count
         FROM categories c
-        LEFT JOIN channels ch ON ch.category_id = c.id AND ch.deleted_at IS NULL
-        WHERE c.deleted_at IS NULL
+        LEFT JOIN channels ch ON ch.category_id = c.id
         GROUP BY c.id
         ORDER BY c.sort_order ASC, c.id ASC
         """
@@ -100,7 +81,6 @@ async def create_category(db: aiosqlite.Connection, name: str) -> dict[str, Any]
     name = str(name).strip()
     if not name:
         raise ValueError("category name must not be empty")
-    await _release_deleted_category_name(db, name)
     cursor = await db.execute(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM categories"
     )
@@ -114,11 +94,9 @@ async def create_category(db: aiosqlite.Connection, name: str) -> dict[str, Any]
                 category_uid,
                 name,
                 sort_order,
-                processing_stage,
-                sync_dirty,
-                origin_device_id
+                processing_stage
             )
-            VALUES (?, ?, ?, ?, 1, COALESCE((SELECT value FROM app_settings WHERE key = 'remote_sync_device_id'), ''))
+            VALUES (?, ?, ?, ?)
             """,
             (category_uid, name, next_order, CATEGORY_PROCESSING_STAGE_OFF),
         )
@@ -146,9 +124,8 @@ async def rename_category(db: aiosqlite.Connection, category_id: int, name: str)
             f"""
             UPDATE categories
             SET name = ?,
-                {sync_dirty_set_clause()}
+                updated_at = {UPDATED_AT_SQL}
             WHERE id = ?
-              AND deleted_at IS NULL
             """,
             (name, category_id),
         )
@@ -160,7 +137,7 @@ async def rename_category(db: aiosqlite.Connection, category_id: int, name: str)
 
 async def delete_category(db: aiosqlite.Connection, category_id: int) -> dict[str, int]:
     cursor = await db.execute(
-        "SELECT is_default FROM categories WHERE id = ? AND deleted_at IS NULL",
+        "SELECT is_default FROM categories WHERE id = ?",
         (category_id,),
     )
     row = await cursor.fetchone()
@@ -173,29 +150,13 @@ async def delete_category(db: aiosqlite.Connection, category_id: int) -> dict[st
         f"""
         UPDATE channels
         SET category_id = ?,
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE category_id = ?
-          AND deleted_at IS NULL
         """,
         (default_id, category_id),
     )
     channels_moved = int(move_cursor.rowcount or 0)
-    if await is_remote_sync_runtime_enabled(db):
-        await db.execute(
-            f"""
-            UPDATE categories
-            SET deleted_at = COALESCE(deleted_at, {SYNC_NOW_SQL}),
-                name = CASE
-                    WHEN name LIKE '% [deleted:%]' THEN name
-                    ELSE name || ' [deleted:' || id || ']'
-                END,
-                {sync_dirty_set_clause()}
-            WHERE id = ?
-            """,
-            (category_id,),
-        )
-    else:
-        await db.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+    await db.execute("DELETE FROM categories WHERE id = ?", (category_id,))
     await db.commit()
     return {"deleted": 1, "channels_moved": channels_moved}
 
@@ -208,9 +169,8 @@ async def update_category_processing_stage(
         f"""
         UPDATE categories
         SET processing_stage = ?,
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE id = ?
-          AND deleted_at IS NULL
         """,
         (safe_stage, category_id),
     )
@@ -220,7 +180,7 @@ async def update_category_processing_stage(
 
 async def cycle_category_processing_stage(db: aiosqlite.Connection, category_id: int) -> str | None:
     cursor = await db.execute(
-        "SELECT processing_stage FROM categories WHERE id = ? AND deleted_at IS NULL",
+        "SELECT processing_stage FROM categories WHERE id = ?",
         (category_id,),
     )
     row = await cursor.fetchone()
@@ -232,9 +192,8 @@ async def cycle_category_processing_stage(db: aiosqlite.Connection, category_id:
         f"""
         UPDATE categories
         SET processing_stage = ?,
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE id = ?
-          AND deleted_at IS NULL
         """,
         (next_stage, category_id),
     )
@@ -243,7 +202,7 @@ async def cycle_category_processing_stage(db: aiosqlite.Connection, category_id:
 
 
 async def reorder_categories(db: aiosqlite.Connection, ordered_ids: list[int]) -> int:
-    cursor = await db.execute("SELECT id FROM categories WHERE deleted_at IS NULL")
+    cursor = await db.execute("SELECT id FROM categories")
     rows = await cursor.fetchall()
     existing_ids = {int(row["id"]) for row in rows}
     input_ids = set(ordered_ids)
@@ -257,9 +216,8 @@ async def reorder_categories(db: aiosqlite.Connection, ordered_ids: list[int]) -
             f"""
             UPDATE categories
             SET sort_order = ?,
-                {sync_dirty_set_clause()}
+                updated_at = {UPDATED_AT_SQL}
             WHERE id = ?
-              AND deleted_at IS NULL
             """,
             (idx, category_id),
         )
@@ -277,7 +235,7 @@ async def move_channels_to_category(
     if not normalized:
         return 0
     cat_cursor = await db.execute(
-        "SELECT id FROM categories WHERE id = ? AND deleted_at IS NULL",
+        "SELECT id FROM categories WHERE id = ?",
         (target_category_id,),
     )
     if await cat_cursor.fetchone() is None:
@@ -287,9 +245,8 @@ async def move_channels_to_category(
         f"""
         UPDATE channels
         SET category_id = ?,
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE channel_id IN ({placeholders})
-          AND deleted_at IS NULL
         """,
         (target_category_id, *normalized),
     )

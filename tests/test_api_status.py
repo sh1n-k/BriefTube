@@ -65,7 +65,7 @@ def test_queue_status_counts_unknown_values_in_unknown_count(client: TestClient)
     assert payload["unknown_count"] == 1
 
 
-def test_queue_status_and_poll_ignore_deleted_videos(client: TestClient) -> None:
+def test_queue_status_and_poll_count_active_videos(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -74,24 +74,21 @@ def test_queue_status_and_poll_ignore_deleted_videos(client: TestClient) -> None
             VALUES (?, ?, ?, 1)
             """,
             (
-                "UCdeletedqueue001",
-                "Deleted Queue Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdeletedqueue001",
+                "UCqueueactive001",
+                "Queue Channel",
+                "https://www.youtube.com/feeds/videos.xml?channel_id=UCqueueactive001",
             ),
         )
         rows = [
-            ("vid-active-tp", "transcript_pending", None),
-            ("vid-deleted-tp", "transcript_pending", "2026-02-21T00:00:00+00:00"),
-            ("vid-active-lp", "llm_pending", None),
-            ("vid-deleted-lp", "llm_pending", "2026-02-21T00:00:00+00:00"),
-            ("vid-deleted-unknown", "mystery_state", "2026-02-21T00:00:00+00:00"),
+            ("vid-active-tp", "transcript_pending"),
+            ("vid-active-lp", "llm_pending"),
         ]
         conn.executemany(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, deleted_at)
-            VALUES (?, 'UCdeletedqueue001', ?, '2026-02-20T00:00:00+00:00', ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, 'UCqueueactive001', ?, '2026-02-20T00:00:00+00:00', ?)
             """,
-            [(video_id, video_id, status, deleted_at) for video_id, status, deleted_at in rows],
+            [(video_id, video_id, status) for video_id, status in rows],
         )
         conn.commit()
 
@@ -108,7 +105,6 @@ def test_queue_status_and_poll_ignore_deleted_videos(client: TestClient) -> None
     assert poll_payload["badge_count"] == 2
     assert "vid-active-tp" in poll_payload["queue_html"]
     assert "vid-active-lp" in poll_payload["queue_html"]
-    assert "vid-deleted-tp" not in poll_payload["queue_html"]
 
 
 def _seed_queue_video(

@@ -5,7 +5,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.remote_sync_metadata import sync_dirty_set_clause
+from app.repositories._common import UPDATED_AT_SQL
 from app.repositories._common import row_to_dict as _row_to_dict
 
 RSS_PRIORITY_PINNED = "pinned"
@@ -64,7 +64,6 @@ async def pick_next_rss_channel(
             created_at
         FROM channels
         WHERE is_active = 1
-          AND deleted_at IS NULL
         {due_filter}
         {exclude_filter}
         ORDER BY
@@ -184,7 +183,6 @@ async def get_seconds_until_next_rss_poll(db: aiosqlite.Connection) -> float | N
             MIN((julianday(rss_next_poll_at) - julianday('now')) * 86400.0) AS delay_seconds
         FROM channels
         WHERE is_active = 1
-          AND deleted_at IS NULL
           AND rss_next_poll_at IS NOT NULL
           AND trim(rss_next_poll_at) != ''
         """
@@ -204,9 +202,8 @@ async def update_rss_priority(
         UPDATE channels
         SET rss_priority = ?,
             rss_next_poll_at = datetime('now'),
-            {sync_dirty_set_clause()}
+            updated_at = {UPDATED_AT_SQL}
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         """,
         (normalized, channel_id),
     )
@@ -228,7 +225,6 @@ async def update_rss_priority(
             created_at
         FROM channels
         WHERE channel_id = ?
-          AND deleted_at IS NULL
         """,
         (channel_id,),
     )
@@ -236,9 +232,7 @@ async def update_rss_priority(
 
 
 async def count_active_channels(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
-        "SELECT COUNT(*) FROM channels WHERE is_active = 1 AND deleted_at IS NULL"
-    )
+    cursor = await db.execute("SELECT COUNT(*) FROM channels WHERE is_active = 1")
     row = await cursor.fetchone()
     return int(row[0]) if row else 0
 

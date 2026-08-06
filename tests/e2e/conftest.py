@@ -79,8 +79,6 @@ def _build_e2e_env(
             "LLM_TIMEOUT_SECONDS": "120",
             "TELEGRAM_BOT_TOKEN": "",
             "TELEGRAM_CHAT_ID": "",
-            "BRIEFTUBE_REMOTE_SYNC_ENABLED": "0",
-            "BRIEFTUBE_REMOTE_SYNC_DSN": "",
             "BRIEFTUBE_LLM_RESPONSE_CAPTURE_DISABLED": "1",
         }
     )

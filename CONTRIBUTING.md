@@ -46,10 +46,6 @@ uv run pytest -q tests/test_llm_client.py tests/test_llm_capabilities.py \
 # 실패 시 로그 필드: stderr_summary, stdout_summary, exit_code
 # 실패 시 캡처 jsonl에는 stderr/stdout 스트림이 강제 포함된다 (article body는 INCLUDE_CONTENT 필요)
 
-# remote sync
-uv run pytest -q tests/test_remote_sync_config.py tests/test_remote_sync_local_repository.py \
-  tests/test_remote_sync_integration.py
-
 # transcript와 수동 작업
 uv run pytest -q tests/test_transcript_policy.py tests/test_transcript_guard_policy.py \
   tests/test_transcript_guard_concurrency.py tests/test_manual_transcript_worker.py \
@@ -88,8 +84,7 @@ uv run lint-imports
 
 Shell 변경은 `bash -n run-*.sh scripts/*.sh`로 문법을 확인합니다. HTML/Jinja/JS는 별도
 정적 toolchain을 두지 않으므로 관련 unit contract와 `uv run pytest -q -m e2e tests/e2e/<file>.py`를
-실행합니다. 실제 Postgres smoke는 `BRIEFTUBE_TEST_REMOTE_SYNC_DSN`이 있는 환경에서만 검증되며,
-기본 remote sync test 통과와 구분해서 보고합니다.
+실행합니다.
 
 `.github/workflows/ci.yml`은 위 정적 검사와 전체 unit/E2E 명령을 그대로 실행합니다. 로컬에서
 동일 명령이 통과해야 하며 CI 전용 우회나 별도 test selection을 추가하지 않습니다.
@@ -112,6 +107,6 @@ root와 entry point이므로 계층 계약 밖에 둡니다.
 
 ## 보안과 운영
 
-- Telegram token, API key, remote sync DSN을 커밋하거나 로그에 기록하지 않습니다.
+- Telegram token, API key를 커밋하거나 로그에 기록하지 않습니다.
 - transcript 원문, prompt, model 원응답, provider stdout/stderr 전문을 로그에 기록하지 않습니다.
 - 운영·공용 DB write와 원격 상태 변경은 명시적 승인 후 수행합니다.
