@@ -782,6 +782,8 @@ async def _purge_tombstoned_rows(db: aiosqlite.Connection) -> None:
 
 async def _migrate_to_v2(db: aiosqlite.Connection) -> None:
     await _purge_tombstoned_rows(db)
+    # Drop indexes that reference soft-delete/sync columns before DROP COLUMN.
+    await db.execute("DROP INDEX IF EXISTS idx_channels_rss_next_poll")
     for table in ("categories", "channels", "videos", "transcripts", "articles"):
         await db.execute(f"DROP INDEX IF EXISTS idx_{table}_sync_dirty_updated")
         for column in (
@@ -804,7 +806,6 @@ async def _migrate_to_v2(db: aiosqlite.Connection) -> None:
         """
     )
     # Recreate rss poll index without deleted_at predicate when adaptive RSS columns exist.
-    await db.execute("DROP INDEX IF EXISTS idx_channels_rss_next_poll")
     channel_columns = await _table_columns(db, "channels")
     if {"rss_next_poll_at", "rss_priority"}.issubset(channel_columns):
         await db.execute(

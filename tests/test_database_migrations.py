@@ -106,6 +106,8 @@ def test_v2_migration_drops_sync_and_tombstone_columns(tmp_path: Path) -> None:
                 rss_url TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 category_id INTEGER,
+                rss_next_poll_at TEXT,
+                rss_priority TEXT NOT NULL DEFAULT 'normal',
                 deleted_at TEXT,
                 sync_dirty INTEGER NOT NULL DEFAULT 1,
                 sync_last_pushed_at TEXT,
@@ -115,6 +117,9 @@ def test_v2_migration_drops_sync_and_tombstone_columns(tmp_path: Path) -> None:
             VALUES ('UClive001', 'Live', 'https://example.test/live', 1, NULL, 0, 'device-a');
             INSERT INTO channels(channel_id, channel_name, rss_url, category_id, deleted_at, sync_dirty, origin_device_id)
             VALUES ('UCgome001', 'GoneCh', 'https://example.test/gone', 1, '2026-01-02T00:00:00.000Z', 1, 'device-a');
+            CREATE INDEX idx_channels_rss_next_poll
+            ON channels(is_active, rss_next_poll_at, rss_priority)
+            WHERE deleted_at IS NULL;
             CREATE TABLE videos (
                 video_id TEXT PRIMARY KEY,
                 channel_id TEXT NOT NULL,
