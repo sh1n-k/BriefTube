@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -11,6 +12,12 @@ from app.services.llm_errors import (
     trim_error_message,
 )
 from app.services.llm_schema import ARTICLE_FIELD_KEYS
+
+# Over-escaped markdown usually separates blocks with literal \n/\n\n before headings/lists.
+_OVER_ESCAPED_BLOCK_RE = re.compile(
+    r"(?:\\n){2,}(?:#{1,6}\s|[-*]\s|\d+\.\s)|(?:\\n)#{1,6}\s",
+)
+_MIN_LITERAL_NEWLINES_FOR_MARKDOWN = 4
 
 
 def parse_provider_output(provider: str, stdout: str) -> dict[str, str]:
@@ -131,10 +138,103 @@ def is_article_payload(payload: Mapping[str, Any]) -> bool:
     return required.issubset(set(payload.keys()))
 
 
+def count_literal_newlines(text: str) -> int:
+    return str(text or "").count("\\n")
+
+
+def count_real_newlines(text: str) -> int:
+    return str(text or "").count("\n")
+
+
+def looks_like_over_escaped_markdown(text: str) -> bool:
+    """
+    True when text looks like markdown that used literal \\n as block separators.
+
+    Requires literal backslash-n to dominate real newlines, plus a markdown-structure
+    signal so paths like C:\\notes are not rewritten.
+    """
+    value = str(text or "")
+    literal_n = count_literal_newlines(value)
+    real_n = count_real_newlines(value)
+    if literal_n < 2 or literal_n <= real_n:
+        return False
+    if _OVER_ESCAPED_BLOCK_RE.search(value):
+        return True
+    if (
+        literal_n >= _MIN_LITERAL_NEWLINES_FOR_MARKDOWN
+        and real_n == 0
+        and value.lstrip().startswith("#")
+    ):
+        return True
+    return False
+
+
+def unescape_over_escaped_text(text: str) -> str:
+    return (
+        str(text or "")
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\r", "\n")
+        .replace("\\t", "\t")
+    )
+
+
+def normalize_article_text(text: str) -> str:
+    """Conservatively convert over-escaped markdown newlines into real newlines."""
+    value = str(text or "")
+    if looks_like_over_escaped_markdown(value):
+        value = unescape_over_escaped_text(value)
+    return value.strip()
+
+
+def normalize_fact_box_text(text: str) -> str:
+    """
+    Normalize markdown fact_box text only.
+
+    Valid JSON fact_box values are left untouched so compact JSON escapes stay valid.
+    """
+    raw = str(text or "").strip() or "{}"
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError:
+        return normalize_article_text(raw) or "{}"
+    return raw
+
+
+def article_body_format_invalid(body: str) -> bool:
+    """Detect body formats that cannot be stored as usable markdown."""
+    value = str(body or "").strip()
+    if not value:
+        return True
+    if looks_like_over_escaped_markdown(value):
+        return True
+    # Collapsed single-line dump: multiple ## markers, almost no newlines, no heading lines.
+    real_n = count_real_newlines(value)
+    if real_n <= 1 and len(value) >= 200 and value.count("##") >= 2:
+        heading_lines = sum(1 for line in value.splitlines() if line.lstrip().startswith("#"))
+        if heading_lines == 0:
+            return True
+    return False
+
+
+def article_fact_box_format_invalid(fact_box: str) -> bool:
+    value = str(fact_box or "").strip()
+    if not value or value == "{}":
+        return False
+    try:
+        json.loads(value)
+    except json.JSONDecodeError:
+        return looks_like_over_escaped_markdown(value)
+    return False
+
+
 def coerce_article(payload: Mapping[str, Any], *, provider: str) -> dict[str, str]:
     title = str(payload.get("title") or "").strip()
-    lead = str(payload.get("lead") or "").strip()
-    body = str(payload.get("body") or "").strip()
+    lead = normalize_article_text(str(payload.get("lead") or ""))
+    body = normalize_article_text(str(payload.get("body") or ""))
+    fact_box = normalize_fact_box_text(str(payload.get("fact_box") or "{}"))
+    timestamps = str(payload.get("timestamps") or "[]").strip() or "[]"
+
     if not title or not lead or not body:
         raise LlmClientError(
             "llm_schema_invalid",
@@ -142,10 +242,24 @@ def coerce_article(payload: Mapping[str, Any], *, provider: str) -> dict[str, st
             provider=provider,
             retryable=True,
         )
+    if article_body_format_invalid(body):
+        raise LlmClientError(
+            "llm_schema_invalid",
+            "LLM article body format is invalid",
+            provider=provider,
+            retryable=True,
+        )
+    if article_fact_box_format_invalid(fact_box):
+        raise LlmClientError(
+            "llm_schema_invalid",
+            "LLM article fact_box format is invalid",
+            provider=provider,
+            retryable=True,
+        )
     return {
         "title": title,
         "lead": lead,
         "body": body,
-        "fact_box": str(payload.get("fact_box") or "{}"),
-        "timestamps": str(payload.get("timestamps") or "[]"),
+        "fact_box": fact_box,
+        "timestamps": timestamps,
     }
