@@ -60,14 +60,14 @@
         <button
           type="button"
           data-channel-search-prev
-          class="shrink-0 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          class="ui-control shrink-0 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
         >
           {{ txt.channel_search_prev }}
         </button>
         <button
           type="button"
           data-channel-search-next
-          class="shrink-0 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          class="ui-control shrink-0 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
         >
           {{ txt.channel_search_next }}
         </button>
@@ -100,7 +100,7 @@
         <div class="flex flex-wrap items-center justify-end gap-2">
           <a
             href="/api/channels/export?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
-            class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            class="ui-control rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
             download
           >{{ txt.channel_export_button }}</a>
           <button
@@ -109,7 +109,7 @@
             hx-target="#channel-list-wrap"
             hx-swap="innerHTML"
             data-skip-save-toast="1"
-            class="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            class="ui-control rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
             {{ txt.channel_metadata_retry_button }}
           </button>
@@ -118,13 +118,13 @@
           {% if all_categories and current_status == "active" %}
           {% set selected_move_category_id = selected_category_id if selected_category_id is defined else None %}
           <div
-            class="flex items-center gap-1"
+            class="flex items-center gap-1.5"
             data-channel-move-category
             data-move-toast="{{ txt.category_move_success }}"
             data-move-none-selected-toast="{{ txt.category_move_none_selected }}"
             data-move-failed-toast="{{ txt.category_move_failed }}"
           >
-            <select name="move_category_id" data-channel-move-target class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
+            <select name="move_category_id" data-channel-move-target aria-label="{{ txt.category_move_submit }}" class="ui-control min-w-[7rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700">
               {% for cat in all_categories %}
               <option value="{{ cat.id }}" {% if selected_move_category_id is not none and cat.id == selected_move_category_id %}selected{% endif %}>{{ txt.category_default_name if cat.is_default else cat.name }}</option>
               {% endfor %}
@@ -132,7 +132,7 @@
             <button
               type="button"
               data-channel-move-submit
-              class="rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              class="ui-control rounded-md border border-indigo-300 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ txt.category_move_submit }}
             </button>
@@ -143,7 +143,7 @@
             <button
               type="submit"
               data-channel-bulk-submit
-              class="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              class="ui-control rounded-md bg-indigo-600 px-2.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ txt.channel_reactivate_selected }}
             </button>
@@ -152,7 +152,7 @@
               name="bulk_action"
               value="delete"
               data-channel-bulk-submit
-              class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+              class="ui-control rounded-md border border-rose-300 bg-rose-50 px-2.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ txt.channel_delete_selected }}
             </button>
@@ -161,7 +161,7 @@
               type="submit"
               data-channel-bulk-submit
               disabled
-              class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+              class="ui-control rounded-md border border-rose-300 bg-rose-50 px-2.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ txt.channel_delete_selected }}
             </button>
@@ -245,8 +245,8 @@
                 {% if rss_priority not in ["pinned", "normal", "low"] %}
                 {% set rss_priority = "normal" %}
                 {% endif %}
-                <label class="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
-                  <span>{{ txt.channel_rss_priority_label }}</span>
+                <label class="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600">
+                  <span class="whitespace-nowrap">{{ txt.channel_rss_priority_label }}</span>
                   <select
                     name="priority"
                     aria-label="{{ txt.channel_rss_priority_label }}: {{ channel.channel_name }}"
@@ -255,7 +255,7 @@
                     hx-swap="none"
                     hx-params="priority"
                     data-save-toast="{{ txt.channel_rss_priority_saved }}"
-                    class="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    class="ui-control min-w-[4.5rem] rounded border border-slate-300 bg-white px-1.5 text-xs font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                   >
                     <option value="pinned" {% if rss_priority == "pinned" %}selected{% endif %}>{{ txt.channel_rss_priority_pinned }}</option>
                     <option value="normal" {% if rss_priority == "normal" %}selected{% endif %}>{{ txt.channel_rss_priority_normal }}</option>
@@ -283,7 +283,7 @@
                     data-label-open="{{ txt.channel_meta_details_open }}"
                     data-label-close="{{ txt.channel_meta_details_close }}"
                     aria-expanded="false"
-                    class="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                    class="ui-control rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                   >
                     {{ txt.channel_meta_details_open }}
                   </button>
@@ -295,7 +295,7 @@
                       hx-post="/views/channels/{{ channel.channel_id }}/reactivate?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
                       hx-target="#channel-list-wrap"
                       hx-swap="innerHTML"
-                      class="rounded-md border border-indigo-300 bg-indigo-50 p-1.5 text-indigo-700 hover:bg-indigo-100"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
                     >
                       <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M10 3a7 7 0 0 0-6.217 10.217.75.75 0 1 0 1.334-.685A5.5 5.5 0 1 1 10 15.5a5.5 5.5 0 0 1-4.304-2.068.75.75 0 1 0-1.172.936A7 7 0 1 0 10 3Z"/>
@@ -312,7 +312,7 @@
                     data-save-toast="{{ txt.channel_delete_success }}"
                     hx-target="#channel-list-wrap"
                     hx-swap="innerHTML"
-                    class="rounded-md border border-rose-300 bg-white p-1.5 text-rose-600 hover:bg-rose-50"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-300 bg-white text-rose-600 hover:bg-rose-50"
                   >
                     <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                       <path fill-rule="evenodd" d="M8.5 2.5A1.5 1.5 0 0 0 7 4v.5H4.5a.75.75 0 0 0 0 1.5h.638l.605 9.07A2.25 2.25 0 0 0 7.988 17h4.024a2.25 2.25 0 0 0 2.245-1.93L14.862 6H15.5a.75.75 0 0 0 0-1.5H13V4a1.5 1.5 0 0 0-1.5-1.5h-3Zm3 .75h-3A.75.75 0 0 0 7.75 4v.5h4.5V4a.75.75 0 0 0-.75-.75ZM8.5 8a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 8.5 8Zm3 .75a.75.75 0 0 0-1.5 0v4.5a.75.75 0 0 0 1.5 0v-4.5Z" clip-rule="evenodd" />

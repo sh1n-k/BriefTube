@@ -478,7 +478,25 @@
     const selectEligibleBtn = form.querySelector("[data-video-select-eligible]");
     const selectHasArticleBtn = form.querySelector("[data-video-select-has-article]");
     const selectNoneBtn = form.querySelector("[data-video-select-none]");
-    const items = () => form.querySelectorAll("[data-video-select-item]");
+    const isDisplayed = (el) => {
+      if (!(el instanceof Element)) return false;
+      let node = el;
+      while (node && node !== document.documentElement) {
+        const st = window.getComputedStyle(node);
+        if (st.display === "none" || st.visibility === "hidden") return false;
+        node = node.parentElement;
+      }
+      return true;
+    };
+    const allItems = () => Array.from(form.querySelectorAll("[data-video-select-item]"));
+    const items = () => allItems().filter(isDisplayed);
+    const syncItemSubmitState = () => {
+      allItems().forEach((cb) => {
+        const visible = isDisplayed(cb);
+        cb.disabled = !visible;
+        if (!visible) cb.checked = false;
+      });
+    };
     if (!selectAll || !deleteBtn || !downloadBtn || !articleBtn) return;
 
     const downloadDefaultLabel = (downloadBtn.textContent || "").trim();
@@ -519,14 +537,15 @@
       const isAnyBusy = isDownloadBusy || isArticleBusy;
       form.setAttribute("aria-busy", isAnyBusy ? "true" : "false");
       downloadBtn.textContent = isDownloadBusy ? downloadBusyLabel : downloadDefaultLabel;
-      const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
+      const checked = items().filter((cb) => cb.checked).length;
       setArticleButtonLabel(checked, isArticleBusy);
       sync();
     }
 
     function sync() {
-      const checked = form.querySelectorAll("[data-video-select-item]:checked").length;
+      syncItemSubmitState();
       const all = items();
+      const checked = all.filter((cb) => cb.checked).length;
       const isDownloadBusy = form.dataset.videoDownloadBulkInFlight === "1";
       const isArticleBusy = form.dataset.videoArticleRequestBulkInFlight === "1";
       const isAnyBusy = isDownloadBusy || isArticleBusy;
@@ -539,6 +558,7 @@
     }
 
     function selectByPredicate(predicate) {
+      syncItemSubmitState();
       items().forEach((cb) => {
         cb.checked = predicate(cb);
       });
@@ -546,6 +566,7 @@
     }
 
     selectAll.addEventListener("change", () => {
+      syncItemSubmitState();
       items().forEach((cb) => {
         cb.checked = selectAll.checked;
       });
@@ -563,6 +584,15 @@
     form.addEventListener("change", (event) => {
       if (event.target.matches("[data-video-select-item]")) sync();
     });
+    form.addEventListener("submit", () => {
+      syncItemSubmitState();
+    });
+    form.addEventListener("htmx:configRequest", () => {
+      syncItemSubmitState();
+    });
+    window.addEventListener("resize", () => {
+      sync();
+    });
     downloadBtn.addEventListener("click", (event) => {
       const isBusy = form.dataset.videoDownloadBulkInFlight === "1"
         || form.dataset.videoArticleRequestBulkInFlight === "1";
@@ -570,6 +600,7 @@
         event.preventDefault();
         return;
       }
+      syncItemSubmitState();
       setBulkBusy("download", true);
     });
     articleBtn.addEventListener("click", (event) => {
@@ -579,6 +610,7 @@
         event.preventDefault();
         return;
       }
+      syncItemSubmitState();
       setBulkBusy("article", true);
     });
 
