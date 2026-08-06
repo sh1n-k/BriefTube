@@ -443,6 +443,19 @@ html[data-theme="dark"][data-tone="high-contrast"] {
   --status-badge-ring: var(--status-unknown-ring);
 }
 
+/* Visually hidden but available to assistive tech / JS label updates */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 /* Shared compact control height for filters/toolbars/pagers */
 .ui-control {
   box-sizing: border-box;
@@ -462,6 +475,24 @@ a.ui-control,
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+}
+/* Keep Tailwind `hidden` / responsive hide utilities working on controls */
+button.ui-control.hidden,
+a.ui-control.hidden,
+.ui-control.hidden {
+  display: none;
+}
+@media (min-width: 640px) {
+  button.ui-control.sm\:inline-flex,
+  a.ui-control.sm\:inline-flex,
+  .ui-control.sm\:inline-flex {
+    display: inline-flex;
+  }
+  button.ui-control.sm\:flex,
+  a.ui-control.sm\:flex,
+  .ui-control.sm\:flex {
+    display: flex;
+  }
 }
 select.ui-control,
 input.ui-control {

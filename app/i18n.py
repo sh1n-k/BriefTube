@@ -588,6 +588,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "queue_chip_failed": "실패",
         "queue_chip_no_subtitle": "자막 없음",
         "queue_chip_manual_review": "수동 확인",
+        "scroll_to_top": "맨 위로",
+        "scroll_to_bottom": "맨 아래로",
     },
     "en": {
         "brand": "BriefTube",
@@ -1173,6 +1175,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "queue_chip_failed": "Failed",
         "queue_chip_no_subtitle": "No subtitle",
         "queue_chip_manual_review": "Manual review",
+        "scroll_to_top": "Back to top",
+        "scroll_to_bottom": "Go to bottom",
     },
 }
 

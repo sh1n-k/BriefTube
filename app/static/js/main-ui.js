@@ -23,6 +23,41 @@
     navFadeDurationMs: NAV_FADE_DURATION_MS,
   });
 
+  function scrollWindowTo(top) {
+    const targetTop = Math.max(0, Number(top) || 0);
+    try {
+      window.scrollTo({ top: targetTop, behavior: "smooth" });
+    } catch (_err) {
+      window.scrollTo(0, targetTop);
+    }
+    // Some mobile/emulated environments no-op smooth scrolling.
+    window.setTimeout(() => {
+      if (Math.abs((window.scrollY || window.pageYOffset || 0) - targetTop) > 2) {
+        window.scrollTo(0, targetTop);
+      }
+    }, 50);
+  }
+
+  function bindScrollFab() {
+    const root = document.body;
+    if (!root || root.dataset.scrollFabBound === "1") return;
+    root.dataset.scrollFabBound = "1";
+    const topBtn = document.querySelector("[data-scroll-top]");
+    const bottomBtn = document.querySelector("[data-scroll-bottom]");
+    topBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      scrollWindowTo(0);
+    });
+    bottomBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      const top = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+      );
+      scrollWindowTo(top);
+    });
+  }
+
   function ensureUiToastStack() {
     let stack = document.getElementById("ui-toast-stack");
     if (!stack) {
@@ -189,7 +224,8 @@
     shell.classList.remove("is-leaving");
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  function bootMainUi() {
+    bindScrollFab();
     const themeState = themeController?.getThemeState?.() || { mode: "system", tone: "neutral" };
     themeController?.applyTheme?.(themeState.mode, themeState.tone, { persist: false });
     themeController?.bindSystemThemeObserver?.();
@@ -212,7 +248,13 @@
     categoryControls?.bindCategoryRename?.();
     channelActions?.initChannelImportForm?.();
     revealPageShell();
-  });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootMainUi);
+  } else {
+    bootMainUi();
+  }
 
   window.addEventListener("pageshow", revealPageShell);
   document.addEventListener("htmx:afterRequest", (event) => {

@@ -98,24 +98,24 @@
         </label>
         <button
           type="button"
-          data-video-select-eligible
+          data-video-select-none
           class="ui-control ui-control--ghost rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {{ txt.video_select_clear_all }}
+        </button>
+        <button
+          type="button"
+          data-video-select-eligible
+          class="ui-control ui-control--ghost hidden rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:inline-flex"
         >
           {{ txt.video_select_eligible_only }}
         </button>
         <button
           type="button"
           data-video-select-has-article
-          class="ui-control ui-control--ghost rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          class="ui-control ui-control--ghost hidden rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:inline-flex"
         >
           {{ txt.video_select_has_article_only }}
-        </button>
-        <button
-          type="button"
-          data-video-select-none
-          class="ui-control ui-control--ghost rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-        >
-          {{ txt.video_select_clear_all }}
         </button>
       </div>
       <div class="flex flex-wrap items-center gap-2 sm:justify-end">
@@ -498,28 +498,28 @@
   </form>
 
   {# ── Pagination ── #}
-  <div class="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-    <p class="text-xs text-slate-500">
+  {% set query_common = "limit=" ~ pager.limit ~ "&sort=" ~ pager.sort ~ "&order=" ~ pager.order %}
+  {% if pager.channel_id %}
+    {% set query_common = query_common ~ "&channel_id=" ~ pager.channel_id %}
+  {% endif %}
+  {% if pager.category_id is defined and pager.category_id %}
+    {% set query_common = query_common ~ "&category_id=" ~ pager.category_id %}
+  {% endif %}
+  {% if pager.pipeline_status is defined and pager.pipeline_status %}
+    {% set query_common = query_common ~ "&pipeline_status=" ~ pager.pipeline_status %}
+  {% endif %}
+  {% set first_page = 1 %}
+  {% set last_page = pager.total_pages %}
+  {% set prev_page = pager.page - 1 %}
+  {% set next_page = pager.page + 1 %}
+  <div class="space-y-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
+    <p class="text-center text-xs text-slate-500 sm:text-left">
       {{ txt.video_pager_info }} {{ pager.page }} / {{ pager.total_pages }} · {{ pager.total }}
     </p>
-    <div class="flex flex-wrap items-center gap-2">
-      {% set query_common = "limit=" ~ pager.limit ~ "&sort=" ~ pager.sort ~ "&order=" ~ pager.order %}
-      {% if pager.channel_id %}
-        {% set query_common = query_common ~ "&channel_id=" ~ pager.channel_id %}
-      {% endif %}
-      {% if pager.category_id is defined and pager.category_id %}
-        {% set query_common = query_common ~ "&category_id=" ~ pager.category_id %}
-      {% endif %}
-      {% if pager.pipeline_status is defined and pager.pipeline_status %}
-        {% set query_common = query_common ~ "&pipeline_status=" ~ pager.pipeline_status %}
-      {% endif %}
-      {% set first_page = 1 %}
-      {% set last_page = pager.total_pages %}
-      {% set prev_page = pager.page - 1 %}
-      {% set next_page = pager.page + 1 %}
+    <div class="grid w-full grid-cols-4 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
       <button
         type="button"
-        class="ui-control whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        class="ui-control w-full whitespace-nowrap rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-3"
         {% if pager.page <= 1 %}disabled{% else %}
         hx-get="/views/video-list?page={{ first_page }}&{{ query_common }}"
         hx-target="#video-list-wrap"
@@ -531,7 +531,7 @@
       </button>
       <button
         type="button"
-        class="ui-control whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        class="ui-control w-full whitespace-nowrap rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-3"
         {% if pager.page <= 1 %}disabled{% else %}
         hx-get="/views/video-list?page={{ prev_page }}&{{ query_common }}"
         hx-target="#video-list-wrap"
@@ -543,7 +543,7 @@
       </button>
       <button
         type="button"
-        class="ui-control whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        class="ui-control w-full whitespace-nowrap rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-3"
         {% if pager.page >= pager.total_pages %}disabled{% else %}
         hx-get="/views/video-list?page={{ next_page }}&{{ query_common }}"
         hx-target="#video-list-wrap"
@@ -555,7 +555,7 @@
       </button>
       <button
         type="button"
-        class="ui-control whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        class="ui-control w-full whitespace-nowrap rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-3"
         {% if pager.page >= pager.total_pages %}disabled{% else %}
         hx-get="/views/video-list?page={{ last_page }}&{{ query_common }}"
         hx-target="#video-list-wrap"
@@ -565,42 +565,42 @@
       >
         {{ txt.video_pager_last }}
       </button>
-      <form
-        class="flex items-center gap-1.5"
-        hx-get="/views/video-list"
-        hx-target="#video-list-wrap"
-        hx-swap="outerHTML"
-        hx-push-url="true"
-      >
-        <input type="hidden" name="limit" value="{{ pager.limit }}" />
-        <input type="hidden" name="sort" value="{{ pager.sort }}" />
-        <input type="hidden" name="order" value="{{ pager.order }}" />
-        {% if pager.channel_id %}
-          <input type="hidden" name="channel_id" value="{{ pager.channel_id }}" />
-        {% endif %}
-        {% if pager.category_id is defined and pager.category_id %}
-          <input type="hidden" name="category_id" value="{{ pager.category_id }}" />
-        {% endif %}
-        {% if pager.pipeline_status is defined and pager.pipeline_status %}
-          <input type="hidden" name="pipeline_status" value="{{ pager.pipeline_status }}" />
-        {% endif %}
-        <label class="whitespace-nowrap text-xs text-slate-600">{{ txt.video_pager_page_input_label }}</label>
-        <input
-          type="number"
-          name="page"
-          min="1"
-          max="{{ pager.total_pages }}"
-          value="{{ pager.page }}"
-          class="ui-control w-16 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-        />
-        <button
-          type="submit"
-          class="ui-control whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-        >
-          {{ txt.video_pager_go }}
-        </button>
-      </form>
     </div>
+    <form
+      class="flex w-full items-center justify-center gap-1.5 sm:w-auto sm:justify-start"
+      hx-get="/views/video-list"
+      hx-target="#video-list-wrap"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+    >
+      <input type="hidden" name="limit" value="{{ pager.limit }}" />
+      <input type="hidden" name="sort" value="{{ pager.sort }}" />
+      <input type="hidden" name="order" value="{{ pager.order }}" />
+      {% if pager.channel_id %}
+        <input type="hidden" name="channel_id" value="{{ pager.channel_id }}" />
+      {% endif %}
+      {% if pager.category_id is defined and pager.category_id %}
+        <input type="hidden" name="category_id" value="{{ pager.category_id }}" />
+      {% endif %}
+      {% if pager.pipeline_status is defined and pager.pipeline_status %}
+        <input type="hidden" name="pipeline_status" value="{{ pager.pipeline_status }}" />
+      {% endif %}
+      <label class="whitespace-nowrap text-xs text-slate-600">{{ txt.video_pager_page_input_label }}</label>
+      <input
+        type="number"
+        name="page"
+        min="1"
+        max="{{ pager.total_pages }}"
+        value="{{ pager.page }}"
+        class="ui-control w-16 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+      />
+      <button
+        type="submit"
+        class="ui-control whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+      >
+        {{ txt.video_pager_go }}
+      </button>
+    </form>
   </div>
 
 </div>
