@@ -61,3 +61,6 @@ repomix.config.json
 repomix-output.*
 repomix-output-*/
 .repomix-cache/
+
+# Local LLM prompt apply backups (version snapshots stay tracked)
+prompts/llm_restructure/backups/
