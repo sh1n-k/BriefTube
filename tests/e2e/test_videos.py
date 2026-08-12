@@ -208,7 +208,7 @@ def test_video_list_pagination_and_delete(e2e_page: Page, seeded_server: dict) -
     expect(rows).to_have_count(10)
 
     # Pagination info should show page 1 / 3 (25 total, 10 per page)
-    pager_info = page.locator("#video-list-wrap .flex.items-center.justify-between.border-t p")
+    pager_info = page.locator("#video-list-wrap .border-t p").first
     expect(pager_info).to_contain_text("1 / 3")
 
     # Click next page button
@@ -219,7 +219,7 @@ def test_video_list_pagination_and_delete(e2e_page: Page, seeded_server: dict) -
     # Wait for HTMX swap — the pager info should now show page 2
     page.wait_for_function(
         """() => {
-            const p = document.querySelector('#video-list-wrap .flex.items-center.justify-between p');
+            const p = document.querySelector('#video-list-wrap .border-t p');
             return p && p.textContent.includes('2 / 3');
         }"""
     )

@@ -197,5 +197,62 @@ def test_queue_page_renders_section_clear_controls(client: TestClient) -> None:
     assert response.status_code == 200
     assert 'data-queue-clear-section="transcript"' in response.text
     assert 'data-queue-clear-section="llm"' in response.text
+
+
+def test_queue_retry_failed_transcript_section(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_queue_video(conn, video_id="vid-t-pending", pipeline_status="transcript_pending")
+        _seed_queue_video(conn, video_id="vid-t-failed", pipeline_status="transcript_failed")
+        _seed_queue_video(conn, video_id="vid-t-no-sub", pipeline_status="no_subtitle")
+        conn.commit()
+
+    response = client.post("/api/queue/transcript/retry-failed")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "section": "transcript", "retried_count": 2}
+    with sqlite3.connect(db_path) as conn:
+        rows = dict(
+            conn.execute(
+                "SELECT video_id, pipeline_status FROM videos ORDER BY video_id"
+            ).fetchall()
+        )
+    assert rows["vid-t-failed"] == "transcript_pending"
+    assert rows["vid-t-no-sub"] == "transcript_pending"
+    assert rows["vid-t-pending"] == "transcript_pending"
+
+
+def test_queue_retry_failed_llm_section(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_queue_video(conn, video_id="vid-l-pending", pipeline_status="llm_pending")
+        _seed_queue_video(conn, video_id="vid-l-failed", pipeline_status="llm_failed")
+        _seed_queue_video(conn, video_id="vid-l-review", pipeline_status="manual_review")
+        conn.commit()
+
+    response = client.post("/api/queue/llm/retry-failed")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "section": "llm", "retried_count": 2}
+    with sqlite3.connect(db_path) as conn:
+        rows = dict(
+            conn.execute(
+                "SELECT video_id, pipeline_status FROM videos ORDER BY video_id"
+            ).fetchall()
+        )
+    assert rows["vid-l-failed"] == "llm_pending"
+    assert rows["vid-l-review"] == "llm_pending"
+    assert rows["vid-l-pending"] == "llm_pending"
+
+
+def test_queue_page_renders_retry_all_when_failed_exists(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_queue_video(conn, video_id="vid-t-failed", pipeline_status="transcript_failed")
+        _seed_queue_video(conn, video_id="vid-l-failed", pipeline_status="llm_failed")
+        conn.commit()
+
+    response = client.get("/queue")
+    assert response.status_code == 200
+    assert 'data-queue-retry-section="transcript"' in response.text
+    assert 'data-queue-retry-section="llm"' in response.text
     assert "/static/js/ui/queue-status.js" in response.text
     assert "진행 중인 Transcript 작업은 유지" in response.text

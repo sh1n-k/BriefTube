@@ -500,6 +500,17 @@ input.ui-control {
   padding-bottom: 0;
 }
 
+/* Search match highlight inside FTS snippets */
+.search-snippet mark {
+  background-color: color-mix(in srgb, #fbbf24 55%, transparent);
+  color: inherit;
+  border-radius: 0.15rem;
+  padding: 0 0.1em;
+}
+html[data-theme="dark"] .search-snippet mark {
+  background-color: color-mix(in srgb, #d97706 45%, transparent);
+}
+
 /* Scroll FABs — brand-tinted so they contrast against page surfaces */
 .scroll-fab-btn {
   border: 1px solid color-mix(in srgb, var(--brand-strong) 42%, var(--border-default));

@@ -33,7 +33,7 @@
     };
 
     const stored = sessionStorage.getItem(storageKey);
-    applyState(stored !== "0", { persist: false });
+    applyState(stored === "1", { persist: false });
 
     toggle.addEventListener("click", () => {
       const isExpanded = toggle.getAttribute("aria-expanded") === "true";

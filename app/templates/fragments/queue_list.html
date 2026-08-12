@@ -20,6 +20,15 @@
       </div>
     </div>
     <div class="flex shrink-0 items-center gap-2">
+      {% set t_failed = (t_counts.get('transcript_failed', 0) + t_counts.get('no_subtitle', 0)) %}
+      {% if t_failed > 0 %}
+      <button type="button"
+              data-queue-retry-section="transcript"
+              class="ui-control rounded-md border border-indigo-300 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              onclick="event.stopPropagation()">
+        {{ txt.queue_retry_all_button }}
+      </button>
+      {% endif %}
       <button type="button"
               data-queue-clear-section="transcript"
               data-confirm-message="{{ txt.queue_clear_transcript_confirm }}"
@@ -86,6 +95,15 @@
       </div>
     </div>
     <div class="flex shrink-0 items-center gap-2">
+      {% set l_failed = (t_counts.get('llm_failed', 0) + t_counts.get('manual_review', 0)) %}
+      {% if l_failed > 0 %}
+      <button type="button"
+              data-queue-retry-section="llm"
+              class="ui-control rounded-md border border-indigo-300 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              onclick="event.stopPropagation()">
+        {{ txt.queue_retry_all_button }}
+      </button>
+      {% endif %}
       <button type="button"
               data-queue-clear-section="llm"
               data-confirm-message="{{ txt.queue_clear_llm_confirm }}"

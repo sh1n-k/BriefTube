@@ -219,19 +219,13 @@ def test_channel_accordions(page: Page) -> None:
     toggle = page.locator("[data-channel-compose-toggle]")
     body = page.locator("#channel-compose-body")
 
-    # Ensure initially expanded (default behavior)
+    # Default is collapsed; expand/collapse still works.
     expect(toggle).to_be_visible()
-
-    if body.is_visible():
-        toggle.click()
-        expect(body).to_be_hidden()
-        toggle.click()
-        expect(body).to_be_visible()
-    else:
-        toggle.click()
-        expect(body).to_be_visible()
-        toggle.click()
-        expect(body).to_be_hidden()
+    expect(body).to_be_hidden()
+    toggle.click()
+    expect(body).to_be_visible()
+    toggle.click()
+    expect(body).to_be_hidden()
 
     items = page.locator("[data-channel-meta-item]")
     if items.count() < 2:

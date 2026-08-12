@@ -16,6 +16,7 @@ schedule_transcript_retry = repository.schedule_transcript_retry
 defer_channel_transcript_retries = repository.defer_channel_transcript_retries
 mark_transcript_failed = repository.mark_transcript_failed
 reset_transcript_for_retry = repository.reset_transcript_for_retry
+reset_failed_transcripts_for_retry = repository.reset_failed_transcripts_for_retry
 
 get_transcript_guard_state = guard_repository.get_transcript_guard_state
 save_transcript_guard_state = guard_repository.save_transcript_guard_state

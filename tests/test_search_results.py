@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -71,6 +72,40 @@ def test_search_results_fragment_returns_matching_results(client: TestClient) ->
     assert "블록체인" in html
     assert "검색 결과" in html
     assert "/videos/vid-search-blockchain" in html
+
+
+def test_search_results_snippet_uses_match_context_and_strips_markdown(
+    client: TestClient,
+) -> None:
+    _seed_search_video(
+        video_id="vid-search-snippet",
+        title="에이전트 검색 스니펫",
+        transcript="서두 문장입니다. " + ("패딩 " * 40) + "핵심 키워드 에이전트 워크플로 설명.",
+        article_title="## 한 곳에서 보는 요약",
+        article_lead="서두",
+        article_body=(
+            "## 한 곳에서 보는 요약\n\n"
+            + ("앞부분 패딩 문장. " * 20)
+            + "여기서 **에이전트** 패턴을 다룹니다."
+        ),
+    )
+
+    response = client.get("/views/search-results?q=에이전트", headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+    assert "에이전트" in html
+    assert "<mark>" in html
+    snippets = re.findall(
+        r'class="[^"]*search-snippet[^"]*"[^>]*>(.*?)</p>',
+        html,
+        flags=re.DOTALL,
+    )
+    assert snippets
+    joined = " ".join(snippets)
+    assert "에이전트" in joined
+    assert "<mark>" in joined
+    assert "##" not in joined
+    assert "서두 문장입니다." not in joined
 
 
 def test_search_results_fragment_renders_empty_state(client: TestClient) -> None:

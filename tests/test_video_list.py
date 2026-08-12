@@ -675,8 +675,10 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert "data-video-list-cards" in html
     assert "video-list-table" in html
     assert "min-w-[1040px]" in html
-    assert "md:hidden" in html
-    assert "hidden overflow-x-auto md:block" in html
+    assert "lg:hidden" in html
+    assert "hidden overflow-x-auto lg:block" in html
+    assert 'name="viewed"' in html
+    assert "data-video-bulk-actions" in html
 
     empty_response = client.get(
         "/views/video-list",
@@ -808,3 +810,70 @@ def test_video_article_selected_limit_exceeded_returns_bulk_toast(client: TestCl
     toast = payload["video-article-request-toast"]
     assert "11" in str(toast.get("message", ""))
     assert "10" in str(toast.get("message", ""))
+
+
+def test_video_list_viewed_filter(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE videos SET viewed_at = datetime('now') WHERE video_id = 'vid-a-000'")
+        conn.commit()
+
+    unread = client.get(
+        "/views/video-list",
+        params={"viewed": "unread", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert unread.status_code == 200
+    assert "vid-a-000" not in unread.text
+    assert "vid-a-001" in unread.text
+    assert 'name="viewed"' in unread.text
+
+    read = client.get(
+        "/views/video-list",
+        params={"viewed": "read", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert read.status_code == 200
+    assert "vid-a-000" in read.text
+    assert "vid-a-001" not in read.text
+
+
+def test_video_list_sets_home_push_url_header_with_viewed(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    response = client.get(
+        "/views/video-list",
+        params={"viewed": "unread", "page": "1", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert response.status_code == 200
+    push_url = response.headers.get("HX-Push-Url") or ""
+    assert "viewed=unread" in push_url
+
+
+def test_video_article_preview_modal_marks_viewed(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _seed_video_outputs("vid-a-000", transcript=True, article=True)
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        before = conn.execute(
+            "SELECT viewed_at FROM videos WHERE video_id = ?",
+            ("vid-a-000",),
+        ).fetchone()
+        assert before is not None
+        assert before[0] is None
+
+    response = client.get(
+        "/views/videos/vid-a-000/article-preview-modal",
+        headers=FRAGMENT_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "data-article-preview-modal" in response.text
+
+    with sqlite3.connect(db_path) as conn:
+        after = conn.execute(
+            "SELECT viewed_at FROM videos WHERE video_id = ?",
+            ("vid-a-000",),
+        ).fetchone()
+        assert after is not None
+        assert after[0] is not None

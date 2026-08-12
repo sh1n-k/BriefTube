@@ -237,7 +237,7 @@ def test_channels_page_renders_add_and_bulk_forms(client: TestClient) -> None:
     assert "data-channel-compose-toggle" in html
     assert "data-channel-compose-body" in html
     assert 'aria-controls="channel-compose-body"' in html
-    assert 'aria-expanded="true"' in html
+    assert 'aria-expanded="false"' in html
     assert 'hx-post="/views/channels/add"' in html
     assert "data-channel-compose-form" in html
     assert 'data-submit-busy-label="등록 중..."' in html

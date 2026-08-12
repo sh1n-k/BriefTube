@@ -342,6 +342,22 @@ async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) ->
     return cursor.rowcount
 
 
+async def reset_failed_transcripts_for_retry(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'transcript_pending',
+            transcript_retry_count = 0,
+            transcript_next_attempt_at = NULL,
+            transcript_last_error = NULL,
+            transcript_last_error_at = NULL
+        WHERE pipeline_status IN ('transcript_failed', 'no_subtitle')
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
+
+
 async def get_transcript_request_header_overrides(db: aiosqlite.Connection) -> dict[str, str]:
     raw = await get_setting(
         db,

@@ -478,6 +478,7 @@
     const selectEligibleBtn = form.querySelector("[data-video-select-eligible]");
     const selectHasArticleBtn = form.querySelector("[data-video-select-has-article]");
     const selectNoneBtn = form.querySelector("[data-video-select-none]");
+    const bulkActions = form.querySelector("[data-video-bulk-actions]");
     const isDisplayed = (el) => {
       if (!(el instanceof Element)) return false;
       let node = el;
@@ -552,6 +553,9 @@
       deleteBtn.disabled = checked === 0;
       downloadBtn.disabled = checked === 0 || isAnyBusy;
       articleBtn.disabled = checked === 0 || isAnyBusy;
+      if (bulkActions instanceof HTMLElement) {
+        bulkActions.classList.toggle("hidden", checked === 0);
+      }
       setArticleButtonLabel(checked, isArticleBusy);
       selectAll.checked = all.length > 0 && checked === all.length;
       selectAll.indeterminate = checked > 0 && checked < all.length;

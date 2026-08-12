@@ -26,7 +26,7 @@
           <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{{ item.source }}</span>
         {% endif %}
       </div>
-      <p class="mt-1 text-sm text-slate-600 line-clamp-2">{{ item.snippet }}...</p>
+      <p class="mt-1 text-sm text-slate-600 line-clamp-2 search-snippet">{{ item.snippet | safe }}</p>
     </li>
     {% else %}
     <li class="py-4 text-center text-sm text-slate-400">{{ txt.search_results_empty }}</li>

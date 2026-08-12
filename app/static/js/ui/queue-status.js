@@ -136,6 +136,7 @@
         const collapsibleStates = captureQueueCollapsibleStates(content);
         content.innerHTML = payload.queue_html;
         bindQueueRetryButtons(content);
+        bindQueueRetryAllButtons(content);
         bindQueueClearButtons(content);
         window.BrieftubeVideoControls?.bindCollapsibles?.(content);
         restoreQueueCollapsibleStates(content, collapsibleStates);
@@ -188,6 +189,42 @@
       "queueRetryLlm",
       (id) => `/api/videos/${encodeURIComponent(id)}/retry`,
     );
+  }
+
+  function bindQueueRetryAllButtons(scope) {
+    if (!scope) return;
+    scope.querySelectorAll("[data-queue-retry-section]").forEach((btn) => {
+      if (btn.dataset.queueRetryAllBound === "1") return;
+      btn.dataset.queueRetryAllBound = "1";
+      btn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const section = btn.dataset.queueRetrySection;
+        if (!section || btn.disabled) return;
+        btn.disabled = true;
+        const page = document.querySelector("[data-queue-page]");
+        try {
+          const resp = await fetch(`/api/queue/${encodeURIComponent(section)}/retry-failed`, {
+            method: "POST",
+            headers: { Accept: "application/json" },
+          });
+          const payload = await resp.json().catch(() => null);
+          if (resp.ok && payload?.ok) {
+            const count = Number.parseInt(String(payload.retried_count || "0"), 10) || 0;
+            const template = count > 0
+              ? (page?.dataset.retryAllSuccessText || "Retried {count} failed item(s).")
+              : (page?.dataset.retryAllEmptyText || "No failed items to retry.");
+            showToast(template.replace("{count}", String(count)), count > 0 ? "success" : "info");
+            void pollQueueStatus();
+            return;
+          }
+          showToast(page?.dataset.retryAllFailedText || "Failed to retry queue items.", "error");
+        } catch (err) {
+          if (typeof console !== "undefined") console.warn("[BriefTube] Queue retry-all error:", err);
+          showToast(page?.dataset.retryAllFailedText || "Failed to retry queue items.", "error");
+        }
+        btn.disabled = false;
+      });
+    });
   }
 
   function bindQueueClearButtons(scope) {
@@ -254,6 +291,7 @@
   window.BrieftubeQueueStatus = {
     configure,
     bindQueueRetryButtons,
+    bindQueueRetryAllButtons,
     bindQueueClearButtons,
     pollQueueStatus,
     startQueuePolling,

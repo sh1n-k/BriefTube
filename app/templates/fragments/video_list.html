@@ -6,6 +6,7 @@
     'total_pages': 1,
     'channel_id': '',
     'pipeline_status': '',
+    'viewed': '',
     'sort': 'upload_time',
     'order': 'desc'
   } %}
@@ -19,7 +20,7 @@
     <form hx-get="/views/video-list" hx-target="#video-list-wrap"
           hx-swap="outerHTML" hx-push-url="true"
           hx-trigger="change from:select delay:500ms"
-          class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
       <input type="hidden" name="sort" value="{{ pager.sort }}" />
       <input type="hidden" name="order" value="{{ pager.order }}" />
       <input type="hidden" name="limit" value="{{ pager.limit }}" />
@@ -54,7 +55,7 @@
       {% if has_status_filters %}
       <select name="pipeline_status"
               aria-label="{{ txt.video_filter_all_statuses }}"
-              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 sm:col-span-2 lg:col-span-1">
+              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
         <option value="">{{ txt.video_filter_all_statuses }}</option>
         {% for status_key in status_filter_options %}
           {% set status_text_key = 'pipeline_status_' ~ status_key %}
@@ -65,6 +66,13 @@
         {% endfor %}
       </select>
       {% endif %}
+      <select name="viewed"
+              aria-label="{{ txt.video_filter_all_read_states }}"
+              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
+        <option value="">{{ txt.video_filter_all_read_states }}</option>
+        <option value="unread" {% if pager.viewed is defined and pager.viewed == 'unread' %}selected{% endif %}>{{ txt.video_filter_unread }}</option>
+        <option value="read" {% if pager.viewed is defined and pager.viewed == 'read' %}selected{% endif %}>{{ txt.video_filter_read }}</option>
+      </select>
     </form>
   </div>
   {% endif %}
@@ -86,6 +94,9 @@
     {% endif %}
     {% if pager.pipeline_status is defined and pager.pipeline_status %}
       <input type="hidden" name="_pipeline_status" value="{{ pager.pipeline_status }}" />
+    {% endif %}
+    {% if pager.viewed is defined and pager.viewed %}
+      <input type="hidden" name="_viewed" value="{{ pager.viewed }}" />
     {% endif %}
 
     {# ── Control bar ── #}
@@ -118,7 +129,7 @@
           {{ txt.video_select_has_article_only }}
         </button>
       </div>
-      <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div class="hidden flex flex-wrap items-center gap-2 sm:justify-end" data-video-bulk-actions>
         <button
           type="button"
           data-video-article-request-selected
@@ -156,8 +167,8 @@
       </div>
     </div>
 
-    {# ── Mobile card list ── #}
-    <div class="divide-y divide-slate-100 md:hidden" data-video-list-cards>
+    {# ── Mobile / tablet card list ── #}
+    <div class="divide-y divide-slate-100 lg:hidden" data-video-list-cards>
       {% for video in videos %}
       {% set pipeline_key = (video.pipeline_status or '')|string|lower %}
       {% set article_eligible = pipeline_key != '' and pipeline_key not in skip_statuses %}
@@ -198,7 +209,7 @@
                   {% if video.channel_id %}
                     {% set channel_filter_q = "page=1&limit=" ~ (pager.limit|string|urlencode) ~ "&sort=" ~ (pager.sort|string|urlencode) ~ "&order=" ~ (pager.order|string|urlencode) ~ "&channel_id=" ~ (video.channel_id|string|urlencode) %}
                     {% if pager.category_id is defined and pager.category_id %}{% set channel_filter_q = channel_filter_q ~ "&category_id=" ~ (pager.category_id|string|urlencode) %}{% endif %}
-                    {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set channel_filter_q = channel_filter_q ~ "&pipeline_status=" ~ (pager.pipeline_status|string|urlencode) %}{% endif %}
+                    {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set channel_filter_q = channel_filter_q ~ "&pipeline_status=" ~ (pager.pipeline_status|string|urlencode) %}{% endif %}{% if pager.viewed is defined and pager.viewed %}{% set channel_filter_q = channel_filter_q ~ "&viewed=" ~ (pager.viewed|string|urlencode) %}{% endif %}
                     <a
                       href="/?{{ channel_filter_q }}"
                       hx-get="/views/video-list?{{ channel_filter_q }}"
@@ -258,7 +269,7 @@
                     hx-post="/views/videos/article-request-selected"
                     hx-target="#video-list-wrap"
                     hx-swap="outerHTML"
-                    hx-vals='{"video_id": "{{ video.video_id }}", "_page": "{{ pager.page }}", "_limit": "{{ pager.limit }}", "_sort": "{{ pager.sort }}", "_order": "{{ pager.order }}"{% if pager.channel_id %}, "_channel_id": "{{ pager.channel_id }}"{% endif %}{% if pager.category_id is defined and pager.category_id %}, "_category_id": "{{ pager.category_id }}"{% endif %}{% if pager.pipeline_status is defined and pager.pipeline_status %}, "_pipeline_status": "{{ pager.pipeline_status }}"{% endif %}}'
+                    hx-vals='{"video_id": "{{ video.video_id }}", "_page": "{{ pager.page }}", "_limit": "{{ pager.limit }}", "_sort": "{{ pager.sort }}", "_order": "{{ pager.order }}"{% if pager.channel_id %}, "_channel_id": "{{ pager.channel_id }}"{% endif %}{% if pager.category_id is defined and pager.category_id %}, "_category_id": "{{ pager.category_id }}"{% endif %}{% if pager.pipeline_status is defined and pager.pipeline_status %}, "_pipeline_status": "{{ pager.pipeline_status }}"{% endif %}{% if pager.viewed is defined and pager.viewed %}, "_viewed": "{{ pager.viewed }}"{% endif %}}'
                     aria-label="{{ txt.video_action_request_article }}"
                     title="{{ txt.video_action_request_article }}"
                     class="video-row-action-chip video-row-action-chip--request inline-flex h-9 w-full items-center justify-center rounded-md px-1.5 text-xs font-medium"
@@ -305,8 +316,8 @@
       {% endfor %}
     </div>
 
-    {# ── Desktop / tablet table ── #}
-    <div class="hidden overflow-x-auto md:block">
+    {# ── Desktop table ── #}
+    <div class="hidden overflow-x-auto lg:block">
       <table class="video-list-table w-full min-w-[1040px] table-fixed text-sm">
         <colgroup>
           <col class="w-10" />
@@ -329,6 +340,7 @@
             {% if pager.channel_id %}{% set sort_q = sort_q ~ "&channel_id=" ~ pager.channel_id %}{% endif %}
             {% if pager.category_id is defined and pager.category_id %}{% set sort_q = sort_q ~ "&category_id=" ~ pager.category_id %}{% endif %}
             {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set sort_q = sort_q ~ "&pipeline_status=" ~ pager.pipeline_status %}{% endif %}
+            {% if pager.viewed is defined and pager.viewed %}{% set sort_q = sort_q ~ "&viewed=" ~ pager.viewed %}{% endif %}
             <th class="cursor-pointer select-none whitespace-nowrap p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-indigo-600"
                 hx-get="/views/video-list?{{ sort_q }}"
                 hx-target="#video-list-wrap" hx-swap="outerHTML"
@@ -388,7 +400,7 @@
               {% if video.channel_id %}
                 {% set channel_filter_q = "page=1&limit=" ~ (pager.limit|string|urlencode) ~ "&sort=" ~ (pager.sort|string|urlencode) ~ "&order=" ~ (pager.order|string|urlencode) ~ "&channel_id=" ~ (video.channel_id|string|urlencode) %}
                 {% if pager.category_id is defined and pager.category_id %}{% set channel_filter_q = channel_filter_q ~ "&category_id=" ~ (pager.category_id|string|urlencode) %}{% endif %}
-                {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set channel_filter_q = channel_filter_q ~ "&pipeline_status=" ~ (pager.pipeline_status|string|urlencode) %}{% endif %}
+                {% if pager.pipeline_status is defined and pager.pipeline_status %}{% set channel_filter_q = channel_filter_q ~ "&pipeline_status=" ~ (pager.pipeline_status|string|urlencode) %}{% endif %}{% if pager.viewed is defined and pager.viewed %}{% set channel_filter_q = channel_filter_q ~ "&viewed=" ~ (pager.viewed|string|urlencode) %}{% endif %}
                 <a
                   href="/?{{ channel_filter_q }}"
                   hx-get="/views/video-list?{{ channel_filter_q }}"
@@ -447,7 +459,7 @@
                     hx-post="/views/videos/article-request-selected"
                     hx-target="#video-list-wrap"
                     hx-swap="outerHTML"
-                    hx-vals='{"video_id": "{{ video.video_id }}", "_page": "{{ pager.page }}", "_limit": "{{ pager.limit }}", "_sort": "{{ pager.sort }}", "_order": "{{ pager.order }}"{% if pager.channel_id %}, "_channel_id": "{{ pager.channel_id }}"{% endif %}{% if pager.category_id is defined and pager.category_id %}, "_category_id": "{{ pager.category_id }}"{% endif %}{% if pager.pipeline_status is defined and pager.pipeline_status %}, "_pipeline_status": "{{ pager.pipeline_status }}"{% endif %}}'
+                    hx-vals='{"video_id": "{{ video.video_id }}", "_page": "{{ pager.page }}", "_limit": "{{ pager.limit }}", "_sort": "{{ pager.sort }}", "_order": "{{ pager.order }}"{% if pager.channel_id %}, "_channel_id": "{{ pager.channel_id }}"{% endif %}{% if pager.category_id is defined and pager.category_id %}, "_category_id": "{{ pager.category_id }}"{% endif %}{% if pager.pipeline_status is defined and pager.pipeline_status %}, "_pipeline_status": "{{ pager.pipeline_status }}"{% endif %}{% if pager.viewed is defined and pager.viewed %}, "_viewed": "{{ pager.viewed }}"{% endif %}}'
                     aria-label="{{ txt.video_action_request_article }}"
                     title="{{ txt.video_action_request_article }}"
                     class="video-row-action-chip video-row-action-chip--request inline-flex h-9 w-full items-center justify-center rounded-md px-1.5 text-xs font-medium"
@@ -507,6 +519,9 @@
   {% endif %}
   {% if pager.pipeline_status is defined and pager.pipeline_status %}
     {% set query_common = query_common ~ "&pipeline_status=" ~ pager.pipeline_status %}
+  {% endif %}
+  {% if pager.viewed is defined and pager.viewed %}
+    {% set query_common = query_common ~ "&viewed=" ~ pager.viewed %}
   {% endif %}
   {% set first_page = 1 %}
   {% set last_page = pager.total_pages %}
@@ -585,6 +600,9 @@
         {% endif %}
         {% if pager.pipeline_status is defined and pager.pipeline_status %}
           <input type="hidden" name="pipeline_status" value="{{ pager.pipeline_status }}" />
+        {% endif %}
+        {% if pager.viewed is defined and pager.viewed %}
+          <input type="hidden" name="viewed" value="{{ pager.viewed }}" />
         {% endif %}
         <label class="whitespace-nowrap text-xs text-slate-600">{{ txt.video_pager_page_input_label }}</label>
         <input

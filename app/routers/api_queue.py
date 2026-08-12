@@ -6,6 +6,7 @@ from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
+from app.repositories import videos as videos_repo
 
 router = APIRouter(tags=["api"])
 
@@ -75,6 +76,18 @@ async def clear_queue_section(section: str, request: Request):
     else:
         raise HTTPException(status_code=404, detail="Queue section not found")
     return {"ok": True, "section": section, "cleared_count": cleared_count}
+
+
+@router.post("/queue/{section}/retry-failed")
+async def retry_failed_queue_section(section: str, request: Request):
+    db = request.app.state.runtime.db
+    if section == "transcript":
+        retried_count = await transcripts_repo.reset_failed_transcripts_for_retry(db)
+    elif section == "llm":
+        retried_count = await videos_repo.mark_failed_videos_for_retry(db)
+    else:
+        raise HTTPException(status_code=404, detail="Queue section not found")
+    return {"ok": True, "section": section, "retried_count": retried_count}
 
 
 @router.get("/status")

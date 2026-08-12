@@ -35,6 +35,7 @@ def _video_list_push_url(
     channel_id: str | None,
     category_id: int | None,
     pipeline_status: str | None,
+    viewed: str | None,
 ) -> str:
     params: dict[str, str] = {
         "page": str(max(1, int(page))),
@@ -48,6 +49,8 @@ def _video_list_push_url(
         params["category_id"] = str(category_id)
     if pipeline_status:
         params["pipeline_status"] = pipeline_status
+    if viewed:
+        params["viewed"] = viewed
     return "/?" + urlencode(params)
 
 
@@ -124,6 +127,7 @@ async def video_list(
     channel_id: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
     pipeline_status: str | None = Query(default=None),
+    viewed: str | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
@@ -142,6 +146,7 @@ async def video_list(
         channel_id=channel_id,
         category_id=category_id,
         pipeline_status=pipeline_status,
+        viewed=viewed,
         sort=sort,
         order=order,
         page=page,
@@ -160,6 +165,7 @@ async def video_list(
                 channel_id=channel_id,
                 category_id=result.category_id,
                 pipeline_status=result.pipeline_status,
+                viewed=result.viewed,
             )
         },
     )
@@ -194,6 +200,7 @@ async def delete_selected_videos(request: Request):
         channel_id=channel_id,
         category_id=form.get("_category_id"),
         pipeline_status=str(form.get("_pipeline_status") or ""),
+        viewed=str(form.get("_viewed") or ""),
         sort=sort,
         order=order,
         page=page,
@@ -280,12 +287,14 @@ async def article_request_selected_videos(request: Request):
     pipeline_status = videos_repo.normalize_pipeline_status_filter(
         str(form.get("_pipeline_status") or "")
     )
+    viewed = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
 
     response = await video_list(
         request=request,
         channel_id=channel_id,
         category_id=str(category_id) if category_id is not None else None,
         pipeline_status=pipeline_status,
+        viewed=viewed,
         sort=sort,
         order=order,
         page=page,
@@ -422,7 +431,11 @@ async def search_results(request: Request, q: str = Query(default="")):
     if redirect is not None:
         return redirect
 
-    results = await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
+    results = (
+        await videos_repo.search_documents(request.app.state.runtime.db, q, highlight=True)
+        if q
+        else []
+    )
     context = await build_template_context(request, results=results, q=q)
     return request.app.state.templates.TemplateResponse(
         request=request,

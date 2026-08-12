@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -24,6 +26,75 @@ def normalize_pipeline_status_filter(value: str | None) -> str | None:
     if normalized in VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES:
         return normalized
     return None
+
+
+def normalize_viewed_filter(value: str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"unread", "read"}:
+        return normalized
+    return None
+
+
+def _append_viewed_filter(
+    conditions: list[str],
+    viewed: str | None,
+) -> None:
+    if viewed == "unread":
+        conditions.append("v.viewed_at IS NULL")
+    elif viewed == "read":
+        conditions.append("v.viewed_at IS NOT NULL")
+
+
+_SNIPPET_MARK_START = "\ue000"
+_SNIPPET_MARK_END = "\ue001"
+
+
+def _strip_markdown_for_snippet(text: str) -> str:
+    cleaned = str(text or "")
+    cleaned = re.sub(r"```.*?```", " ", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"^#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"[*_~]{1,3}", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _plain_search_snippet(raw: str | None) -> str:
+    text = str(raw or "")
+    if not text:
+        return ""
+    plain = text.replace(_SNIPPET_MARK_START, "").replace(_SNIPPET_MARK_END, "")
+    return _strip_markdown_for_snippet(plain)
+
+
+def _format_search_snippet(raw: str | None) -> str:
+    text = str(raw or "")
+    if not text:
+        return ""
+    placeholders: list[str] = []
+
+    def _hold(match: re.Match[str]) -> str:
+        placeholders.append(match.group(0))
+        return f"\ue010{len(placeholders) - 1}\ue011"
+
+    held = re.sub(
+        re.escape(_SNIPPET_MARK_START) + r".*?" + re.escape(_SNIPPET_MARK_END),
+        _hold,
+        text,
+        flags=re.DOTALL,
+    )
+    cleaned = _strip_markdown_for_snippet(held)
+    escaped = html.escape(cleaned, quote=False)
+
+    def _restore(match: re.Match[str]) -> str:
+        idx = int(match.group(1))
+        original = placeholders[idx] if 0 <= idx < len(placeholders) else ""
+        inner = original[len(_SNIPPET_MARK_START) : -len(_SNIPPET_MARK_END)]
+        return f"<mark>{html.escape(inner, quote=False)}</mark>"
+
+    return re.sub(r"\ue010(\d+)\ue011", _restore, escaped)
 
 
 async def insert_video_if_absent(
@@ -137,6 +208,7 @@ async def list_videos(
     limit: int,
     category_id: int | None = None,
     pipeline_status: str | None = None,
+    viewed: str | None = None,
 ) -> list[dict[str, Any]]:
     sort_column = "upload_time" if sort not in {"upload_time", "created_at"} else sort
     order_sql = "ASC" if order.lower() == "asc" else "DESC"
@@ -153,6 +225,7 @@ async def list_videos(
     if pipeline_status:
         conditions.append("v.pipeline_status = ?")
         params.append(pipeline_status)
+    _append_viewed_filter(conditions, viewed)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.extend([limit, offset])
 
@@ -197,6 +270,7 @@ async def count_videos(
     channel_id: str | None = None,
     category_id: int | None = None,
     pipeline_status: str | None = None,
+    viewed: str | None = None,
 ) -> int:
     conditions: list[str] = []
     params: list[object] = []
@@ -209,6 +283,7 @@ async def count_videos(
     if pipeline_status:
         conditions.append("v.pipeline_status = ?")
         params.append(pipeline_status)
+    _append_viewed_filter(conditions, viewed)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = await db.execute(
         f"""
@@ -391,7 +466,11 @@ async def get_article(db: aiosqlite.Connection, video_id: str) -> dict[str, Any]
 
 
 async def search_documents(
-    db: aiosqlite.Connection, query: str, limit: int = 20
+    db: aiosqlite.Connection,
+    query: str,
+    limit: int = 20,
+    *,
+    highlight: bool = False,
 ) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """
@@ -400,10 +479,17 @@ async def search_documents(
                 'transcript' AS source,
                 t.video_id AS video_id,
                 v.title AS video_title,
-                substr(t.raw_text, 1, 240) AS snippet,
+                snippet(
+                    transcripts_fts,
+                    0,
+                    ?,
+                    ?,
+                    '…',
+                    32
+                ) AS snippet,
                 t.created_at AS created_at
-            FROM transcripts_fts f
-            JOIN transcripts t ON t.id = f.rowid
+            FROM transcripts_fts
+            JOIN transcripts t ON t.id = transcripts_fts.rowid
             JOIN videos v ON v.video_id = t.video_id
             WHERE transcripts_fts MATCH ?
             UNION ALL
@@ -411,19 +497,38 @@ async def search_documents(
                 'article' AS source,
                 a.video_id AS video_id,
                 a.title AS video_title,
-                substr(a.body, 1, 240) AS snippet,
+                snippet(
+                    articles_fts,
+                    -1,
+                    ?,
+                    ?,
+                    '…',
+                    32
+                ) AS snippet,
                 a.created_at AS created_at
-            FROM articles_fts af
-            JOIN articles a ON a.id = af.rowid
+            FROM articles_fts
+            JOIN articles a ON a.id = articles_fts.rowid
             WHERE articles_fts MATCH ?
         )
         ORDER BY created_at DESC
         LIMIT ?
         """,
-        (query, query, limit),
+        (
+            _SNIPPET_MARK_START,
+            _SNIPPET_MARK_END,
+            query,
+            _SNIPPET_MARK_START,
+            _SNIPPET_MARK_END,
+            query,
+            limit,
+        ),
     )
     rows = await cursor.fetchall()
-    return _rows_to_dicts(rows)
+    items = _rows_to_dicts(rows)
+    formatter = _format_search_snippet if highlight else _plain_search_snippet
+    for item in items:
+        item["snippet"] = formatter(item.get("snippet"))
+    return items
 
 
 async def mark_video_retry(db: aiosqlite.Connection, video_id: str) -> int:
@@ -438,6 +543,19 @@ async def mark_video_retry(db: aiosqlite.Connection, video_id: str) -> int:
     )
     await db.commit()
     return cursor.rowcount
+
+
+async def mark_failed_videos_for_retry(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        """
+        UPDATE videos
+        SET pipeline_status = 'llm_pending',
+            retry_count = 0
+        WHERE pipeline_status IN ('llm_failed', 'manual_review')
+        """
+    )
+    await db.commit()
+    return int(cursor.rowcount or 0)
 
 
 async def requeue_done_video_for_manual_article_retry(

@@ -42,8 +42,28 @@
     const root = document.body;
     if (!root || root.dataset.scrollFabBound === "1") return;
     root.dataset.scrollFabBound = "1";
+    const fab = document.querySelector("[data-scroll-fab]");
     const topBtn = document.querySelector("[data-scroll-top]");
     const bottomBtn = document.querySelector("[data-scroll-bottom]");
+    const updateVisibility = () => {
+      if (!(fab instanceof HTMLElement)) return;
+      const docHeight = Math.max(
+        document.documentElement.scrollHeight || 0,
+        document.body.scrollHeight || 0,
+      );
+      const viewHeight = window.innerHeight || 0;
+      const y = window.scrollY || window.pageYOffset || 0;
+      const scrollable = docHeight > viewHeight + 48;
+      const nearTop = y < 96;
+      const nearBottom = y + viewHeight >= docHeight - 48;
+      fab.classList.toggle("hidden", !scrollable);
+      if (topBtn instanceof HTMLElement) {
+        topBtn.classList.toggle("hidden", !scrollable || nearTop);
+      }
+      if (bottomBtn instanceof HTMLElement) {
+        bottomBtn.classList.toggle("hidden", !scrollable || nearBottom);
+      }
+    };
     topBtn?.addEventListener("click", (event) => {
       event.preventDefault();
       scrollWindowTo(0);
@@ -56,6 +76,9 @@
       );
       scrollWindowTo(top);
     });
+    window.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", updateVisibility);
+    updateVisibility();
   }
 
   function ensureUiToastStack() {
@@ -239,6 +262,7 @@
     downloadProgress?.startPolling?.();
     downloadSettings?.bindErrorHandlers?.();
     queueStatus?.bindQueueRetryButtons?.(document);
+    queueStatus?.bindQueueRetryAllButtons?.(document);
     queueStatus?.bindQueueClearButtons?.(document);
     queueStatus?.startQueuePolling?.();
     autoRefresh?.startVideoDetailAutoRefresh?.();

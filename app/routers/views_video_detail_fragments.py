@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app.repositories import videos as videos_repo
 from app.routers.helpers import full_page_redirect_for_non_fragment_request
 from app.routers.video_detail_context import (
     build_video_detail_context,
@@ -64,6 +65,7 @@ async def video_article_preview_modal(video_id: str, request: Request):
     video = context.get("video")
     if not isinstance(video, dict) or not str(video.get("article_title") or "").strip():
         raise HTTPException(status_code=404, detail="Article not found")
+    await videos_repo.mark_video_viewed(request.app.state.runtime.db, video_id)
     context["article_preview_from_list"] = True
     return request.app.state.templates.TemplateResponse(
         request=request,

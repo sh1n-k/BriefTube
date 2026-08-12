@@ -179,13 +179,14 @@ def test_detail_collapsible_attrs(client: TestClient) -> None:
     assert "data-collapsible-icon" in html
 
 
-def test_detail_article_card_starts_collapsed_without_open_flag(client: TestClient) -> None:
+def test_detail_article_card_starts_open_with_open_flag(client: TestClient) -> None:
     _seed_video()
     response = client.get("/videos/vid-001")
     html = response.text
     card_idx = html.index("data-detail-article-card")
-    segment = html[card_idx : card_idx + 220]
-    assert "data-collapsible-open" not in segment
+    segment = html[max(0, card_idx - 120) : card_idx + 80]
+    assert "data-collapsible-open" in segment
+    assert "data-detail-fact-box" in html or "fact-box-panel" in html
 
 
 def test_detail_article_ready_badge_visible_when_article_exists(client: TestClient) -> None:

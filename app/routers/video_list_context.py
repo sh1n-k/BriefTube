@@ -21,6 +21,7 @@ class VideoListContext:
     limit: int
     category_id: int | None
     pipeline_status: str | None
+    viewed: str | None
 
 
 async def build_video_list_context(
@@ -30,6 +31,7 @@ async def build_video_list_context(
     channel_id: str | None,
     category_id: object,
     pipeline_status: str | None,
+    viewed: str | None = None,
     sort: str,
     order: str,
     page: int,
@@ -37,6 +39,7 @@ async def build_video_list_context(
 ) -> VideoListContext:
     normalized_category_id = parse_optional_int(category_id)
     normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
+    normalized_viewed = videos_repo.normalize_viewed_filter(viewed)
     resolved_limit = limit or await settings_repo.get_videos_per_page_setting(
         request.app.state.runtime.db
     )
@@ -45,6 +48,7 @@ async def build_video_list_context(
         channel_id=channel_id,
         category_id=normalized_category_id,
         pipeline_status=normalized_pipeline_status,
+        viewed=normalized_viewed,
     )
     total_pages = max(1, (total + resolved_limit - 1) // resolved_limit)
     current_page = min(max(1, page), total_pages)
@@ -57,6 +61,7 @@ async def build_video_list_context(
         limit=resolved_limit,
         category_id=normalized_category_id,
         pipeline_status=normalized_pipeline_status,
+        viewed=normalized_viewed,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
     channels = (
@@ -70,7 +75,9 @@ async def build_video_list_context(
     )
     categories = await categories_repo.list_categories(request.app.state.runtime.db)
     search_results = (
-        await videos_repo.search_documents(request.app.state.runtime.db, q) if q else []
+        await videos_repo.search_documents(request.app.state.runtime.db, q, highlight=True)
+        if q
+        else []
     )
     context = await build_template_context(
         request,
@@ -89,6 +96,7 @@ async def build_video_list_context(
             "channel_id": channel_id or "",
             "category_id": normalized_category_id if normalized_category_id is not None else "",
             "pipeline_status": normalized_pipeline_status or "",
+            "viewed": normalized_viewed or "",
             "sort": sort,
             "order": order,
         },
@@ -99,4 +107,5 @@ async def build_video_list_context(
         limit=resolved_limit,
         category_id=normalized_category_id,
         pipeline_status=normalized_pipeline_status,
+        viewed=normalized_viewed,
     )
