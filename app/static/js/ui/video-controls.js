@@ -683,6 +683,35 @@
     root.querySelectorAll("[data-video-manage-form]").forEach(initVideoManageForm);
   }
 
+  const VIDEO_FILTERS_MQ = window.matchMedia("(min-width: 640px)");
+  let videoFiltersMqBound = false;
+
+  function syncVideoListFiltersOpen(scope) {
+    const root = scope instanceof Element ? scope : document;
+    const forceOpen = VIDEO_FILTERS_MQ.matches;
+    root.querySelectorAll("details.video-list-filters").forEach((details) => {
+      if (!(details instanceof HTMLDetailsElement)) return;
+      if (forceOpen) {
+        details.open = true;
+        details.dataset.forceOpen = "1";
+      } else if (details.dataset.forceOpen === "1") {
+        delete details.dataset.forceOpen;
+      }
+    });
+  }
+
+  function bindVideoListFilters(scope) {
+    syncVideoListFiltersOpen(scope);
+    if (videoFiltersMqBound) return;
+    videoFiltersMqBound = true;
+    const onChange = () => syncVideoListFiltersOpen(document);
+    if (typeof VIDEO_FILTERS_MQ.addEventListener === "function") {
+      VIDEO_FILTERS_MQ.addEventListener("change", onChange);
+    } else if (typeof VIDEO_FILTERS_MQ.addListener === "function") {
+      VIDEO_FILTERS_MQ.addListener(onChange);
+    }
+  }
+
   function initVideoRequestButton(button, datasetPrefix) {
     const boundKey = `${datasetPrefix}Bound`;
     const inFlightKey = `${datasetPrefix}InFlight`;
@@ -744,6 +773,7 @@
     bindRetentionForms,
     bindRetentionNotices,
     bindVideoManageForms,
+    bindVideoListFilters,
     bindVideoArticleRequestButtons,
     bindVideoTranscriptRequestButtons,
     bindArticlePreviewModals,

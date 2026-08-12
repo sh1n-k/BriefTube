@@ -215,6 +215,7 @@
     channelActions?.bindChannelReactivateBulkForms?.(scope);
     bindPollTriggerButtons(scope);
     videoControls?.bindVideoManageForms?.(scope);
+    videoControls?.bindVideoListFilters?.(scope);
     videoControls?.bindThumbPreviews?.(scope);
     inputControls?.bindDigitsOnlyInputs?.(scope);
     alertToasts?.bindAlertToasts?.(scope);

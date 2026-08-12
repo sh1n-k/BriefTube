@@ -511,6 +511,25 @@ html[data-theme="dark"] .search-snippet mark {
   background-color: color-mix(in srgb, #d97706 45%, transparent);
 }
 
+/* Video list filters: collapsed summary on mobile, always expanded from sm up */
+.video-list-filters > summary {
+  list-style: none;
+}
+.video-list-filters > summary::-webkit-details-marker {
+  display: none;
+}
+.video-list-filters[open] > summary .video-list-filters__chevron {
+  transform: rotate(180deg);
+}
+@media (min-width: 640px) {
+  .video-list-filters > .video-list-filters__summary {
+    display: none !important;
+  }
+  .video-list-filters > .video-list-filters__form {
+    margin-top: 0;
+  }
+}
+
 /* Scroll FABs — brand-tinted so they contrast against page surfaces */
 .scroll-fab-btn {
   border: 1px solid color-mix(in srgb, var(--brand-strong) 42%, var(--border-default));

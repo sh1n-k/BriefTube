@@ -16,64 +16,84 @@
   {% set has_categories = categories_for_filter is defined and categories_for_filter|length > 0 %}
   {% set has_status_filters = status_filter_options is defined and status_filter_options|length > 0 %}
   {% if has_channels or has_categories or has_status_filters %}
-  <div class="border-b border-slate-200 px-3 py-2">
-    <form hx-get="/views/video-list" hx-target="#video-list-wrap"
-          hx-swap="outerHTML" hx-push-url="true"
-          hx-trigger="change from:select delay:500ms"
-          class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <input type="hidden" name="sort" value="{{ pager.sort }}" />
-      <input type="hidden" name="order" value="{{ pager.order }}" />
-      <input type="hidden" name="limit" value="{{ pager.limit }}" />
-      <input type="hidden" name="page" value="1" />
-      {% if has_categories %}
-      <select name="category_id"
-              data-category-filter
-              aria-label="{{ txt.video_filter_all_categories }}"
-              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
-        <option value="">{{ txt.video_filter_all_categories }}</option>
-        {% for cat in categories_for_filter %}
-          <option value="{{ cat.id }}"
-            {% if pager.category_id is defined and pager.category_id|string == cat.id|string %}selected{% endif %}>
-            {{ txt.category_default_name if cat.is_default else cat.name }} ({{ cat.channel_count }})
-          </option>
-        {% endfor %}
-      </select>
-      {% endif %}
-      {% if has_channels %}
-      <select name="channel_id"
-              aria-label="{{ txt.video_filter_all_channels }}"
-              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
-        <option value="">{{ txt.video_filter_all_channels }}</option>
-        {% for ch in channels %}
-          <option value="{{ ch.channel_id }}"
-            {% if pager.channel_id == ch.channel_id %}selected{% endif %}>
-            {{ ch.channel_name }}
-          </option>
-        {% endfor %}
-      </select>
-      {% endif %}
-      {% if has_status_filters %}
-      <select name="pipeline_status"
-              aria-label="{{ txt.video_filter_all_statuses }}"
-              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
-        <option value="">{{ txt.video_filter_all_statuses }}</option>
-        {% for status_key in status_filter_options %}
-          {% set status_text_key = 'pipeline_status_' ~ status_key %}
-          <option value="{{ status_key }}"
-            {% if pager.pipeline_status is defined and pager.pipeline_status == status_key %}selected{% endif %}>
-            {{ txt.get(status_text_key, status_key | replace('_', ' ')) }}
-          </option>
-        {% endfor %}
-      </select>
-      {% endif %}
-      <select name="viewed"
-              aria-label="{{ txt.video_filter_all_read_states }}"
-              class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
-        <option value="">{{ txt.video_filter_all_read_states }}</option>
-        <option value="unread" {% if pager.viewed is defined and pager.viewed == 'unread' %}selected{% endif %}>{{ txt.video_filter_unread }}</option>
-        <option value="read" {% if pager.viewed is defined and pager.viewed == 'read' %}selected{% endif %}>{{ txt.video_filter_read }}</option>
-      </select>
-    </form>
+  {% set filter_category_on = pager.category_id is defined and pager.category_id %}
+  {% set filter_channel_on = pager.channel_id is defined and pager.channel_id %}
+  {% set filter_status_on = pager.pipeline_status is defined and pager.pipeline_status %}
+  {% set filter_viewed_on = pager.viewed is defined and pager.viewed %}
+  {% set active_filter_count = (1 if filter_category_on else 0) + (1 if filter_channel_on else 0) + (1 if filter_status_on else 0) + (1 if filter_viewed_on else 0) %}
+  <div class="border-b border-slate-200 px-3 py-2" data-video-filters>
+    <details class="video-list-filters" {% if active_filter_count > 0 %}open{% endif %}>
+      <summary class="video-list-filters__summary flex cursor-pointer list-none items-center justify-between gap-2 py-1 text-sm font-medium text-slate-700">
+        <span class="inline-flex min-w-0 items-center gap-2">
+          <span>{{ txt.video_filters_toggle }}</span>
+          {% if active_filter_count > 0 %}
+          <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+            {{ txt.video_filters_active_count.format(count=active_filter_count) }}
+          </span>
+          {% endif %}
+        </span>
+        <svg class="video-list-filters__chevron h-4 w-4 shrink-0 text-slate-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/>
+        </svg>
+      </summary>
+      <form hx-get="/views/video-list" hx-target="#video-list-wrap"
+            hx-swap="outerHTML" hx-push-url="true"
+            hx-trigger="change from:select delay:500ms"
+            class="video-list-filters__form mt-2 grid grid-cols-2 gap-2 sm:mt-0 lg:grid-cols-4">
+        <input type="hidden" name="sort" value="{{ pager.sort }}" />
+        <input type="hidden" name="order" value="{{ pager.order }}" />
+        <input type="hidden" name="limit" value="{{ pager.limit }}" />
+        <input type="hidden" name="page" value="1" />
+        {% if has_categories %}
+        <select name="category_id"
+                data-category-filter
+                aria-label="{{ txt.video_filter_all_categories }}"
+                class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
+          <option value="">{{ txt.video_filter_all_categories }}</option>
+          {% for cat in categories_for_filter %}
+            <option value="{{ cat.id }}"
+              {% if pager.category_id is defined and pager.category_id|string == cat.id|string %}selected{% endif %}>
+              {{ txt.category_default_name if cat.is_default else cat.name }} ({{ cat.channel_count }})
+            </option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        {% if has_channels %}
+        <select name="channel_id"
+                aria-label="{{ txt.video_filter_all_channels }}"
+                class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
+          <option value="">{{ txt.video_filter_all_channels }}</option>
+          {% for ch in channels %}
+            <option value="{{ ch.channel_id }}"
+              {% if pager.channel_id == ch.channel_id %}selected{% endif %}>
+              {{ ch.channel_name }}
+            </option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        {% if has_status_filters %}
+        <select name="pipeline_status"
+                aria-label="{{ txt.video_filter_all_statuses }}"
+                class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
+          <option value="">{{ txt.video_filter_all_statuses }}</option>
+          {% for status_key in status_filter_options %}
+            {% set status_text_key = 'pipeline_status_' ~ status_key %}
+            <option value="{{ status_key }}"
+              {% if pager.pipeline_status is defined and pager.pipeline_status == status_key %}selected{% endif %}>
+              {{ txt.get(status_text_key, status_key | replace('_', ' ')) }}
+            </option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        <select name="viewed"
+                aria-label="{{ txt.video_filter_all_read_states }}"
+                class="ui-control w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700">
+          <option value="">{{ txt.video_filter_all_read_states }}</option>
+          <option value="unread" {% if pager.viewed is defined and pager.viewed == 'unread' %}selected{% endif %}>{{ txt.video_filter_unread }}</option>
+          <option value="read" {% if pager.viewed is defined and pager.viewed == 'read' %}selected{% endif %}>{{ txt.video_filter_read }}</option>
+        </select>
+      </form>
+    </details>
   </div>
   {% endif %}
 
@@ -318,20 +338,20 @@
 
     {# ── Desktop table ── #}
     <div class="hidden overflow-x-auto lg:block">
-      <table class="video-list-table w-full min-w-[1040px] table-fixed text-sm">
+      <table class="video-list-table w-full min-w-0 table-fixed text-sm xl:min-w-[960px]">
         <colgroup>
           <col class="w-10" />
-          <col class="w-32" />
+          <col class="hidden w-28 xl:table-column" />
           <col />
-          <col class="w-44" />
-          <col class="w-40" />
-          <col class="w-36" />
-          <col class="w-40" />
+          <col class="w-36 xl:w-44" />
+          <col class="w-32 xl:w-40" />
+          <col class="w-32 xl:w-36" />
+          <col class="w-36 xl:w-40" />
         </colgroup>
         <thead class="border-b border-slate-200 bg-slate-50">
           <tr>
             <th class="p-3"></th>
-            <th class="p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{{ txt.video_col_thumbnail }}</th>
+            <th class="hidden p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 xl:table-cell">{{ txt.video_col_thumbnail }}</th>
             <th class="p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{{ txt.video_col_title }}</th>
             <th class="p-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{{ txt.video_col_channel }}</th>
 
@@ -369,7 +389,7 @@
                      data-has-article="{{ '1' if video.has_article else '0' }}"
                      class="h-4 w-4 rounded border-slate-300" />
             </td>
-            <td class="p-3 align-middle">
+            <td class="hidden p-3 align-middle xl:table-cell">
               <div class="group relative inline-block" data-thumb-hover>
                 {% if video.thumbnail_url %}
                   <div class="relative h-14 w-24">

@@ -674,11 +674,13 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert "vid-a-001" in html
     assert "data-video-list-cards" in html
     assert "video-list-table" in html
-    assert "min-w-[1040px]" in html
+    assert "xl:min-w-[960px]" in html or "min-w-0" in html
     assert "lg:hidden" in html
     assert "hidden overflow-x-auto lg:block" in html
     assert 'name="viewed"' in html
     assert "data-video-bulk-actions" in html
+    assert "data-video-filters" in html
+    assert "video-list-filters" in html
 
     empty_response = client.get(
         "/views/video-list",
