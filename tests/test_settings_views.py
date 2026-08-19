@@ -72,7 +72,18 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'value="gpt-5.4"' in response.text
     assert 'name="llm_reasoning_effort_codex"' in response.text
     assert 'name="llm_model_grok"' in response.text
-    assert 'value="grok-4.5"' in response.text
+    grok_model_select = re.search(
+        r'name="llm_model_grok".*?</select>',
+        response.text,
+        flags=re.S,
+    )
+    assert grok_model_select is not None
+    grok_model_html = grok_model_select.group(0)
+    assert 'value="grok-4.5"' in grok_model_html
+    assert "Grok 4.5" in grok_model_html
+    assert 'value="grok-4.6"' in grok_model_html
+    assert "Grok 4.6" in grok_model_html
+    assert 'value="grok-4.5" selected' in grok_model_html
     assert 'name="llm_reasoning_effort_grok"' in response.text
     grok_effort_select = re.search(
         r'name="llm_reasoning_effort_grok".*?</select>',

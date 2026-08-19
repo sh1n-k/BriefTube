@@ -549,6 +549,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
             "llm_provider_fallback": "none",
             "llm_prompt_template": "Body={transcript_text}",
             "llm_model_codex": "gpt-5.4",
+            "llm_model_grok": "grok-4.6",
             "llm_reasoning_effort_codex": "medium",
             "llm_max_concurrent": "3",
         },
@@ -556,7 +557,7 @@ def test_settings_llm_form_update_with_model_and_effort(client: TestClient) -> N
     assert response.status_code == 200
     llm_settings = response.json()["llm_settings"]
     assert llm_settings["llm_model"]["codex"] == "gpt-5.4"
-    assert llm_settings["llm_model"]["grok"] == "grok-4.5"
+    assert llm_settings["llm_model"]["grok"] == "grok-4.6"
     assert llm_settings["llm_reasoning_effort"]["codex"] == "medium"
     assert llm_settings["llm_reasoning_effort"]["grok"] == ""
     assert llm_settings["max_concurrent"] == 3
@@ -571,19 +572,20 @@ def test_settings_llm_update_accepts_grok_provider_model_and_effort(
             "provider_primary": "grok",
             "provider_fallback": "none",
             "prompt_template": "Body={transcript_text}",
-            "llm_model": {"grok": "grok-4.5"},
+            "llm_model": {"grok": "grok-4.6"},
             "llm_reasoning_effort": {"grok": "high"},
         },
     )
     assert response.status_code == 200
     llm_settings = response.json()["llm_settings"]
     assert llm_settings["provider_primary"] == "grok"
-    assert llm_settings["llm_model"]["grok"] == "grok-4.5"
+    assert llm_settings["llm_model"]["grok"] == "grok-4.6"
     assert llm_settings["llm_reasoning_effort"]["grok"] == "high"
 
     after = client.get("/api/settings")
     assert after.status_code == 200
     assert after.json()["llm_settings"]["provider_primary"] == "grok"
+    assert after.json()["llm_settings"]["llm_model"]["grok"] == "grok-4.6"
     assert after.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == "high"
 
 

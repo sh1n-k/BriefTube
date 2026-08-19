@@ -668,7 +668,7 @@ def test_restructure_grok_applies_model_and_reasoning_effort() -> None:
         args: list[str], timeout: int, stdin_text: str | None
     ) -> CommandExecutionResult:
         assert args[0] == _expected_provider_command("grok")
-        assert args[args.index("-m") + 1] == "grok-4.5"
+        assert args[args.index("-m") + 1] == "grok-4.6"
         assert args[args.index("--reasoning-effort") + 1] == "high"
         payload = {
             "structuredOutput": {
@@ -690,12 +690,12 @@ def test_restructure_grok_applies_model_and_reasoning_effort() -> None:
                 "provider_primary": "grok",
                 "provider_fallback": "none",
                 "prompt_template": "{transcript_text}",
-                "llm_model": {"grok": "grok-4.5"},
+                "llm_model": {"grok": "grok-4.6"},
                 "llm_reasoning_effort": {"grok": "high"},
             },
         )
     )
 
     assert article["_llm_provider"] == "grok"
-    assert article["_llm_model"] == "grok-4.5"
+    assert article["_llm_model"] == "grok-4.6"
     assert article["_llm_reasoning_effort"] == "high"
