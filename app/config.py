@@ -17,7 +17,7 @@ class AppConfig:
     server_reload: bool = False
     polling_interval_minutes: int = 15
     max_retry_count: int = 3
-    llm_timeout_seconds: int = 120
+    llm_timeout_seconds: int = 600
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     thumbnail_dir: str = "./thumbnails"

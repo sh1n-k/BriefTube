@@ -32,7 +32,7 @@ yt_dlp_playlist_limit: 15
 yt_dlp_timeout_seconds: 60
 yt_dlp_longform_min_seconds: 180
 http_timeout_seconds: 30
-llm_timeout_seconds: 120
+llm_timeout_seconds: 600
 
 # ============================================================
 #  다운로드 처리

@@ -76,12 +76,14 @@ def test_project_configs_define_server_runtime(monkeypatch) -> None:
     assert dev_cfg.server_host == "127.0.0.1"
     assert dev_cfg.server_port == 48080
     assert dev_cfg.server_reload is True
+    assert dev_cfg.llm_timeout_seconds == 600
 
     monkeypatch.setenv("APP_CONFIG_FILE", str(root_dir / "config.prod.yaml"))
     prod_cfg = load_config()
     assert prod_cfg.server_host == "127.0.0.1"
     assert prod_cfg.server_port == 48080
     assert prod_cfg.server_reload is False
+    assert prod_cfg.llm_timeout_seconds == 600
 
 
 def test_load_config_defaults_to_localhost_when_server_host_is_blank(

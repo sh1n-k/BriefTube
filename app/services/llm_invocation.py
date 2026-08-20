@@ -15,6 +15,7 @@ from typing import Any
 from app import llm_policy as _llm_policy
 from app.services.llm_errors import LlmClientError
 
+LLM_GROK_MAX_TURNS = 15
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
@@ -225,7 +226,7 @@ async def run_grok_provider_command(
             "-m",
             normalize_grok_model(model),
             "--max-turns",
-            "5",
+            str(LLM_GROK_MAX_TURNS),
             "--tools",
             "",
             "--disable-web-search",
