@@ -18,6 +18,13 @@ from app.services.llm import (
 from app.services.llm_errors import classify_command_failure
 from app.services.llm_invocation import default_command_runner, resolve_provider_command
 
+_VALID_ARTICLE_BODY = (
+    "원문은 이 사안의 경과와 핵심 주장을 차례로 설명했다. "
+    "발표자는 구체적인 수치를 단정하지 않았고, 현장 발언의 맥락만 재배열했다. "
+    "불확실한 배경은 기사에 넣지 않았다. "
+    "이어진 대목에서도 원문에 없는 해석을 보태지 않고 발언 순서를 유지했다."
+) * 2
+
 
 def _expected_provider_command(provider: str) -> str:
     return f"{provider}.cmd" if sys.platform == "win32" else provider
@@ -142,7 +149,7 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
         payload = {
             "title": "Article title",
             "lead": "Lead",
-            "body": "Body",
+            "body": _VALID_ARTICLE_BODY,
             "fact_box": "{}",
             "timestamps": "[]",
         }
@@ -164,7 +171,7 @@ def test_restructure_codex_success_uses_stdin_and_output_file() -> None:
 
     assert article["title"] == "Article title"
     assert article["lead"] == "Lead"
-    assert article["body"] == "Body"
+    assert article["body"] == _VALID_ARTICLE_BODY
     assert article["_llm_provider"] == "codex"
     assert article["_llm_model"] == LLM_CODEX_MODEL_DEFAULT
     assert article["_llm_reasoning_effort"] == ""
@@ -183,7 +190,7 @@ def test_restructure_codex_preserves_dynamic_model_from_settings() -> None:
                 {
                     "title": "Article title",
                     "lead": "Lead",
-                    "body": "Body",
+                    "body": _VALID_ARTICLE_BODY,
                     "fact_box": "{}",
                     "timestamps": "[]",
                 }
@@ -222,7 +229,7 @@ def test_restructure_applies_reasoning_effort_for_codex() -> None:
                 {
                     "title": "Codex title",
                     "lead": "Codex lead",
-                    "body": "Codex body",
+                    "body": _VALID_ARTICLE_BODY,
                     "fact_box": "{}",
                     "timestamps": "[]",
                 }
@@ -411,7 +418,8 @@ def test_restructure_allows_refusal_word_inside_valid_article_json() -> None:
                 {
                     "title": "Article title",
                     "lead": "음주 측정 거부 사례를 다룬 기사입니다.",
-                    "body": "본문에도 거부라는 단어가 자연어 맥락으로 등장할 수 있습니다.",
+                    "body": "본문에도 거부라는 단어가 자연어 맥락으로 등장할 수 있습니다. "
+                    + _VALID_ARTICLE_BODY,
                     "fact_box": "{}",
                     "timestamps": "[]",
                 },
@@ -459,7 +467,7 @@ def test_response_capture_redacts_content_by_default(tmp_path) -> None:
                 {
                     "title": "Sensitive title",
                     "lead": "Sensitive lead",
-                    "body": "Sensitive body",
+                    "body": _VALID_ARTICLE_BODY,
                     "fact_box": '{"secret":"value"}',
                     "timestamps": '["00:00"]',
                 }
@@ -497,7 +505,7 @@ def test_response_capture_redacts_content_by_default(tmp_path) -> None:
     assert payload["article"] == {
         "title_chars": len("Sensitive title"),
         "lead_chars": len("Sensitive lead"),
-        "body_chars": len("Sensitive body"),
+        "body_chars": len(_VALID_ARTICLE_BODY),
         "fact_box_chars": len('{"secret":"value"}'),
         "timestamps_chars": len('["00:00"]'),
     }
@@ -630,7 +638,7 @@ def test_restructure_grok_success_uses_prompt_file_and_structured_output() -> No
             "structuredOutput": {
                 "title": "Grok title",
                 "lead": "Grok lead",
-                "body": "Grok body",
+                "body": _VALID_ARTICLE_BODY,
                 "fact_box": "{}",
                 "timestamps": "[]",
             },
@@ -656,7 +664,7 @@ def test_restructure_grok_success_uses_prompt_file_and_structured_output() -> No
 
     assert article["title"] == "Grok title"
     assert article["lead"] == "Grok lead"
-    assert article["body"] == "Grok body"
+    assert article["body"] == _VALID_ARTICLE_BODY
     assert article["_llm_provider"] == "grok"
     assert article["_llm_model"] == LLM_GROK_MODEL_DEFAULT
     assert article["_llm_reasoning_effort"] == ""
@@ -674,7 +682,7 @@ def test_restructure_grok_applies_model_and_reasoning_effort() -> None:
             "structuredOutput": {
                 "title": "Grok title",
                 "lead": "Grok lead",
-                "body": "Grok body",
+                "body": _VALID_ARTICLE_BODY,
                 "fact_box": "{}",
                 "timestamps": "[]",
             }

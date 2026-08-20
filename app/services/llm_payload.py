@@ -18,6 +18,14 @@ _OVER_ESCAPED_BLOCK_RE = re.compile(
     r"(?:\\n){2,}(?:#{1,6}\s|[-*]\s|\d+\.\s)|(?:\\n)#{1,6}\s",
 )
 _MIN_LITERAL_NEWLINES_FOR_MARKDOWN = 4
+ARTICLE_BODY_MIN_CHARS = 200
+_PROCESS_STATUS_RE = re.compile(
+    r"prompt_0\.txt|offloaded prompt|article request was offloaded|"
+    r"load the complete source|reading the full prompt|"
+    r"요청 파일을 읽어|전체 요청 파일|기사 스키마와 기존|"
+    r"출력 형식을 확인한|source:\s*prompt_",
+    re.IGNORECASE,
+)
 
 
 def parse_provider_output(provider: str, stdout: str) -> dict[str, str]:
@@ -228,6 +236,20 @@ def article_fact_box_format_invalid(fact_box: str) -> bool:
     return False
 
 
+def article_body_too_short(body: str) -> bool:
+    return len(str(body or "").strip()) < ARTICLE_BODY_MIN_CHARS
+
+
+def article_looks_like_process_status(
+    *,
+    title: str,
+    lead: str,
+    fact_box: str,
+) -> bool:
+    blob = "\n".join((str(title or ""), str(lead or ""), str(fact_box or "")))
+    return bool(_PROCESS_STATUS_RE.search(blob))
+
+
 def coerce_article(payload: Mapping[str, Any], *, provider: str) -> dict[str, str]:
     title = str(payload.get("title") or "").strip()
     lead = normalize_article_text(str(payload.get("lead") or ""))
@@ -253,6 +275,20 @@ def coerce_article(payload: Mapping[str, Any], *, provider: str) -> dict[str, st
         raise LlmClientError(
             "llm_schema_invalid",
             "LLM article fact_box format is invalid",
+            provider=provider,
+            retryable=True,
+        )
+    if article_body_too_short(body):
+        raise LlmClientError(
+            "llm_schema_invalid",
+            "LLM article body is too short",
+            provider=provider,
+            retryable=True,
+        )
+    if article_looks_like_process_status(title=title, lead=lead, fact_box=fact_box):
+        raise LlmClientError(
+            "llm_schema_invalid",
+            "LLM article looks like a process-status placeholder",
             provider=provider,
             retryable=True,
         )

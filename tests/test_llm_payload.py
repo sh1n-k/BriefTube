@@ -6,13 +6,27 @@ import pytest
 
 from app.services.llm_errors import LlmClientError
 from app.services.llm_payload import (
+    ARTICLE_BODY_MIN_CHARS,
     article_body_format_invalid,
+    article_body_too_short,
+    article_looks_like_process_status,
     coerce_article,
     looks_like_over_escaped_markdown,
     normalize_article_text,
     normalize_fact_box_text,
     parse_provider_output,
 )
+
+_VALID_BODY_TAIL = (
+    "원문은 이 사안의 경과와 핵심 주장을 차례로 설명했다. "
+    "발표자는 구체적인 수치를 단정하지 않았고, 현장 발언의 맥락만 재배열했다. "
+    "불확실한 배경은 기사에 넣지 않았다. "
+    "이어진 대목에서도 원문에 없는 해석을 보태지 않고 발언 순서를 유지했다."
+) * 2
+
+
+def _valid_body(prefix: str) -> str:
+    return f"{prefix.rstrip()}\n\n{_VALID_BODY_TAIL}"
 
 
 def test_normalize_article_text_unescapes_over_escaped_newlines() -> None:
@@ -56,7 +70,7 @@ def test_normalize_fact_box_preserves_valid_json_with_escaped_newlines() -> None
         {
             "title": "제목",
             "lead": "리드",
-            "body": "## A\n\n본문\n\n## B\n\n더 본문",
+            "body": _valid_body("## A\n\n본문\n\n## B\n\n더 본문"),
             "fact_box": fb,
             "timestamps": "[]",
         },
@@ -78,7 +92,7 @@ def test_coerce_article_normalizes_body_and_markdown_fact_box() -> None:
         {
             "title": "제목",
             "lead": "리드",
-            "body": "## A\\n\\n본문\\n\\n## B\\n\\n더 본문",
+            "body": "## A\\n\\n본문\\n\\n## B\\n\\n더 본문\\n\\n" + _VALID_BODY_TAIL,
             "fact_box": "### 핵심\\n\\n- 항목1\\n\\n- 항목2",
             "timestamps": "[]",
         },
@@ -133,7 +147,8 @@ def test_parse_provider_output_accepts_escaped_body_json() -> None:
     payload = {
         "title": "다들 열정",
         "lead": "리드 문장",
-        "body": "## 열정은 자동\\n\\n본문 문단.\\n\\n## 성공과 결과\\n\\n다른 문단.",
+        "body": "## 열정은 자동\\n\\n본문 문단.\\n\\n## 성공과 결과\\n\\n다른 문단.\\n\\n"
+        + _VALID_BODY_TAIL,
         "fact_box": "### 핵심\\n\\n- a\\n\\n- b",
         "timestamps": "[]",
     }
@@ -147,9 +162,76 @@ def test_parse_provider_output_preserves_valid_real_newlines() -> None:
     payload = {
         "title": "제목",
         "lead": "리드",
-        "body": "## 제목\n\n정상 본문입니다.\n\n## 다음\n\n계속",
+        "body": _valid_body("## 제목\n\n정상 본문입니다.\n\n## 다음\n\n계속"),
         "fact_box": "{}",
         "timestamps": "[]",
     }
     article = parse_provider_output("codex", json.dumps(payload, ensure_ascii=False))
     assert article["body"] == payload["body"]
+
+
+def test_article_body_too_short_matches_min_chars() -> None:
+    assert article_body_too_short("짧음") is True
+    assert article_body_too_short("가" * (ARTICLE_BODY_MIN_CHARS - 1)) is True
+    assert article_body_too_short("가" * ARTICLE_BODY_MIN_CHARS) is False
+
+
+def test_coerce_article_rejects_short_process_status_body() -> None:
+    with pytest.raises(LlmClientError) as exc_info:
+        coerce_article(
+            {
+                "title": "Reading the full prompt and transcript",
+                "lead": "The article request was offloaded; I will load the complete source before writing.",
+                "body": "I need the full transcript and schema from the offloaded prompt file.",
+                "fact_box": "Source: prompt_0.txt",
+                "timestamps": "[]",
+            },
+            provider="grok",
+        )
+    assert exc_info.value.code == "llm_schema_invalid"
+    assert exc_info.value.retryable is True
+    assert "too short" in str(exc_info.value)
+
+
+def test_coerce_article_rejects_process_status_even_when_body_is_long() -> None:
+    body = _valid_body("원문을 확인한 뒤 기사로 재구성한다.")
+    assert article_body_too_short(body) is False
+    assert (
+        article_looks_like_process_status(
+            title="요청 확인 중",
+            lead="전체 요청 파일을 읽어 원문을 모두 확인한다.",
+            fact_box="{}",
+        )
+        is True
+    )
+    with pytest.raises(LlmClientError) as exc_info:
+        coerce_article(
+            {
+                "title": "요청 확인 중",
+                "lead": "전체 요청 파일을 읽어 원문을 모두 확인한다.",
+                "body": body,
+                "fact_box": "{}",
+                "timestamps": "[]",
+            },
+            provider="grok",
+        )
+    assert exc_info.value.code == "llm_schema_invalid"
+    assert "process-status" in str(exc_info.value)
+
+
+def test_coerce_article_allows_search_in_real_article_title() -> None:
+    body = _valid_body(
+        "## 배경\n\n카보베르데라는 검색어와 함께 골키퍼의 정체가 다시 관심을 끌고 있다."
+    )
+    article = coerce_article(
+        {
+            "title": "카보베르데 검색하셨죠? 팔로워가 늘어난 골키퍼",
+            "lead": "검색어와 함께 골키퍼의 정체가 다시 관심을 끌고 있다.",
+            "body": body,
+            "fact_box": "{}",
+            "timestamps": "[]",
+        },
+        provider="grok",
+    )
+    assert "검색" in article["title"]
+    assert article["body"] == body
