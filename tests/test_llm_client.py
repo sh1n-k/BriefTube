@@ -10,6 +10,7 @@ import pytest
 from app.services import llm_invocation
 from app.services.llm import (
     LLM_CODEX_MODEL_DEFAULT,
+    LLM_CURSOR_MODEL_DEFAULT,
     LLM_GROK_MODEL_DEFAULT,
     CommandExecutionResult,
     LlmClientError,
@@ -718,3 +719,169 @@ def test_restructure_grok_applies_model_and_reasoning_effort() -> None:
     assert article["_llm_provider"] == "grok"
     assert article["_llm_model"] == "grok-4.6"
     assert article["_llm_reasoning_effort"] == "high"
+
+
+def test_runtime_plan_blocks_when_cursor_command_missing() -> None:
+    client = UnifiedLlmClient(
+        timeout_seconds=10,
+        command_exists=lambda name: name == "grok",
+    )
+    reason = client.runtime_not_ready_reason(
+        {
+            "provider_primary": "cursor",
+            "provider_fallback": "none",
+            "prompt_template": "{transcript_text}",
+        }
+    )
+    assert reason == "llm_provider_unavailable_cursor"
+
+
+def test_restructure_cursor_uses_ask_mode_temp_workspace_and_stdin_prompt() -> None:
+    seen: dict[str, object] = {}
+
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None, *, env=None
+    ) -> CommandExecutionResult:
+        assert args[0] == _expected_provider_command("cursor-agent")
+        assert "--print" in args
+        assert args[args.index("--output-format") + 1] == "json"
+        assert args[args.index("--mode") + 1] == "ask"
+        assert args[args.index("--model") + 1] == LLM_CURSOR_MODEL_DEFAULT
+        assert "--force" not in args
+        assert "--yolo" not in args
+        workspace = Path(args[args.index("--workspace") + 1])
+        assert workspace.is_dir()
+        assert list(workspace.iterdir()) == []
+        assert Path.cwd() not in workspace.parents
+        assert env is not None
+        config_dir = Path(env["CURSOR_CONFIG_DIR"])
+        assert config_dir.parent == workspace.parent
+        config = json.loads((config_dir / "cli-config.json").read_text(encoding="utf-8"))
+        assert config["permissions"]["allow"] == []
+        assert {
+            "Shell(*)",
+            "Read(**)",
+            "Read(/**)",
+            "Write(/**)",
+            "WebFetch(*)",
+            "Mcp(*:*)",
+        } <= set(config["permissions"]["deny"])
+        assert stdin_text is not None
+        assert "Transcript" not in " ".join(args)
+        assert "Title=Source" in stdin_text
+        assert "Transcript" in stdin_text
+        assert "Output contract (mandatory)" in stdin_text
+        assert '"required":["title","lead","body","fact_box","timestamps"]' in stdin_text
+        seen["workspace"] = workspace
+
+        article = {
+            "title": "Cursor title",
+            "lead": "Cursor lead",
+            "body": _VALID_ARTICLE_BODY,
+            "fact_box": "- fact",
+            "timestamps": "- 00:00 intro",
+        }
+        envelope = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": json.dumps(article),
+        }
+        return CommandExecutionResult(exit_code=0, stdout=json.dumps(envelope), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "cursor",
+                "provider_fallback": "none",
+                "prompt_template": "Title={source_title}\nBody={transcript_text}",
+                "llm_reasoning_effort": {"grok": "high"},
+            },
+        )
+    )
+
+    assert not Path(str(seen["workspace"])).exists()
+    assert article["title"] == "Cursor title"
+    assert article["timestamps"] == "- 00:00 intro"
+    assert article["_llm_provider"] == "cursor"
+    assert article["_llm_model"] == LLM_CURSOR_MODEL_DEFAULT
+    assert article["_llm_reasoning_effort"] == ""
+
+
+def test_restructure_cursor_applies_selected_model() -> None:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None, *, env=None
+    ) -> CommandExecutionResult:
+        assert args[args.index("--model") + 1] == "grok-4.7-high"
+        article = {
+            "title": "Cursor title",
+            "lead": "Cursor lead",
+            "body": _VALID_ARTICLE_BODY,
+            "fact_box": "{}",
+            "timestamps": "[]",
+        }
+        envelope = {"is_error": False, "result": f"```json\n{json.dumps(article)}\n```"}
+        return CommandExecutionResult(exit_code=0, stdout=json.dumps(envelope), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "cursor",
+                "provider_fallback": "none",
+                "prompt_template": "{transcript_text}",
+                "llm_model": {"cursor": "grok-4.7-high"},
+            },
+        )
+    )
+    assert article["_llm_model"] == "grok-4.7-high"
+
+
+def test_restructure_cursor_rejects_non_string_timestamps() -> None:
+    async def fake_runner(
+        args: list[str], timeout: int, stdin_text: str | None, *, env=None
+    ) -> CommandExecutionResult:
+        article = {
+            "title": "Cursor title",
+            "lead": "Cursor lead",
+            "body": _VALID_ARTICLE_BODY,
+            "fact_box": "- fact",
+            "timestamps": [{"t": "00:00", "label": "intro"}],
+        }
+        envelope = {"is_error": False, "result": json.dumps(article)}
+        return CommandExecutionResult(exit_code=0, stdout=json.dumps(envelope), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    with pytest.raises(LlmClientError) as exc_info:
+        asyncio.run(
+            client.restructure(
+                source_title="Source",
+                transcript_text="Transcript",
+                settings={
+                    "provider_primary": "cursor",
+                    "provider_fallback": "none",
+                    "prompt_template": "{transcript_text}",
+                },
+            )
+        )
+    assert exc_info.value.code == "llm_schema_invalid"
+    assert exc_info.value.retryable is True
+
+
+def test_default_command_runner_passes_extra_env() -> None:
+    script = "import os, sys; sys.stdout.write(os.environ.get('BRIEFTUBE_TEST_ENV', ''))"
+    result = asyncio.run(
+        default_command_runner(
+            [sys.executable, "-c", script],
+            10,
+            None,
+            env={"BRIEFTUBE_TEST_ENV": "isolated"},
+        )
+    )
+    assert result.exit_code == 0
+    assert result.stdout == "isolated"

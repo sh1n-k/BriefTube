@@ -20,18 +20,22 @@ from app.services.llm_runtime import (
 )
 
 router = APIRouter(tags=["api"])
-_ALLOWED_MODEL_KEYS = frozenset({"codex", "grok"})
+_ALLOWED_MODEL_KEYS = frozenset({"codex", "grok", "cursor"})
+# Cursor encodes reasoning effort in the model slug.
+_ALLOWED_REASONING_EFFORT_KEYS = frozenset({"codex", "grok"})
 
 
-def _provider_model_setting(payload: dict[str, Any], field: str) -> dict[str, str]:
+def _provider_model_setting(
+    payload: dict[str, Any], field: str, *, allowed: frozenset[str]
+) -> dict[str, str]:
     value = payload.get(field)
     if not isinstance(value, dict):
         raise HTTPException(status_code=400, detail=f"{field} must be object")
     keys = set(value.keys())
-    if not keys or not keys.issubset(_ALLOWED_MODEL_KEYS):
+    if not keys or not keys.issubset(allowed):
         raise HTTPException(
             status_code=400,
-            detail=f"{field} must contain only codex and/or grok",
+            detail=f"{field} must contain only {', '.join(sorted(allowed))}",
         )
     return {str(key): str(value.get(key) or "") for key in keys}
 
@@ -95,9 +99,11 @@ async def set_llm_settings(request: Request):
         if "max_concurrent" in payload:
             max_concurrent = str(payload.get("max_concurrent", "")).strip()
         if "llm_model" in payload:
-            llm_model = _provider_model_setting(payload, "llm_model")
+            llm_model = _provider_model_setting(payload, "llm_model", allowed=_ALLOWED_MODEL_KEYS)
         if "llm_reasoning_effort" in payload:
-            llm_reasoning_effort = _provider_model_setting(payload, "llm_reasoning_effort")
+            llm_reasoning_effort = _provider_model_setting(
+                payload, "llm_reasoning_effort", allowed=_ALLOWED_REASONING_EFFORT_KEYS
+            )
     else:
         form = await request.form()
         if "llm_provider_primary" in form:
@@ -122,6 +128,8 @@ async def set_llm_settings(request: Request):
             model_updates["codex"] = str(form.get("llm_model_codex", ""))
         if "llm_model_grok" in form:
             model_updates["grok"] = str(form.get("llm_model_grok", ""))
+        if "llm_model_cursor" in form:
+            model_updates["cursor"] = str(form.get("llm_model_cursor", ""))
         if model_updates:
             llm_model = model_updates
         effort_updates: dict[str, str] = {}

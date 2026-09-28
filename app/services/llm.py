@@ -19,6 +19,7 @@ from app.services.llm_invocation import (
     default_command_runner,
     resolve_provider_command,
     run_codex_provider_command,
+    run_cursor_provider_command,
     run_grok_provider_command,
 )
 from app.services.llm_payload import (
@@ -45,6 +46,8 @@ LLM_CODEX_MODEL_MAX_LENGTH = _llm_policy.LLM_CODEX_MODEL_MAX_LENGTH
 LLM_CODEX_MODEL_OPTIONS = _llm_policy.LLM_CODEX_MODEL_OPTIONS
 LLM_CODEX_MODEL_VALUES = _llm_policy.LLM_CODEX_MODEL_VALUES
 LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
+LLM_CURSOR_MODEL_DEFAULT = _llm_policy.LLM_CURSOR_MODEL_DEFAULT
+LLM_CURSOR_MODEL_OPTIONS = _llm_policy.LLM_CURSOR_MODEL_OPTIONS
 LLM_GROK_MODEL_DEFAULT = _llm_policy.LLM_GROK_MODEL_DEFAULT
 LLM_GROK_MODEL_MAX_LENGTH = _llm_policy.LLM_GROK_MODEL_MAX_LENGTH
 LLM_GROK_MODEL_OPTIONS = _llm_policy.LLM_GROK_MODEL_OPTIONS
@@ -54,10 +57,12 @@ LLM_GROK_REASONING_EFFORT_ORDER = _llm_policy.LLM_GROK_REASONING_EFFORT_ORDER
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = _llm_policy.LLM_PROMPT_TEMPLATE_MAX_LENGTH
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
+LLM_PROVIDER_CURSOR = _llm_policy.LLM_PROVIDER_CURSOR
 LLM_PROVIDER_NONE = _llm_policy.LLM_PROVIDER_NONE
 LLM_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
 normalize_grok_model = _llm_policy.normalize_grok_model
+normalize_cursor_model = _llm_policy.normalize_cursor_model
 normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 _UNTRUSTED_TRANSCRIPT_GUARD = """
@@ -93,6 +98,11 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         if isinstance(model_payload, Mapping)
         else payload.get("llm_model_grok", "")
     )
+    cursor_model_raw = (
+        model_payload.get("cursor", "")
+        if isinstance(model_payload, Mapping)
+        else payload.get("llm_model_cursor", "")
+    )
     effort_payload = payload.get("llm_reasoning_effort")
     codex_effort_raw = (
         effort_payload.get("codex", "")
@@ -114,6 +124,7 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         llm_model={
             "codex": normalize_codex_model(codex_model_raw),
             "grok": normalize_grok_model(grok_model_raw),
+            "cursor": normalize_cursor_model(cursor_model_raw),
         },
         llm_reasoning_effort={
             "codex": _normalize_reasoning_effort(
@@ -193,7 +204,15 @@ class UnifiedLlmClient:
         )
 
         provider = normalized.provider_primary
-        if provider == LLM_PROVIDER_GROK:
+        if provider == LLM_PROVIDER_CURSOR:
+            model = str(normalized.llm_model.get(provider, "") or LLM_CURSOR_MODEL_DEFAULT)
+            reasoning_effort = ""
+            article = await self._invoke_cursor(
+                prompt,
+                source_title=source_title,
+                model=model,
+            )
+        elif provider == LLM_PROVIDER_GROK:
             model = str(normalized.llm_model.get(provider, "") or LLM_GROK_MODEL_DEFAULT)
             reasoning_effort = str(normalized.llm_reasoning_effort.get(provider, "") or "")
             article = await self._invoke_grok(
@@ -300,6 +319,35 @@ class UnifiedLlmClient:
         )
         return self._parse_and_capture_provider_output(
             provider=LLM_PROVIDER_GROK,
+            source_title=source_title,
+            result=result,
+        )
+
+    async def _invoke_cursor(
+        self,
+        prompt: str,
+        *,
+        source_title: str,
+        model: str,
+    ) -> dict[str, str]:
+        result = await run_cursor_provider_command(
+            prompt=prompt,
+            model=model,
+            schema_json=self._provider_schema_compact(LLM_PROVIDER_CURSOR),
+            timeout_seconds=self.timeout_seconds,
+            runner=self._runner,
+            command_exists=self._command_exists,
+        )
+        raise_for_provider_command_failure(
+            provider=LLM_PROVIDER_CURSOR,
+            source_title=source_title,
+            result=result,
+            capture_dir=self._response_capture_dir,
+            capture_max_chars=self._response_capture_max_chars,
+            include_content=self._capture_full_response_content,
+        )
+        return self._parse_and_capture_provider_output(
+            provider=LLM_PROVIDER_CURSOR,
             source_title=source_title,
             result=result,
         )

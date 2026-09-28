@@ -235,3 +235,77 @@ def test_coerce_article_allows_search_in_real_article_title() -> None:
     )
     assert "검색" in article["title"]
     assert article["body"] == body
+
+
+def _article_fields(**overrides: object) -> dict[str, object]:
+    fields: dict[str, object] = {
+        "title": "제목",
+        "lead": "리드 문장입니다.",
+        "body": _valid_body("## 배경\n\n본문 첫 문단입니다."),
+        "fact_box": "- 핵심 사실",
+        "timestamps": "- 00:00 도입",
+    }
+    fields.update(overrides)
+    return fields
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"timestamps": [{"t": "00:00", "label": "도입"}]},
+        {"fact_box": {"claim": "핵심"}},
+        {"title": None},
+    ],
+)
+def test_coerce_article_rejects_non_string_fields(overrides: dict[str, object]) -> None:
+    with pytest.raises(LlmClientError) as exc_info:
+        coerce_article(_article_fields(**overrides), provider="cursor")
+    assert exc_info.value.code == "llm_schema_invalid"
+    assert "strings" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda text: text,
+        lambda text: f"```json\n{text}\n```",
+        lambda text: f"Here is the article:\n{text}\nDone.",
+    ],
+)
+def test_parse_provider_output_reads_article_json_from_result_string(wrap) -> None:
+    fields = _article_fields()
+    envelope = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": wrap(json.dumps(fields, ensure_ascii=False)),
+    }
+    article = parse_provider_output("cursor", json.dumps(envelope, ensure_ascii=False))
+    assert article["title"] == fields["title"]
+    assert article["timestamps"] == fields["timestamps"]
+
+
+def test_parse_provider_output_does_not_treat_article_text_as_refusal() -> None:
+    fields = _article_fields(
+        body=_valid_body(
+            "## 쟁점\n\n노조는 사측 제안을 refuse 했고 unauthorized 파업 논란이 일었다."
+        ),
+    )
+    envelope = {"is_error": False, "result": json.dumps(fields, ensure_ascii=False)}
+    article = parse_provider_output("cursor", json.dumps(envelope, ensure_ascii=False))
+    assert "refuse" in article["body"]
+
+
+def test_parse_provider_output_result_string_refusal_still_classified() -> None:
+    envelope = {"is_error": False, "result": "I cannot comply with this request."}
+    with pytest.raises(LlmClientError) as exc_info:
+        parse_provider_output("cursor", json.dumps(envelope))
+    assert exc_info.value.code == "llm_provider_refused"
+
+
+def test_parse_provider_output_result_string_with_non_string_field_is_rejected() -> None:
+    fields = _article_fields(timestamps=["00:00 도입"])
+    envelope = {"is_error": False, "result": json.dumps(fields, ensure_ascii=False)}
+    with pytest.raises(LlmClientError) as exc_info:
+        parse_provider_output("cursor", json.dumps(envelope, ensure_ascii=False))
+    assert exc_info.value.code == "llm_schema_invalid"

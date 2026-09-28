@@ -26,6 +26,7 @@ _PROCESS_STATUS_RE = re.compile(
     r"출력 형식을 확인한|source:\s*prompt_",
     re.IGNORECASE,
 )
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
 
 
 def parse_provider_output(provider: str, stdout: str) -> dict[str, str]:
@@ -113,6 +114,11 @@ def extract_article_payload(data: Any, provider: str) -> Mapping[str, Any]:
         if isinstance(nested_result, dict) and is_article_payload(nested_result):
             return nested_result
         if isinstance(nested_result, str):
+            # Providers without a schema flag (cursor) return the article as a JSON
+            # string. Parse it before keyword checks so article text is not misread.
+            embedded = load_embedded_json(nested_result)
+            if isinstance(embedded, dict) and is_article_payload(embedded):
+                return embedded
             if looks_like_auth(nested_result):
                 raise LlmClientError(
                     "llm_provider_auth_required",
@@ -139,6 +145,22 @@ def extract_article_payload(data: Any, provider: str) -> Mapping[str, Any]:
         provider=provider,
         retryable=True,
     )
+
+
+def load_embedded_json(text: str) -> Any:
+    stripped = str(text or "").strip()
+    fenced = _JSON_FENCE_RE.match(stripped)
+    candidates = [fenced.group(1)] if fenced else [stripped]
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if 0 <= start < end:
+        candidates.append(stripped[start : end + 1])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 def is_article_payload(payload: Mapping[str, Any]) -> bool:
@@ -251,6 +273,14 @@ def article_looks_like_process_status(
 
 
 def coerce_article(payload: Mapping[str, Any], *, provider: str) -> dict[str, str]:
+    # Non-string values would be stored as Python repr (e.g. "[{'t': ...}]").
+    if any(not isinstance(payload.get(key), str) for key in ARTICLE_FIELD_KEYS):
+        raise LlmClientError(
+            "llm_schema_invalid",
+            "LLM response fields must all be strings",
+            provider=provider,
+            retryable=True,
+        )
     title = str(payload.get("title") or "").strip()
     lead = normalize_article_text(str(payload.get("lead") or ""))
     body = normalize_article_text(str(payload.get("body") or ""))

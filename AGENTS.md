@@ -1,6 +1,6 @@
 # AGENTS.md
 
-BriefTube는 YouTube RSS 수집, 자막 수집, Codex/Grok 기사화, 다운로드와 알림을 단일
+BriefTube는 YouTube RSS 수집, 자막 수집, Codex/Grok/Cursor 기사화, 다운로드와 알림을 단일
 FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 규칙의 canonical source는
 `CONTRIBUTING.md`다.
 
@@ -36,7 +36,10 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `state.transcript_worker_lock`으로 보장한다.
 - pytest에서는 background worker를 기본 비활성화하고 필요한 테스트만
   `BRIEFTUBE_ENABLE_<NAME>_WORKER_IN_TESTS=1`로 활성화한다.
-- LLM은 Codex/Grok CLI의 schema-validated JSON만 저장한다. 로그에는 provider 원응답 전문 대신
+- LLM은 schema-validated JSON만 저장한다. Codex/Grok은 CLI schema 옵션으로, schema 옵션이 없는
+  Cursor(`cursor-agent`)는 프롬프트 출력 계약과 `coerce_article`의 문자열 타입·품질 검증으로 강제한다.
+  Cursor ask 모드는 workspace 밖 읽기와 웹 검색을 허용하므로 호출별 `CURSOR_CONFIG_DIR` deny 설정을 유지한다.
+  로그에는 provider 원응답 전문 대신
   길이 제한·마스킹된 `stderr_summary`/`stdout_summary`만 남긴다.
 - LLM 응답 캡처 디렉터리는 dev=`./output/llm_raw`, prod=`./logs/prod/llm_raw`(또는
   `BRIEFTUBE_LLM_RESPONSE_CAPTURE_DIR`). 성공 본문은 `BRIEFTUBE_LLM_RESPONSE_CAPTURE_INCLUDE_CONTENT=1`

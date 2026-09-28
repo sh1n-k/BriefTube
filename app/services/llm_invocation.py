@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import shutil
 import signal
 import subprocess
 import tempfile
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from app import llm_policy as _llm_policy
 from app.services.llm_errors import LlmClientError
@@ -51,13 +52,36 @@ LLM_GROK_DISABLED_TOOLS: tuple[str, ...] = (
     "workflow",
     "write",
 )
+# cursor-agent has no output-schema flag, so the contract is appended to the prompt
+# and the app-side article validation is the enforcement point.
+LLM_CURSOR_OUTPUT_CONTRACT_TEMPLATE = """
+Output contract (mandatory):
+- Respond with exactly one JSON object and nothing else: no markdown code fences, no prose before or after.
+- The object must match this JSON Schema: {schema_json}
+- Every value must be a JSON string. fact_box and timestamps are Markdown bullet lists inside a string, not arrays or objects.
+- Do not use any tools. Do not read or write files.
+""".strip()
+# Ask mode still allows file reads outside --workspace and web search, and a
+# project .cursor/cli.json is not honored. A per-call CURSOR_CONFIG_DIR with
+# these deny rules blocks them while keeping the login.
+LLM_CURSOR_DENIED_PERMISSIONS: tuple[str, ...] = (
+    "Shell(*)",
+    "Read(**)",
+    "Read(/**)",
+    "Write(**)",
+    "Write(/**)",
+    "WebFetch(*)",
+    "Mcp(*:*)",
+)
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
+LLM_PROVIDER_CURSOR = _llm_policy.LLM_PROVIDER_CURSOR
 LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
 LLM_GROK_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_GROK_REASONING_EFFORT_OPTIONS
 normalize_codex_model = _llm_policy.normalize_codex_model
 normalize_grok_model = _llm_policy.normalize_grok_model
+normalize_cursor_model = _llm_policy.normalize_cursor_model
 normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 
@@ -76,7 +100,18 @@ class ProviderCommandResult:
     raw_output: str
 
 
-CommandRunner = Callable[[list[str], int, str | None], Awaitable[CommandExecutionResult]]
+class CommandRunner(Protocol):
+    def __call__(
+        self,
+        args: list[str],
+        timeout_seconds: int,
+        stdin_text: str | None,
+        /,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> Awaitable[CommandExecutionResult]: ...
+
+
 CommandExists = Callable[[str], bool]
 
 
@@ -106,12 +141,15 @@ async def default_command_runner(
     args: list[str],
     timeout_seconds: int,
     stdin_text: str | None,
+    *,
+    env: Mapping[str, str] | None = None,
 ) -> CommandExecutionResult:
     process = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env={**os.environ, **env} if env else None,
         **_subprocess_group_kwargs(),
     )
     try:
@@ -145,6 +183,8 @@ def provider_command_name(provider: str) -> str:
         return "codex"
     if normalized == LLM_PROVIDER_GROK:
         return "grok"
+    if normalized == LLM_PROVIDER_CURSOR:
+        return "cursor-agent"
     raise LlmClientError(
         "llm_provider_invalid",
         f"Unsupported provider: {provider}",
@@ -278,6 +318,65 @@ async def run_grok_provider_command(
             args.extend(["--reasoning-effort", effort])
 
         result = await runner(args, timeout_seconds, None)
+        raw_output = result.stdout.strip()
+
+    return ProviderCommandResult(
+        exit_code=result.exit_code,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        raw_output=raw_output,
+    )
+
+
+async def run_cursor_provider_command(
+    *,
+    prompt: str,
+    model: str,
+    schema_json: str,
+    timeout_seconds: int,
+    runner: CommandRunner,
+    command_exists: CommandExists,
+) -> ProviderCommandResult:
+    command = _ensure_provider_command(LLM_PROVIDER_CURSOR, command_exists=command_exists)
+    contract = LLM_CURSOR_OUTPUT_CONTRACT_TEMPLATE.format(schema_json=schema_json)
+
+    # Ask mode in an empty temp workspace keeps repo AGENTS.md out of the prompt;
+    # the isolated config dir denies tools. The prompt goes through stdin to
+    # avoid argv limits.
+    with tempfile.TemporaryDirectory(prefix="brieftube-llm-cursor-") as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        config_dir = Path(tmpdir) / "config"
+        workspace.mkdir()
+        config_dir.mkdir()
+        (config_dir / "cli-config.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "editor": {"vimMode": False},
+                    "permissions": {"allow": [], "deny": list(LLM_CURSOR_DENIED_PERMISSIONS)},
+                }
+            ),
+            encoding="utf-8",
+        )
+        args = [
+            command,
+            "--print",
+            "--output-format",
+            "json",
+            "--mode",
+            "ask",
+            "--trust",
+            "--workspace",
+            str(workspace),
+            "--model",
+            normalize_cursor_model(model),
+        ]
+        result = await runner(
+            args,
+            timeout_seconds,
+            f"{prompt}\n\n{contract}",
+            env={"CURSOR_CONFIG_DIR": str(config_dir)},
+        )
         raw_output = result.stdout.strip()
 
     return ProviderCommandResult(

@@ -98,6 +98,19 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'value="xhigh"' not in grok_effort_html
     assert 'value="max"' not in grok_effort_html
     assert 'value="ultra"' not in grok_effort_html
+    assert '<option value="cursor"' in response.text
+    assert "Cursor CLI" in response.text
+    cursor_model_select = re.search(
+        r'name="llm_model_cursor".*?</select>',
+        response.text,
+        flags=re.S,
+    )
+    assert cursor_model_select is not None
+    cursor_model_html = cursor_model_select.group(0)
+    assert 'value="cursor-grok-4.6-high" selected' in cursor_model_html
+    assert 'value="grok-4.7-high"' in cursor_model_html
+    assert 'name="llm_reasoning_effort_cursor"' not in response.text
+    assert "change from:select[name='llm_model_cursor']" in response.text
     assert 'name="llm_provider_fallback"' not in response.text
     assert 'name="llm_model_claude"' not in response.text
     assert 'name="llm_model_gemini"' not in response.text

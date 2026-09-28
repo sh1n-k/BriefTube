@@ -14,6 +14,7 @@ from app.services.channel_handle import format_channel_handle_display
 from app.services.llm import (
     LLM_CODEX_MODEL_OPTIONS,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
+    LLM_CURSOR_MODEL_OPTIONS,
     LLM_GROK_MODEL_OPTIONS,
     LLM_GROK_REASONING_EFFORT_OPTIONS,
     LLM_GROK_REASONING_EFFORT_ORDER,
@@ -92,6 +93,7 @@ async def _build_llm_capability_context(
     *,
     current_codex_model: str,
     current_grok_model: str,
+    current_cursor_model: str,
     current_codex_reasoning_effort: str,
     current_grok_reasoning_effort: str,
     refresh: bool = False,
@@ -131,12 +133,19 @@ async def _build_llm_capability_context(
     }:
         grok_model_options.append((current_grok_model, current_grok_model))
 
+    cursor_model_options = list(LLM_CURSOR_MODEL_OPTIONS)
+    if current_cursor_model and current_cursor_model not in {
+        value for value, _label in cursor_model_options
+    }:
+        cursor_model_options.append((current_cursor_model, current_cursor_model))
+
     return {
         "codex": codex.as_payload(),
         "codex_model_options": tuple(codex_model_options) or LLM_CODEX_MODEL_OPTIONS,
         "codex_reasoning_effort_options": tuple(codex_effort_options),
         "grok_model_options": tuple(grok_model_options),
         "grok_reasoning_effort_options": tuple(grok_effort_options),
+        "cursor_model_options": tuple(cursor_model_options),
     }
 
 
@@ -197,6 +206,7 @@ async def build_template_context(
             request,
             current_codex_model=str(llm_model_map.get("codex", "")),
             current_grok_model=str(llm_model_map.get("grok", "")),
+            current_cursor_model=str(llm_model_map.get("cursor", "")),
             current_codex_reasoning_effort=str(llm_effort_map.get("codex", "")),
             current_grok_reasoning_effort=str(llm_effort_map.get("grok", "")),
             refresh=request.query_params.get("llm_capabilities_refresh") == "1",
@@ -208,6 +218,7 @@ async def build_template_context(
             "codex_reasoning_effort_options": (),
             "grok_model_options": LLM_GROK_MODEL_OPTIONS,
             "grok_reasoning_effort_options": LLM_GROK_REASONING_EFFORT_ORDER,
+            "cursor_model_options": LLM_CURSOR_MODEL_OPTIONS,
         }
     context: dict[str, object] = {
         "language": language,
@@ -223,6 +234,7 @@ async def build_template_context(
         "codex_reasoning_effort_options": llm_capabilities["codex_reasoning_effort_options"],
         "grok_model_options": llm_capabilities["grok_model_options"],
         "grok_reasoning_effort_options": llm_capabilities["grok_reasoning_effort_options"],
+        "cursor_model_options": llm_capabilities["cursor_model_options"],
         "format_upload_time": format_upload_time,
         "format_channel_handle_display": format_channel_handle_display,
     }

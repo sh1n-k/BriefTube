@@ -4,8 +4,9 @@ from typing import Any
 
 LLM_PROVIDER_CODEX = "codex"
 LLM_PROVIDER_GROK = "grok"
+LLM_PROVIDER_CURSOR = "cursor"
 LLM_PROVIDER_NONE = "none"
-LLM_PROVIDER_VALUES = {LLM_PROVIDER_CODEX, LLM_PROVIDER_GROK}
+LLM_PROVIDER_VALUES = {LLM_PROVIDER_CODEX, LLM_PROVIDER_GROK, LLM_PROVIDER_CURSOR}
 
 LLM_PROMPT_TEMPLATE_MAX_LENGTH = 20_000
 LLM_CODEX_MODEL_DEFAULT = "gpt-5.3-codex"
@@ -27,6 +28,13 @@ LLM_GROK_MODEL_MAX_LENGTH = 200
 # Grok 4.5 Build menu exposes low/medium/high only (no xhigh).
 LLM_GROK_REASONING_EFFORT_OPTIONS = {"low", "medium", "high"}
 LLM_GROK_REASONING_EFFORT_ORDER: tuple[str, ...] = ("low", "medium", "high")
+# Cursor encodes reasoning effort in the model slug, so it has no separate effort setting.
+LLM_CURSOR_MODEL_DEFAULT = "cursor-grok-4.6-high"
+LLM_CURSOR_MODEL_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("cursor-grok-4.6-high", "Grok 4.6 High"),
+    ("grok-4.7-high", "Grok 4.7 High"),
+)
+LLM_CURSOR_MODEL_MAX_LENGTH = 200
 # Backward-compatible alias used by shared codex-era call sites.
 LLM_REASONING_EFFORT_OPTIONS = LLM_CODEX_REASONING_EFFORT_OPTIONS
 
@@ -52,3 +60,10 @@ def normalize_grok_model(value: Any) -> str:
     if normalized:
         return normalized[:LLM_GROK_MODEL_MAX_LENGTH]
     return LLM_GROK_MODEL_DEFAULT
+
+
+def normalize_cursor_model(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized:
+        return normalized[:LLM_CURSOR_MODEL_MAX_LENGTH]
+    return LLM_CURSOR_MODEL_DEFAULT

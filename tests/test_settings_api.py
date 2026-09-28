@@ -385,7 +385,7 @@ def test_settings_llm_update(client: TestClient) -> None:
     ("payload", "detail"),
     [
         ({"max_concurrent": 5}, "max_concurrent must be between 1 and 4"),
-        ({"provider_primary": "claude"}, "provider_primary must be one of: codex, grok"),
+        ({"provider_primary": "claude"}, "provider_primary must be one of: codex, cursor, grok"),
         ({"provider_fallback": "claude"}, "fallback provider is not supported"),
         ({}, "empty llm settings payload"),
         (
@@ -404,11 +404,15 @@ def test_settings_llm_update(client: TestClient) -> None:
         ),
         (
             {"llm_model": {"claude": "sonnet"}},
-            "llm_model must contain only codex and/or grok",
+            "llm_model must contain only codex, cursor, grok",
         ),
         (
             {"llm_reasoning_effort": {"gemini": "low"}},
-            "llm_reasoning_effort must contain only codex and/or grok",
+            "llm_reasoning_effort must contain only codex, grok",
+        ),
+        (
+            {"llm_reasoning_effort": {"cursor": "high"}},
+            "llm_reasoning_effort must contain only codex, grok",
         ),
         (
             {"llm_reasoning_effort": {"codex": "ultra"}},
@@ -589,6 +593,41 @@ def test_settings_llm_update_accepts_grok_provider_model_and_effort(
     assert after.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == "high"
 
 
+def test_settings_llm_update_accepts_cursor_provider_and_model(
+    client: TestClient,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "cursor",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+            "llm_model": {"cursor": "grok-4.7-high"},
+        },
+    )
+    assert response.status_code == 200
+    llm_settings = response.json()["llm_settings"]
+    assert llm_settings["provider_primary"] == "cursor"
+    assert llm_settings["llm_model"]["cursor"] == "grok-4.7-high"
+    assert "cursor" not in llm_settings["llm_reasoning_effort"]
+
+    after = client.get("/api/settings")
+    assert after.status_code == 200
+    assert after.json()["llm_settings"]["provider_primary"] == "cursor"
+    assert after.json()["llm_settings"]["llm_model"]["cursor"] == "grok-4.7-high"
+
+
+def test_settings_llm_form_update_accepts_cursor_model(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        data={"llm_provider_primary": "cursor", "llm_model_cursor": "grok-4.7-high"},
+    )
+    assert response.status_code == 200
+    llm_settings = response.json()["llm_settings"]
+    assert llm_settings["provider_primary"] == "cursor"
+    assert llm_settings["llm_model"]["cursor"] == "grok-4.7-high"
+
+
 def test_settings_llm_update_blocks_when_schema_preflight_fails(
     client: TestClient,
     monkeypatch,
@@ -639,7 +678,7 @@ def test_settings_llm_update_rejects_unsupported_provider(client: TestClient) ->
         },
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "provider_primary must be one of: codex, grok"
+    assert response.json()["detail"] == "provider_primary must be one of: codex, cursor, grok"
 
     after = client.get("/api/settings")
     assert after.status_code == 200

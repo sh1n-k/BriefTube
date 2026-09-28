@@ -12,7 +12,7 @@ from app.repositories._common import UPDATED_AT_SQL
 from app.repositories._common import row_to_dict as _row_to_dict
 
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
-LLM_ARTICLE_PROVIDER_VALUES = {"codex", "grok", "claude", "gemini"}
+LLM_ARTICLE_PROVIDER_VALUES = {"codex", "grok", "cursor", "claude", "gemini"}
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = llm_settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY
 LLM_SCHEMA_INVALID_ALERT_SENT_KEY = llm_settings_repository.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
 LLM_RUNTIME_LAST_CODE_KEY = llm_settings_repository.LLM_RUNTIME_LAST_CODE_KEY

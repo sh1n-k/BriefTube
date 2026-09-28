@@ -1,12 +1,12 @@
 # BriefTube
 
-YouTube 채널의 신규 영상을 RSS로 수집하고, 자막을 Codex/Grok 기사로 재구성해 로컬에서 확인하는
+YouTube 채널의 신규 영상을 RSS로 수집하고, 자막을 Codex/Grok/Cursor 기사로 재구성해 로컬에서 확인하는
 FastAPI + SQLite + HTMX 앱입니다.
 
 ## 빠른 시작
 
 요구사항은 Python 3.11+, `uv` 0.7+입니다. 다운로드에는 `ffmpeg`, 기사 생성에는 선택한 provider의
-CLI(`codex` 또는 `grok`)가 필요합니다.
+CLI(`codex`, `grok` 또는 `cursor-agent`)가 필요합니다.
 
 macOS/Linux:
 
@@ -33,7 +33,7 @@ APP_CONFIG_FILE=config.dev.yaml uv run python scripts/init_db.py
 ## 주요 기능
 
 - RSS 기반 신규 영상 수집
-- YouTube 자막 추출과 schema-validated Codex/Grok 기사 생성
+- YouTube 자막 추출과 schema-validated Codex/Grok/Cursor 기사 생성
 - 카테고리별 처리 단계 (`off`, `transcript_only`, `full`)
 - 영상 다운로드와 수동 기사·자막 작업 queue
 - transcript·article SQLite FTS5 검색
