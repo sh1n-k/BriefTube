@@ -16,6 +16,41 @@ from app import llm_policy as _llm_policy
 from app.services.llm_errors import LlmClientError
 
 LLM_GROK_MAX_TURNS = 15
+# `--tools ""` is ignored, so the default tool set stays available. Deny it
+# explicitly. Article jobs also use a temp `--cwd` so the repo AGENTS.md is
+# not injected into the prompt.
+LLM_GROK_DISABLED_TOOLS: tuple[str, ...] = (
+    "Agent",
+    "ask_user_question",
+    "enter_plan_mode",
+    "exit_plan_mode",
+    "get_command_or_subagent_output",
+    "grep",
+    "image_edit",
+    "image_gen",
+    "image_to_video",
+    "kill_command_or_subagent",
+    "list_dir",
+    "memory_search",
+    "monitor",
+    "read_file",
+    "reference_to_video",
+    "run_terminal_cmd",
+    "run_terminal_command",
+    "scheduler_create",
+    "scheduler_delete",
+    "scheduler_list",
+    "search_replace",
+    "search_tool",
+    "send_feedback",
+    "spawn_subagent",
+    "todo_write",
+    "use_tool",
+    "web_fetch",
+    "web_search",
+    "workflow",
+    "write",
+)
 LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
 LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
 LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
@@ -221,17 +256,20 @@ async def run_grok_provider_command(
             command,
             "--prompt-file",
             str(prompt_file),
+            "--cwd",
+            tmpdir,
             "--json-schema",
             schema_json,
             "-m",
             normalize_grok_model(model),
             "--max-turns",
             str(LLM_GROK_MAX_TURNS),
-            "--tools",
-            "",
+            "--disallowed-tools",
+            ",".join(LLM_GROK_DISABLED_TOOLS),
             "--disable-web-search",
             "--no-subagents",
             "--no-memory",
+            "--no-ask-user",
             "--output-format",
             "json",
         ]

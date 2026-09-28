@@ -610,15 +610,26 @@ def test_restructure_grok_success_uses_prompt_file_and_structured_output() -> No
         assert args[args.index("-m") + 1] == LLM_GROK_MODEL_DEFAULT
         assert "--max-turns" in args
         assert args[args.index("--max-turns") + 1] == "15"
-        assert args[args.index("--tools") + 1] == ""
+        assert "--tools" not in args
+        denied = set(args[args.index("--disallowed-tools") + 1].split(","))
+        assert {
+            "read_file",
+            "grep",
+            "list_dir",
+            "run_terminal_command",
+            "search_replace",
+            "write",
+        } <= denied
         assert "--disable-web-search" in args
         assert "--no-subagents" in args
         assert "--no-memory" in args
+        assert "--no-ask-user" in args
         assert args[args.index("--output-format") + 1] == "json"
         assert "--reasoning-effort" not in args
 
         prompt_path = Path(args[args.index("--prompt-file") + 1])
         assert prompt_path.exists()
+        assert args[args.index("--cwd") + 1] == str(prompt_path.parent)
         prompt_text = prompt_path.read_text(encoding="utf-8")
         assert "Source" in prompt_text
         assert "Transcript" in prompt_text
