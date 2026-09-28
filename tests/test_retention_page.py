@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
+from app.repositories import videos as videos_repo
+
 
 def _seed_retention_data(db_path: str) -> None:
     now = datetime.now(UTC)
@@ -158,8 +160,13 @@ def test_retention_delete_all_with_confirmation(client: TestClient) -> None:
         data={"confirm_delete_all": "on"},
         follow_redirects=False,
     )
-    assert response.status_code == 200
-    assert "retention-content" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/retention?deleted=1"
+    page = client.get(response.headers["location"])
+    assert page.status_code == 200
+    assert page.text.count("<header") == 1
+    assert "삭제 완료: 1건" in page.text
+    assert "보관 만료된 영상이 없습니다." in page.text
 
     with sqlite3.connect(db_path) as conn:
         old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
@@ -181,7 +188,8 @@ def test_retention_delete_all_batches_expired_videos(client: TestClient) -> None
         data={"confirm_delete_all": "on"},
         follow_redirects=False,
     )
-    assert response.status_code == 200
+    assert response.status_code == 303
+    assert response.headers["location"] == "/retention?deleted=505"
 
     with sqlite3.connect(db_path) as conn:
         expired_count = conn.execute(
@@ -208,8 +216,8 @@ def test_retention_delete_selected(client: TestClient) -> None:
         data={"video_id": "vid-ret-old-001"},
         follow_redirects=False,
     )
-    assert response.status_code == 200
-    assert "retention-content" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/retention?deleted=1"
 
     with sqlite3.connect(db_path) as conn:
         old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
@@ -227,7 +235,8 @@ def test_retention_delete_selected_handles_large_manual_payload(client: TestClie
         data={"video_id": [*[f"missing-{idx}" for idx in range(1200)], "vid-ret-old-001"]},
         follow_redirects=False,
     )
-    assert response.status_code == 200
+    assert response.status_code == 303
+    assert response.headers["location"] == "/retention?deleted=1"
 
     with sqlite3.connect(db_path) as conn:
         old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
@@ -245,7 +254,8 @@ def test_retention_delete_selected_batches_many_expired_videos(client: TestClien
         data={"video_id": [f"vid-ret-bulk-{idx:03d}" for idx in range(505)]},
         follow_redirects=False,
     )
-    assert response.status_code == 200
+    assert response.status_code == 303
+    assert response.headers["location"] == "/retention?deleted=505"
 
     with sqlite3.connect(db_path) as conn:
         remaining = conn.execute(
@@ -257,3 +267,110 @@ def test_retention_delete_selected_batches_many_expired_videos(client: TestClien
             """
         ).fetchone()[0]
     assert remaining == 0
+
+
+def test_retention_delete_all_htmx_returns_fragment_without_layout(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+
+    response = client.post(
+        "/retention/delete-all",
+        data={"confirm_delete_all": "on"},
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert "<header" not in body
+    assert "<main" not in body
+    assert 'id="retention-page"' not in body
+    assert 'id="retention-content"' in body
+    assert 'id="delete-all-modal"' not in body
+    assert "삭제 완료: 1건" in body
+    assert "보관 만료된 영상이 없습니다." in body
+    assert 'id="retention-notice" hx-swap-oob="delete"' in body
+
+
+def test_retention_delete_all_htmx_without_confirmation_does_not_swap(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+
+    response = client.post(
+        "/retention/delete-all",
+        data={},
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.text == ""
+
+    with sqlite3.connect(db_path) as conn:
+        old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
+    assert old_row is not None
+
+
+def test_retention_delete_selected_htmx_updates_notice(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_retention_data(db_path)
+    now = datetime.now(UTC)
+    older = (now - timedelta(days=220)).isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+            VALUES (?, ?, ?, ?, 'done')
+            """,
+            ("vid-ret-old-002", "UCret001", "older", older),
+        )
+        conn.commit()
+
+    response = client.post(
+        "/retention/delete-selected",
+        data={"video_id": "vid-ret-old-001"},
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert "<header" not in body
+    assert body.count('id="delete-all-modal"') == 1
+    assert 'hx-target="#retention-page"' in body
+    assert 'hx-swap-oob="outerHTML"' in body
+    assert 'data-retention-notice-key="1-180"' in body
+    assert "삭제 완료: 1건" in body
+
+
+def test_retention_delete_all_rolls_back_failed_batch(client: TestClient, monkeypatch) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_many_expired_videos(db_path, count=505)
+    calls = {"n": 0}
+    original = videos_repo.delete_videos_by_ids
+
+    async def flaky(db, video_ids, *, commit=True):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise RuntimeError("batch failed")
+        return await original(db, video_ids, commit=commit)
+
+    monkeypatch.setattr(
+        "app.routers.pages_retention.videos_repo.delete_videos_by_ids",
+        flaky,
+    )
+
+    response = client.post(
+        "/retention/delete-all",
+        data={"confirm_delete_all": "on"},
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "삭제를 완료하지 못했습니다" in response.text
+    assert "삭제 완료:" not in response.text
+    assert calls["n"] >= 2
+
+    with sqlite3.connect(db_path) as conn:
+        expired_count = conn.execute(
+            """
+            SELECT COUNT(1)
+            FROM videos
+            WHERE channel_id = 'UCretbulk001'
+              AND video_id != 'vid-ret-bulk-fresh'
+            """
+        ).fetchone()[0]
+    assert expired_count == 505

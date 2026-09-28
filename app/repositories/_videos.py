@@ -583,6 +583,8 @@ async def requeue_done_video_for_manual_article_retry(
 async def delete_videos_by_ids(
     db: aiosqlite.Connection,
     video_ids: list[str],
+    *,
+    commit: bool = True,
 ) -> dict[str, Any]:
     normalized = [video_id for video_id in dict.fromkeys(video_ids) if video_id]
     if not normalized:
@@ -613,5 +615,6 @@ async def delete_videos_by_ids(
         f"DELETE FROM videos WHERE video_id IN ({placeholders})",
         tuple(normalized),
     )
-    await db.commit()
+    if commit:
+        await db.commit()
     return {"deleted": int(cursor.rowcount or 0), "thumbnail_paths": thumbnail_paths}

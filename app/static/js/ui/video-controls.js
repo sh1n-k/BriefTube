@@ -49,6 +49,109 @@
     root.querySelectorAll("[data-retention-form]").forEach(initRetentionForm);
   }
 
+  let retentionModalKeyHandlerBound = false;
+
+  function retentionModalFocusable(modal) {
+    return Array.from(
+      modal.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+    ).filter((node) => node instanceof HTMLElement);
+  }
+
+  function closeRetentionModal(modal) {
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+    modal.setAttribute("aria-hidden", "true");
+    const page = modal.closest("[data-retention-page]");
+    const opener = page?.querySelector("[data-retention-open-delete-all]");
+    if (opener instanceof HTMLElement) opener.focus();
+  }
+
+  function openRetentionModal(modal) {
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    modal.setAttribute("aria-hidden", "false");
+    const confirmBox = modal.querySelector("[data-retention-delete-confirm]");
+    const submitButton = modal.querySelector("[data-retention-delete-submit]");
+    if (confirmBox instanceof HTMLInputElement) {
+      confirmBox.checked = false;
+    }
+    if (submitButton instanceof HTMLButtonElement) {
+      submitButton.disabled = true;
+    }
+    if (confirmBox instanceof HTMLElement) confirmBox.focus();
+  }
+
+  function onRetentionModalKeydown(event) {
+    const modal = document.querySelector("[data-retention-delete-modal]");
+    if (!(modal instanceof HTMLElement) || modal.classList.contains("hidden")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeRetentionModal(modal);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const items = retentionModalFocusable(modal);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !modal.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function ensureRetentionModalKeyHandler() {
+    if (retentionModalKeyHandlerBound) return;
+    retentionModalKeyHandlerBound = true;
+    document.addEventListener("keydown", onRetentionModalKeydown);
+  }
+
+  function initRetentionDeleteModal(modal) {
+    if (!(modal instanceof HTMLElement) || modal.dataset.retentionModalBound === "1") return;
+    modal.dataset.retentionModalBound = "1";
+    const cancel = modal.querySelector("[data-retention-delete-cancel]");
+    const confirmBox = modal.querySelector("[data-retention-delete-confirm]");
+    const submitButton = modal.querySelector("[data-retention-delete-submit]");
+    const form = modal.querySelector("form");
+    cancel?.addEventListener("click", () => closeRetentionModal(modal));
+    confirmBox?.addEventListener("change", () => {
+      if (!(confirmBox instanceof HTMLInputElement) || !(submitButton instanceof HTMLButtonElement)) return;
+      submitButton.disabled = !confirmBox.checked;
+    });
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) closeRetentionModal(modal);
+    });
+    form?.addEventListener("htmx:beforeRequest", () => {
+      if (submitButton instanceof HTMLButtonElement) submitButton.disabled = true;
+    });
+    form?.addEventListener("htmx:afterRequest", () => {
+      if (!(submitButton instanceof HTMLButtonElement) || !submitButton.isConnected) return;
+      const checked = confirmBox instanceof HTMLInputElement && confirmBox.checked;
+      submitButton.disabled = !checked;
+    });
+  }
+
+  function initRetentionOpenButton(button) {
+    if (!(button instanceof HTMLElement) || button.dataset.retentionOpenBound === "1") return;
+    button.dataset.retentionOpenBound = "1";
+    button.addEventListener("click", () => {
+      const page = button.closest("[data-retention-page]");
+      const modal = page?.querySelector("[data-retention-delete-modal]");
+      if (modal instanceof HTMLElement) openRetentionModal(modal);
+    });
+  }
+
+  function bindRetentionDeleteModal(scope) {
+    const root = scope instanceof Element ? scope : document;
+    root.querySelectorAll("[data-retention-open-delete-all]").forEach(initRetentionOpenButton);
+    root.querySelectorAll("[data-retention-delete-modal]").forEach(initRetentionDeleteModal);
+    ensureRetentionModalKeyHandler();
+  }
+
   function initRetentionNotice(node) {
     if (node.dataset.retentionNoticeBound === "1") return;
     node.dataset.retentionNoticeBound = "1";
@@ -771,6 +874,7 @@
   window.BrieftubeVideoControls = {
     configure,
     bindRetentionForms,
+    bindRetentionDeleteModal,
     bindRetentionNotices,
     bindVideoManageForms,
     bindVideoListFilters,

@@ -220,6 +220,7 @@
     inputControls?.bindDigitsOnlyInputs?.(scope);
     alertToasts?.bindAlertToasts?.(scope);
     videoControls?.bindRetentionForms?.(scope);
+    videoControls?.bindRetentionDeleteModal?.(scope);
     videoControls?.bindRetentionNotices?.(scope);
     videoControls?.bindCopyButtons?.(scope);
     videoControls?.bindCollapsibles?.(scope);
@@ -297,6 +298,7 @@
   });
   document.addEventListener("htmx:afterSwap", (event) => {
     hydrateUiScope(event.target);
+    videoControls?.bindRetentionNotices?.(document);
     categoryControls?.bindCategoryRename?.();
   });
 })();
