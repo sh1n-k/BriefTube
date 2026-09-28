@@ -876,3 +876,64 @@ def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhaus
     status, retry_count = asyncio.run(_run())
     assert status == "manual_review"
     assert retry_count == 3
+
+
+def test_save_article_keeps_cursor_provider(tmp_path) -> None:
+    db_path = tmp_path / "save-article-cursor.db"
+
+    async def _run() -> tuple[int, str, str, str]:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            await db.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                (
+                    "UCcursor001",
+                    "Cursor Channel",
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCcursor001",
+                ),
+            )
+            await db.execute(
+                """
+                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+                VALUES (?, ?, ?, ?, 'llm_processing')
+                """,
+                ("vid-cursor-001", "UCcursor001", "cursor-video", "2026-09-28T00:00:00+00:00"),
+            )
+            await db.commit()
+
+            saved = await llm_repo.save_article(
+                db,
+                "vid-cursor-001",
+                "Article title",
+                "Article lead",
+                "Article body",
+                "- fact",
+                "- 00:00 intro",
+                llm_provider="cursor",
+                llm_model="cursor-grok-4.6-high",
+                llm_reasoning_effort="",
+            )
+            cursor = await db.execute(
+                "SELECT llm_provider, llm_model, llm_reasoning_effort FROM articles WHERE video_id = ?",
+                ("vid-cursor-001",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return (
+                saved,
+                str(row["llm_provider"]),
+                str(row["llm_model"]),
+                str(row["llm_reasoning_effort"]),
+            )
+        finally:
+            await db.close()
+
+    saved, provider, model, effort = asyncio.run(_run())
+    assert saved > 0
+    assert provider == "cursor"
+    assert model == "cursor-grok-4.6-high"
+    assert effort == ""
