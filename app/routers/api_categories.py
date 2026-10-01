@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request
@@ -10,34 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.repositories import categories as categories_repo
 from app.routers.helpers import read_json_object
 
-logger = logging.getLogger("app.routers.api")
-
 router = APIRouter(tags=["api"])
-
-
-@router.get("/categories")
-async def get_categories(request: Request):
-    return await categories_repo.list_categories(request.app.state.runtime.db)
-
-
-@router.post("/categories")
-async def create_category(request: Request):
-    content_type = request.headers.get("content-type", "")
-    name = ""
-    if "application/json" in content_type:
-        payload = await read_json_object(request)
-        name = str(payload.get("name", "")).strip()
-    else:
-        body = (await request.body()).decode("utf-8")
-        parsed = parse_qs(body)
-        name = str((parsed.get("name") or [""])[0]).strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name is required")
-    try:
-        category = await categories_repo.create_category(request.app.state.runtime.db, name=name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return category
 
 
 @router.put("/categories/reorder")
@@ -113,15 +85,6 @@ async def update_category(category_id: int, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
-
-
-@router.delete("/categories/{category_id}")
-async def delete_category(category_id: int, request: Request):
-    try:
-        result = await categories_repo.delete_category(request.app.state.runtime.db, category_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"ok": True, **result}
 
 
 @router.post("/categories/{category_id}/channels")

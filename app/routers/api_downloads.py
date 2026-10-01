@@ -7,10 +7,10 @@ from fastapi.responses import JSONResponse
 
 from app.domains.downloads import enqueue_video_download
 from app.domains.downloads import retry_download_job as retry_download_job_request
+from app.download_policy import validate_download_output_dir
 from app.repositories import downloads as downloads_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import parse_bool_input
-from app.services.downloads import validate_download_output_dir
 
 router = APIRouter(tags=["api"])
 logger = logging.getLogger("app.routers.api")
@@ -89,36 +89,6 @@ async def request_video_download(video_id: str, request: Request):
             },
         )
     return JSONResponse(status_code=operation.status_code, content=operation.payload)
-
-
-@router.get("/downloads")
-async def get_downloads(
-    request: Request,
-    status: str = Query(default="all"),
-    page: int = Query(default=1, ge=1),
-    limit: int = Query(default=50, ge=1, le=200),
-):
-    normalized_status = downloads_repo.normalize_download_status_filter(status)
-    jobs = await downloads_repo.list_download_jobs(
-        request.app.state.runtime.db,
-        status=normalized_status,
-        page=page,
-        limit=limit,
-    )
-    total = await downloads_repo.count_download_jobs(
-        request.app.state.runtime.db,
-        status=normalized_status,
-    )
-    counts = await downloads_repo.count_download_jobs_by_status(request.app.state.runtime.db)
-    return {
-        "ok": True,
-        "status": normalized_status,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "counts": counts,
-        "jobs": jobs,
-    }
 
 
 @router.get("/downloads/progress")

@@ -6,10 +6,8 @@ from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.i18n import SUPPORTED_LANGUAGES, normalize_language
-from app.repositories import downloads as downloads_repo
+from app.i18n import SUPPORTED_LANGUAGES
 from app.repositories import settings as settings_repo
-from app.repositories import transcripts as transcripts_repo
 from app.routers import (
     api_settings_llm,
     api_settings_policy,
@@ -17,14 +15,7 @@ from app.routers import (
     api_settings_transcript_headers,
     api_settings_workers,
 )
-from app.routers.api_settings_llm import (
-    resolve_llm_capabilities_payload,
-    resolve_llm_runtime_status_payload,
-)
-from app.routers.api_settings_telegram import build_telegram_settings_payload_for_request
-from app.routers.api_settings_transcript_headers import build_transcript_header_payload
-from app.services.downloads import is_ffmpeg_available
-from app.timezone_policy import SUPPORTED_TIMEZONES, normalize_timezone
+from app.timezone_policy import SUPPORTED_TIMEZONES
 
 router = APIRouter(tags=["api"])
 router.include_router(api_settings_llm.router)
@@ -32,64 +23,6 @@ router.include_router(api_settings_policy.router)
 router.include_router(api_settings_telegram.router)
 router.include_router(api_settings_transcript_headers.router)
 router.include_router(api_settings_workers.router)
-
-
-@router.get("/settings")
-async def get_settings(request: Request):
-    language = await settings_repo.get_setting(
-        request.app.state.runtime.db,
-        key="language",
-        default="ko",
-    )
-    workers = await settings_repo.get_worker_settings(request.app.state.runtime.db)
-    policy = await settings_repo.get_policy_settings(request.app.state.runtime.db)
-    videos_per_page = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
-    transcript_guard = await transcripts_repo.get_transcript_guard_state(
-        request.app.state.runtime.db
-    )
-    timezone_value = await settings_repo.get_setting(
-        request.app.state.runtime.db,
-        key="timezone",
-        default="Asia/Seoul",
-    )
-    transcript_request_header_overrides = (
-        await transcripts_repo.get_transcript_request_header_overrides(request.app.state.runtime.db)
-    )
-    transcript_request_headers = build_transcript_header_payload(
-        transcript_request_header_overrides
-    )
-    download_defaults = await downloads_repo.get_download_default_settings(
-        request.app.state.runtime.db,
-        default_output_dir=request.app.state.runtime.config.download_dir,
-    )
-    llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
-    llm_runtime_status = await resolve_llm_runtime_status_payload(request)
-    llm_capabilities = await resolve_llm_capabilities_payload(request)
-    telegram_settings = await build_telegram_settings_payload_for_request(request)
-    return {
-        "language": normalize_language(language),
-        "timezone": normalize_timezone(timezone_value),
-        "workers": workers,
-        "policy": policy,
-        "videos_per_page": videos_per_page,
-        "transcript_guard": transcript_guard,
-        "transcript_request_headers": transcript_request_headers,
-        "download_defaults": download_defaults,
-        "llm_settings": llm_settings,
-        "llm_runtime_status": llm_runtime_status,
-        "llm_capabilities": llm_capabilities,
-        "telegram_settings": telegram_settings,
-        "ffmpeg_available": is_ffmpeg_available(),
-    }
-
-
-@router.post("/settings/transcript-guard/reset")
-async def reset_transcript_guard(request: Request):
-    guard = await transcripts_repo.reset_transcript_guard_state(request.app.state.runtime.db)
-    return {
-        "ok": True,
-        "transcript_guard": guard,
-    }
 
 
 @router.put("/settings/language")

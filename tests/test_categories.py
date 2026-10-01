@@ -2,22 +2,32 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.repositories import categories as categories_repo
+from app.repositories import channels as channels_repo
+from tests.helpers.app_repo import call_repo
+
 FRAGMENT_HEADERS = {"HX-Request": "true"}
 
 
 def _add_channel(client: TestClient, channel_id: str, channel_name: str) -> dict:
-    resp = client.post(
-        "/api/channels",
-        json={"channel_id": channel_id, "channel_name": channel_name},
+    return call_repo(
+        client,
+        channels_repo.add_channel,
+        channel_id=channel_id,
+        channel_name=channel_name,
     )
-    assert resp.status_code == 200
-    return resp.json()
+
+
+def _create_category(client: TestClient, name: str) -> dict:
+    return call_repo(client, categories_repo.create_category, name)
+
+
+def _list_categories(client: TestClient) -> list[dict]:
+    return call_repo(client, categories_repo.list_categories)
 
 
 def test_default_category_created(client: TestClient) -> None:
-    resp = client.get("/api/categories")
-    assert resp.status_code == 200
-    categories = resp.json()
+    categories = _list_categories(client)
     assert len(categories) >= 1
     default = [c for c in categories if c["is_default"]]
     assert len(default) == 1
@@ -25,56 +35,38 @@ def test_default_category_created(client: TestClient) -> None:
 
 
 def test_create_category(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "기술"})
-    assert resp.status_code == 200
-    data = resp.json()
+    data = _create_category(client, "기술")
     assert data["name"] == "기술"
     assert data["processing_stage"] == "off"
     assert data["is_default"] == 0
 
 
 def test_create_category_duplicate(client: TestClient) -> None:
-    client.post("/api/categories", json={"name": "뉴스"})
-    resp = client.post("/api/categories", json={"name": "뉴스"})
+    resp = client.post("/views/categories", data={"name": "뉴스", "status": "active"})
+    assert resp.status_code == 200
+    resp = client.post("/views/categories", data={"name": "뉴스", "status": "active"})
     assert resp.status_code == 400
 
 
 def test_create_category_empty_name(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": ""})
+    resp = client.post("/views/categories", data={"name": "", "status": "active"})
     assert resp.status_code == 400
 
 
-def test_create_category_rejects_invalid_json(client: TestClient) -> None:
-    response = client.post("/api/categories", json=[])
-    assert response.status_code == 400
-    assert response.json()["detail"] == "JSON payload must be an object"
-
-    for content in ("{", b"\xff"):
-        response = client.post(
-            "/api/categories",
-            content=content,
-            headers={"content-type": "application/json"},
-        )
-        assert response.status_code == 400
-        assert response.json()["detail"] == "invalid JSON payload"
-
-
 def test_list_categories_with_channel_count(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "테크"})
-    cat_id = resp.json()["id"]
+    cat_id = _create_category(client, "테크")["id"]
     _add_channel(client, "UC_tech1", "Tech Channel")
     client.post(
         f"/api/categories/{cat_id}/channels",
         json={"channel_ids": ["UC_tech1"]},
     )
-    cats = client.get("/api/categories").json()
+    cats = _list_categories(client)
     tech_cat = next(c for c in cats if c["id"] == cat_id)
     assert tech_cat["channel_count"] == 1
 
 
 def test_rename_category(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "원래이름"})
-    cat_id = resp.json()["id"]
+    cat_id = _create_category(client, "원래이름")["id"]
     rename_resp = client.put(
         f"/api/categories/{cat_id}",
         json={"name": "새이름"},
@@ -84,9 +76,8 @@ def test_rename_category(client: TestClient) -> None:
 
 
 def test_category_processing_stage_contract(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "스테이지테스트"})
-    cat_id = resp.json()["id"]
-    categories = client.get("/api/categories").json()
+    cat_id = _create_category(client, "스테이지테스트")["id"]
+    categories = _list_categories(client)
     created = next(c for c in categories if c["id"] == cat_id)
     assert created["processing_stage"] in {"off", "transcript_only", "full"}
     assert created["processing_stage"] == "off"
@@ -99,8 +90,7 @@ def test_category_processing_stage_contract(client: TestClient) -> None:
 
 
 def test_category_processing_stage_rejects_invalid_value(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "스테이지오류"})
-    cat_id = resp.json()["id"]
+    cat_id = _create_category(client, "스테이지오류")["id"]
     update_resp = client.put(
         f"/api/categories/{cat_id}",
         json={"processing_stage": "invalid-stage"},
@@ -109,31 +99,32 @@ def test_category_processing_stage_rejects_invalid_value(client: TestClient) -> 
 
 
 def test_delete_category(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "삭제대상"})
-    cat_id = resp.json()["id"]
+    cat_id = _create_category(client, "삭제대상")["id"]
     _add_channel(client, "UC_del1", "Delete Channel")
     client.post(
         f"/api/categories/{cat_id}/channels",
         json={"channel_ids": ["UC_del1"]},
     )
-    del_resp = client.delete(f"/api/categories/{cat_id}")
+    del_resp = client.delete(f"/views/categories/{cat_id}?status=active")
     assert del_resp.status_code == 200
-    data = del_resp.json()
-    assert data["deleted"] == 1
-    assert data["channels_moved"] == 1
+    assert all(c["id"] != cat_id for c in _list_categories(client))
+    channel = call_repo(client, channels_repo.get_channel_by_id, "UC_del1")
+    default_id = call_repo(client, categories_repo.get_default_category_id)
+    assert channel["category_id"] == default_id
 
 
 def test_delete_default_category_fails(client: TestClient) -> None:
-    cats = client.get("/api/categories").json()
+    cats = _list_categories(client)
     default_cat = next(c for c in cats if c["is_default"])
-    resp = client.delete(f"/api/categories/{default_cat['id']}")
+    resp = client.delete(f"/views/categories/{default_cat['id']}?status=active")
     assert resp.status_code == 400
+    assert resp.json()["detail"] == "cannot delete default category"
 
 
 def test_reorder_categories(client: TestClient) -> None:
-    client.post("/api/categories", json={"name": "순서A"})
-    client.post("/api/categories", json={"name": "순서B"})
-    cats = client.get("/api/categories").json()
+    _create_category(client, "순서A")
+    _create_category(client, "순서B")
+    cats = _list_categories(client)
     ids = [c["id"] for c in cats]
     reversed_ids = list(reversed(ids))
     resp = client.put(
@@ -141,7 +132,7 @@ def test_reorder_categories(client: TestClient) -> None:
         json={"ordered_ids": reversed_ids},
     )
     assert resp.status_code == 200
-    reordered = client.get("/api/categories").json()
+    reordered = _list_categories(client)
     reordered_ids = [c["id"] for c in reordered]
     assert reordered_ids == reversed_ids
 
@@ -153,8 +144,7 @@ def test_reorder_categories_rejects_invalid_json_shape(client: TestClient) -> No
 
 
 def test_move_channels_to_category(client: TestClient) -> None:
-    resp = client.post("/api/categories", json={"name": "이동대상"})
-    cat_id = resp.json()["id"]
+    cat_id = _create_category(client, "이동대상")["id"]
     _add_channel(client, "UC_mv1", "Move Ch 1")
     _add_channel(client, "UC_mv2", "Move Ch 2")
     move_resp = client.post(
@@ -166,14 +156,14 @@ def test_move_channels_to_category(client: TestClient) -> None:
 
 
 def test_move_channels_to_category_rejects_invalid_json_shape(client: TestClient) -> None:
-    category_id = client.post("/api/categories", json={"name": "이동형식오류"}).json()["id"]
+    category_id = _create_category(client, "이동형식오류")["id"]
     for payload in ([], {"channel_ids": "bad"}):
         response = client.post(f"/api/categories/{category_id}/channels", json=payload)
         assert response.status_code == 400
 
 
 def test_channel_management_page_with_category_filter(client: TestClient) -> None:
-    cats = client.get("/api/categories").json()
+    cats = _list_categories(client)
     default_id = next(c for c in cats if c["is_default"])["id"]
     resp = client.get(f"/channels?category_id={default_id}")
     assert resp.status_code == 200
@@ -190,8 +180,7 @@ def test_category_sidebar_fragment_contract(client: TestClient) -> None:
 
 
 def test_channel_management_page_renders_category_rename_controls(client: TestClient) -> None:
-    created = client.post("/api/categories", json={"name": "이름변경대상"})
-    assert created.status_code == 200
+    _create_category(client, "이름변경대상")
 
     response = client.get("/channels")
     assert response.status_code == 200
@@ -221,9 +210,7 @@ def test_create_category_fragment_refreshes_channel_list_oob(client: TestClient)
 def test_delete_category_fragment_refreshes_channel_list_oob_and_clears_selected_deleted_category(
     client: TestClient,
 ) -> None:
-    created = client.post("/api/categories", json={"name": "삭제즉시반영"})
-    assert created.status_code == 200
-    category_id = int(created.json()["id"])
+    category_id = int(_create_category(client, "삭제즉시반영")["id"])
 
     response = client.delete(
         f"/views/categories/{category_id}?status=active&category_id={category_id}",

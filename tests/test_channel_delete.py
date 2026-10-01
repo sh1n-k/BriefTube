@@ -85,24 +85,27 @@ def test_delete_selected_channels_removes_multiple(client: TestClient) -> None:
     assert video_count == 0
 
 
-def test_api_delete_channel_cleans_thumbnail_and_runtime_cache(client: TestClient) -> None:
+def test_delete_single_channel_cleans_thumbnail_and_runtime_cache(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     thumbnail_dir = Path(os.environ["THUMBNAIL_DIR"])
     thumbnail_dir.mkdir(parents=True, exist_ok=True)
-    thumbnail = thumbnail_dir / "vid-api-delete.jpg"
+    thumbnail = thumbnail_dir / "vid-view-delete.jpg"
     thumbnail.write_bytes(b"thumbnail")
-    _seed_channel_with_video(db_path, "UCdelapi001", "vid-api-delete")
+    _seed_channel_with_video(db_path, "UCdelview001", "vid-view-delete")
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "UPDATE videos SET thumbnail_path = ? WHERE video_id = ?",
-            (str(thumbnail), "vid-api-delete"),
+            (str(thumbnail), "vid-view-delete"),
         )
         conn.commit()
-    client.app.state.runtime.rss_cache["UCdelapi001"] = {"etag": "cached"}
+    client.app.state.runtime.rss_cache["UCdelview001"] = {"etag": "cached"}
 
-    response = client.delete("/api/channels/UCdelapi001")
+    response = client.post("/views/channels/UCdelview001/delete")
 
     assert response.status_code == 200
-    assert response.json()["deleted_videos"] == 1
+    with sqlite3.connect(db_path) as conn:
+        assert (
+            conn.execute("SELECT 1 FROM videos WHERE video_id='vid-view-delete'").fetchone() is None
+        )
     assert not thumbnail.exists()
-    assert "UCdelapi001" not in client.app.state.runtime.rss_cache
+    assert "UCdelview001" not in client.app.state.runtime.rss_cache

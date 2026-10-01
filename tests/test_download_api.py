@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.database import init_database, open_database
 from app.repositories import downloads as repository
 from app.services.downloads import download_video
+from tests.helpers.app_repo import call_repo
 
 
 def _seed_video(db_path: str, *, video_id: str = "vid-download-001") -> None:
@@ -191,9 +192,11 @@ def test_settings_download_defaults_update(client: TestClient) -> None:
         "output_dir": expected_target_dir,
     }
 
-    settings = client.get("/api/settings")
-    assert settings.status_code == 200
-    assert settings.json()["download_defaults"] == {
+    assert call_repo(
+        client,
+        repository.get_download_default_settings,
+        default_output_dir=client.app.state.runtime.config.download_dir,
+    ) == {
         "quality": "720",
         "overwrite": True,
         "output_dir": expected_target_dir,

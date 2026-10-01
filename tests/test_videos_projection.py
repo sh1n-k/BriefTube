@@ -5,6 +5,9 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from app.repositories import videos as videos_repo
+from tests.helpers.app_repo import call_repo
+
 
 def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
@@ -40,9 +43,15 @@ def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> No
         )
         conn.commit()
 
-    response = client.get("/api/videos", params={"channel_id": "UCproj001"})
-    assert response.status_code == 200
-    rows = response.json()
+    rows = call_repo(
+        client,
+        videos_repo.list_videos,
+        channel_id="UCproj001",
+        sort="upload_time",
+        order="desc",
+        page=1,
+        limit=20,
+    )
     assert len(rows) == 1
 
     row = rows[0]
@@ -84,9 +93,15 @@ def test_videos_fallback_to_cdn_thumbnail_when_local_path_missing(client: TestCl
         )
         conn.commit()
 
-    response = client.get("/api/videos", params={"channel_id": "UCproj002"})
-    assert response.status_code == 200
-    rows = response.json()
+    rows = call_repo(
+        client,
+        videos_repo.list_videos,
+        channel_id="UCproj002",
+        sort="upload_time",
+        order="desc",
+        page=1,
+        limit=20,
+    )
     assert len(rows) == 1
 
     row = rows[0]

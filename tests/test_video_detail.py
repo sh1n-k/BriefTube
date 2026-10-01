@@ -6,6 +6,9 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from app.repositories import videos as videos_repo
+from tests.helpers.app_repo import call_repo
+
 FRAGMENT_HEADERS = {"HX-Request": "true"}
 
 
@@ -391,7 +394,7 @@ def test_detail_article_request_requeues_done_video_to_llm_pending(client: TestC
         assert int(article_row[0] or 0) == 1
 
 
-def test_video_api_includes_llm_article_metadata(client: TestClient) -> None:
+def test_video_repository_includes_llm_article_metadata(client: TestClient) -> None:
     _seed_video(
         llm_provider="claude",
         llm_model="sonnet",
@@ -399,18 +402,8 @@ def test_video_api_includes_llm_article_metadata(client: TestClient) -> None:
         llm_generated_at="2026-03-02T11:00:00+00:00",
     )
 
-    detail_response = client.get("/api/videos/vid-001")
-    assert detail_response.status_code == 200
-    detail_payload = detail_response.json()
+    detail_payload = call_repo(client, videos_repo.get_video_detail, "vid-001")
     assert detail_payload["llm_provider"] == "claude"
     assert detail_payload["llm_model"] == "sonnet"
     assert detail_payload["llm_reasoning_effort"] == "high"
     assert detail_payload["llm_generated_at"] == "2026-03-02T11:00:00+00:00"
-
-    article_response = client.get("/api/videos/vid-001/article")
-    assert article_response.status_code == 200
-    article_payload = article_response.json()
-    assert article_payload["llm_provider"] == "claude"
-    assert article_payload["llm_model"] == "sonnet"
-    assert article_payload["llm_reasoning_effort"] == "high"
-    assert article_payload["llm_generated_at"] == "2026-03-02T11:00:00+00:00"

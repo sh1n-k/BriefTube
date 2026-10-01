@@ -3,48 +3,67 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from functools import partial
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.i18n import get_texts
+from app.repositories import llm as llm_repo
+from app.repositories import settings as settings_repo
+from app.repositories import transcripts as transcripts_repo
+from app.routers.api_settings_transcript_headers import build_transcript_header_payload
 from app.services.llm import LlmRuntimePlan
-from app.services.llm_capabilities import LlmCapabilityProbe
+from app.services.llm_capabilities import LlmCapabilityProbe, resolve_codex_capabilities
+from app.services.telegram import build_telegram_settings_payload
 from app.services.transcript_headers import (
     TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS,
     TRANSCRIPT_REQUEST_HEADER_PROFILE,
     default_transcript_request_headers,
 )
+from app.timezone_policy import DEFAULT_TIMEZONE
+from tests.helpers.app_repo import call_repo
+
+
+def _telegram_settings_payload(client: TestClient) -> dict[str, object]:
+    stored = call_repo(client, settings_repo.get_telegram_settings)
+    return build_telegram_settings_payload(
+        client.app.state.runtime.config,
+        stored_bot_token=stored["bot_token"],
+        stored_chat_id=stored["chat_id"],
+    )
 
 
 def test_settings_language_default_and_update(client: TestClient) -> None:
-    initial = client.get("/api/settings")
-    assert initial.status_code == 200
-    payload = initial.json()
-    assert payload["language"] == "ko"
-    assert payload["timezone"] == "Asia/Seoul"
-    assert payload["workers"] == {
+    assert call_repo(client, settings_repo.get_setting, key="language", default="") == "ko"
+    assert call_repo(client, settings_repo.get_setting, key="timezone", default="") == ""
+    assert DEFAULT_TIMEZONE == "Asia/Seoul"
+    assert call_repo(client, settings_repo.get_worker_settings) == {
         "rss": True,
         "transcript": True,
         "llm": True,
         "notifier": True,
     }
-    assert payload["policy"]["rss_feed_mode"] == "long_form_only"
-    assert payload["llm_settings"]["provider_primary"] == "codex"
-    assert payload["llm_settings"]["provider_fallback"] == "none"
-    assert payload["llm_settings"]["max_concurrent"] == 1
-    assert "codex" in payload["llm_capabilities"]
-    assert payload["telegram_settings"]["configured"] is False
-    assert payload["telegram_settings"]["bot_token_source"] == "none"
-    assert payload["videos_per_page"] == 8
-    assert payload["transcript_request_headers"]["profile"] == TRANSCRIPT_REQUEST_HEADER_PROFILE
+    assert call_repo(client, settings_repo.get_policy_settings)["rss_feed_mode"] == "long_form_only"
+    llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert llm_settings["provider_primary"] == "codex"
+    assert llm_settings["provider_fallback"] == "none"
+    assert llm_settings["max_concurrent"] == 1
+    telegram_settings = _telegram_settings_payload(client)
+    assert telegram_settings["configured"] is False
+    assert telegram_settings["bot_token_source"] == "none"
+    assert call_repo(client, settings_repo.get_videos_per_page_setting) == 8
+    header_overrides = call_repo(client, transcripts_repo.get_transcript_request_header_overrides)
+    assert (
+        build_transcript_header_payload(header_overrides)["profile"]
+        == TRANSCRIPT_REQUEST_HEADER_PROFILE
+    )
 
     updated = client.put("/api/settings/language", json={"language": "en"})
     assert updated.status_code == 200
     assert updated.json() == {"ok": True, "language": "en"}
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["language"] == "en"
+    assert call_repo(client, settings_repo.get_setting, key="language", default="ko") == "en"
 
 
 def test_settings_language_rejects_invalid_value(client: TestClient) -> None:
@@ -57,9 +76,10 @@ def test_settings_timezone_update(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {"ok": True, "timezone": "America/New_York"}
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["timezone"] == "America/New_York"
+    assert (
+        call_repo(client, settings_repo.get_setting, key="timezone", default="Asia/Seoul")
+        == "America/New_York"
+    )
 
 
 def test_settings_timezone_rejects_invalid_value(client: TestClient) -> None:
@@ -72,9 +92,7 @@ def test_settings_videos_per_page_update(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {"ok": True, "videos_per_page": 12}
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["videos_per_page"] == 12
+    assert call_repo(client, settings_repo.get_videos_per_page_setting) == 12
 
 
 def test_settings_videos_per_page_rejects_invalid_value(client: TestClient) -> None:
@@ -95,9 +113,7 @@ def test_settings_workers_update(client: TestClient) -> None:
         "notifier": False,
     }
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["workers"] == {
+    assert call_repo(client, settings_repo.get_worker_settings) == {
         "rss": False,
         "transcript": False,
         "llm": True,
@@ -135,10 +151,9 @@ def test_settings_telegram_update_masks_values_and_configures_runtime(client: Te
     assert payload["chat_id_source"] == "db"
     assert "ABCDEFSECRET" not in json.dumps(response.json(), ensure_ascii=False)
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["telegram_settings"]["configured"] is True
-    assert "ABCDEFSECRET" not in json.dumps(after.json(), ensure_ascii=False)
+    after = _telegram_settings_payload(client)
+    assert after["configured"] is True
+    assert "ABCDEFSECRET" not in json.dumps(after, ensure_ascii=False)
     assert client.app.state.runtime.telegram_notifier.is_configured() is True
     assert client.app.state.runtime.telegram_notifier.chat_id == "-1001234567890"
     assert "123456:ABCDEFSECRET" in client.app.state.runtime.telegram_notifier.url
@@ -203,9 +218,7 @@ def test_settings_telegram_partial_env_does_not_mix_with_db(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token-only")
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
 
-    response = client.get("/api/settings")
-    assert response.status_code == 200
-    payload = response.json()["telegram_settings"]
+    payload = _telegram_settings_payload(client)
     assert payload["configured"] is True
     assert payload["bot_token_source"] == "db"
     assert payload["chat_id_source"] == "db"
@@ -230,9 +243,7 @@ def test_settings_policy_update(client: TestClient) -> None:
         "rss_feed_mode": "long_form_only",
     }
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["policy"] == {
+    assert call_repo(client, settings_repo.get_policy_settings) == {
         "rss_bootstrap_lookback_days": 45,
         "retention_days": 120,
         "rss_feed_mode": "long_form_only",
@@ -248,8 +259,7 @@ def test_settings_feed_mode_update(client: TestClient) -> None:
     assert resp.status_code == 200
     assert resp.json()["policy"]["rss_feed_mode"] == "all"
 
-    after = client.get("/api/settings")
-    assert after.json()["policy"]["rss_feed_mode"] == "all"
+    assert call_repo(client, settings_repo.get_policy_settings)["rss_feed_mode"] == "all"
 
 
 def test_settings_feed_mode_invalid_fallback(client: TestClient) -> None:
@@ -279,9 +289,9 @@ def test_settings_transcript_request_headers_update_applies_immediately(client: 
     assert payload["values"]["Accept-Language"] == "ko-KR,ko;q=1.0"
     assert payload["values"]["DNT"] == default_transcript_request_headers()["DNT"]
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    after_payload = after.json()["transcript_request_headers"]
+    after_payload = build_transcript_header_payload(
+        call_repo(client, transcripts_repo.get_transcript_request_header_overrides)
+    )
     assert after_payload["values"]["User-Agent"] == "Mozilla/5.0 CustomTest"
     assert after_payload["values"]["Accept-Language"] == "ko-KR,ko;q=1.0"
     runtime_headers = client.app.state.runtime.transcript_service.get_transcript_request_headers()
@@ -370,15 +380,14 @@ def test_settings_llm_update(client: TestClient) -> None:
     assert response.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == ""
     assert response.json()["llm_settings"]["max_concurrent"] == 4
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["llm_settings"]["provider_primary"] == "codex"
-    assert after.json()["llm_settings"]["provider_fallback"] == "none"
-    assert after.json()["llm_settings"]["llm_model"]["codex"] == "gpt-5.4"
-    assert after.json()["llm_settings"]["llm_model"]["grok"] == "grok-4.5"
-    assert after.json()["llm_settings"]["llm_reasoning_effort"]["codex"] == "high"
-    assert after.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == ""
-    assert after.json()["llm_settings"]["max_concurrent"] == 4
+    after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert after_llm_settings["provider_primary"] == "codex"
+    assert after_llm_settings["provider_fallback"] == "none"
+    assert after_llm_settings["llm_model"]["codex"] == "gpt-5.4"
+    assert after_llm_settings["llm_model"]["grok"] == "grok-4.5"
+    assert after_llm_settings["llm_reasoning_effort"]["codex"] == "high"
+    assert after_llm_settings["llm_reasoning_effort"]["grok"] == ""
+    assert after_llm_settings["max_concurrent"] == 4
 
 
 @pytest.mark.parametrize(
@@ -502,12 +511,13 @@ def test_settings_llm_capabilities_reports_codex_models(client: TestClient) -> N
         runner=fake_runner,
     )
 
-    response = client.get("/api/settings/llm/capabilities")
-    refreshed = client.get("/api/settings/llm/capabilities?refresh=1")
+    runtime = client.app.state.runtime
+    capabilities = client.portal.call(resolve_codex_capabilities, runtime).as_payload()
+    refreshed = client.portal.call(
+        partial(resolve_codex_capabilities, runtime, refresh=True)
+    ).as_payload()
 
-    assert response.status_code == 200
-    assert refreshed.status_code == 200
-    assert response.json()["codex"]["models"] == [
+    assert capabilities["models"] == [
         {
             "value": "gpt-test-codex",
             "label": "GPT Test Codex",
@@ -515,7 +525,7 @@ def test_settings_llm_capabilities_reports_codex_models(client: TestClient) -> N
             "reasoning_efforts": ["low", "xhigh"],
         }
     ]
-    assert refreshed.json()["codex"]["reasoning_efforts"] == ["low", "xhigh"]
+    assert refreshed["reasoning_efforts"] == ["low", "xhigh"]
     assert calls == 2
 
 
@@ -586,11 +596,10 @@ def test_settings_llm_update_accepts_grok_provider_model_and_effort(
     assert llm_settings["llm_model"]["grok"] == "grok-4.6"
     assert llm_settings["llm_reasoning_effort"]["grok"] == "high"
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["llm_settings"]["provider_primary"] == "grok"
-    assert after.json()["llm_settings"]["llm_model"]["grok"] == "grok-4.6"
-    assert after.json()["llm_settings"]["llm_reasoning_effort"]["grok"] == "high"
+    after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert after_llm_settings["provider_primary"] == "grok"
+    assert after_llm_settings["llm_model"]["grok"] == "grok-4.6"
+    assert after_llm_settings["llm_reasoning_effort"]["grok"] == "high"
 
 
 def test_settings_llm_update_accepts_cursor_provider_and_model(
@@ -611,10 +620,9 @@ def test_settings_llm_update_accepts_cursor_provider_and_model(
     assert llm_settings["llm_model"]["cursor"] == "grok-4.7-high"
     assert "cursor" not in llm_settings["llm_reasoning_effort"]
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["llm_settings"]["provider_primary"] == "cursor"
-    assert after.json()["llm_settings"]["llm_model"]["cursor"] == "grok-4.7-high"
+    after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert after_llm_settings["provider_primary"] == "cursor"
+    assert after_llm_settings["llm_model"]["cursor"] == "grok-4.7-high"
 
 
 def test_settings_llm_form_update_accepts_cursor_model(client: TestClient) -> None:
@@ -663,11 +671,10 @@ def test_settings_llm_update_blocks_when_schema_preflight_fails(
     trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
     assert "llm-runtime-toast" in trigger
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["llm_settings"]["provider_primary"] == "codex"
-    assert after.json()["llm_settings"]["provider_fallback"] == "none"
-    assert after.json()["llm_settings"]["max_concurrent"] == 1
+    after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert after_llm_settings["provider_primary"] == "codex"
+    assert after_llm_settings["provider_fallback"] == "none"
+    assert after_llm_settings["max_concurrent"] == 1
 
 
 def test_settings_llm_update_rejects_unsupported_provider(client: TestClient) -> None:
@@ -680,113 +687,109 @@ def test_settings_llm_update_rejects_unsupported_provider(client: TestClient) ->
     assert response.status_code == 400
     assert response.json()["detail"] == "provider_primary must be one of: codex, cursor, grok"
 
-    after = client.get("/api/settings")
-    assert after.status_code == 200
-    assert after.json()["llm_settings"]["provider_primary"] == "codex"
-    assert after.json()["llm_settings"]["provider_fallback"] == "none"
+    after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert after_llm_settings["provider_primary"] == "codex"
+    assert after_llm_settings["provider_fallback"] == "none"
+
+
+FRAGMENT_HEADERS = {"HX-Request": "true"}
+TXT = get_texts("ko")
+
+
+def _enable_codex_runtime(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    issue: dict[str, str] | None = None,
+    pending: int | None = None,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "codex",
+            "provider_fallback": "none",
+            "prompt_template": "Body={transcript_text}",
+        },
+    )
+    assert response.status_code == 200
+    monkeypatch.setattr(
+        client.app.state.runtime.llm_client,
+        "resolve_runtime_plan",
+        lambda _settings: LlmRuntimePlan(
+            providers_to_try=["codex"],
+            blocking_reason=None,
+            warnings=[],
+        ),
+    )
+    if issue is not None:
+
+        async def fake_issue(_db):
+            return issue
+
+        monkeypatch.setattr(llm_repo, "get_llm_runtime_issue", fake_issue)
+    if pending is not None:
+
+        async def fake_pending(_db):
+            return pending
+
+        monkeypatch.setattr(llm_repo, "count_llm_pending_videos", fake_pending)
+
+
+def _runtime_toast(response) -> dict[str, str]:
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    return trigger["llm-runtime-toast"]
 
 
 def test_settings_llm_runtime_status_reports_prompt_missing(client: TestClient) -> None:
-    response = client.get("/api/settings/llm/runtime-status")
+    response = client.get("/views/settings/llm/runtime-status", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["ready"] is False
-    assert payload["code"] == "llm_prompt_missing"
-    assert payload["pending_count"] == 0
+    assert TXT["settings_llm_runtime_not_ready"] in response.text
+    assert TXT["settings_llm_runtime_reason_prompt_missing"] in response.text
+    assert f"{TXT['settings_llm_runtime_pending_label']}: 0" in response.text
 
 
 def test_settings_llm_runtime_status_prefers_auth_issue_when_pending(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-        },
-    )
-    assert response.status_code == 200
-
-    from app.routers import api as api_router
-
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=["codex"],
-            blocking_reason=None,
-            warnings=[],
-        ),
-    )
-
-    async def fake_issue(_db):
-        return {
+    _enable_codex_runtime(
+        client,
+        monkeypatch,
+        issue={
             "code": "llm_provider_auth_required",
             "message": "Not logged in",
             "seen_at": "2026-03-01T00:00:00+00:00",
-        }
+        },
+        pending=2,
+    )
 
-    async def fake_pending(_db):
-        return 2
-
-    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
-
-    runtime_response = client.get("/api/settings/llm/runtime-status")
-    assert runtime_response.status_code == 200
-    payload = runtime_response.json()
-    assert payload["ready"] is False
-    assert payload["code"] == "llm_provider_auth_required"
-    assert payload["pending_count"] == 2
+    response = client.get("/views/settings/llm/runtime-status", headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    assert TXT["settings_llm_runtime_not_ready"] in response.text
+    assert TXT["settings_llm_runtime_reason_auth_required"] in response.text
+    assert f"{TXT['settings_llm_runtime_pending_label']}: 2" in response.text
 
 
 def test_settings_llm_runtime_status_ignores_stale_unavailable_issue_when_ready(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-        },
-    )
-    assert response.status_code == 200
-
-    from app.routers import api as api_router
-
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=["codex"],
-            blocking_reason=None,
-            warnings=[],
-        ),
-    )
-
-    async def fake_issue(_db):
-        return {
+    _enable_codex_runtime(
+        client,
+        monkeypatch,
+        issue={
             "code": "llm_provider_unavailable_codex",
             "message": "codex command not found",
             "seen_at": "2026-03-01T00:00:00+00:00",
-        }
+        },
+        pending=2,
+    )
 
-    async def fake_pending(_db):
-        return 2
-
-    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
-
-    runtime_response = client.get("/api/settings/llm/runtime-status")
-    assert runtime_response.status_code == 200
-    payload = runtime_response.json()
-    assert payload["ready"] is True
-    assert payload["code"] == ""
-    assert payload["pending_count"] == 2
+    response = client.get("/views/settings/llm/runtime-status", headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    assert TXT["settings_llm_runtime_ready"] in response.text
+    assert "border-emerald-200" in response.text
+    assert f"{TXT['settings_llm_runtime_pending_label']}: 2" in response.text
 
 
 @pytest.mark.parametrize(
@@ -797,9 +800,9 @@ def test_settings_llm_runtime_status_ignores_stale_unavailable_issue_when_ready(
         "llm_provider_schema_invalid_codex",
     ],
 )
-def test_settings_llm_resume_returns_409_when_runtime_is_blocked(
+def test_settings_llm_resume_is_blocked_when_runtime_is_blocked(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     blocking_reason: str,
 ) -> None:
     if blocking_reason != "llm_prompt_missing":
@@ -812,175 +815,87 @@ def test_settings_llm_resume_returns_409_when_runtime_is_blocked(
                 warnings=[],
             ),
         )
-    response = client.post("/api/settings/llm/resume")
-    assert response.status_code == 409
-    assert response.json()["ok"] is False
-    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
-    assert "llm-runtime-toast" in trigger
+    client.app.state.runtime.llm_wake_event.clear()
+    response = client.post("/views/settings/llm/resume")
+    assert response.status_code == 200
+    assert 'id="llm-runtime-status"' in response.text
+    assert _runtime_toast(response)["tone"] == "error"
+    assert client.app.state.runtime.llm_wake_event.is_set() is False
 
 
 def test_settings_llm_resume_wakes_worker_when_ready(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-        },
+    _enable_codex_runtime(
+        client,
+        monkeypatch,
+        issue={"code": "", "message": "", "seen_at": ""},
+        pending=3,
     )
-    assert response.status_code == 200
-
-    from app.routers import api as api_router
-
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=["codex"],
-            blocking_reason=None,
-            warnings=[],
-        ),
-    )
-
-    async def fake_issue(_db):
-        return {"code": "", "message": "", "seen_at": ""}
-
-    async def fake_pending(_db):
-        return 3
-
-    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
 
     client.app.state.runtime.llm_wake_event.clear()
-    resume_response = client.post("/api/settings/llm/resume")
+    resume_response = client.post("/views/settings/llm/resume")
     assert resume_response.status_code == 200
-    assert resume_response.json()["ok"] is True
-    assert resume_response.json()["resumed_count"] == 3
+    toast = _runtime_toast(resume_response)
+    assert toast["tone"] == "success"
+    assert toast["message"] == TXT["settings_llm_runtime_resume_requested_toast"].format(count=3)
     assert client.app.state.runtime.llm_wake_event.is_set() is True
-    trigger = json.loads(resume_response.headers.get("HX-Trigger", "{}"))
-    assert "llm-runtime-toast" in trigger
 
 
 def test_settings_llm_resume_wakes_worker_when_stale_unavailable_issue_exists(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-        },
-    )
-    assert response.status_code == 200
-
-    from app.routers import api as api_router
-
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=["codex"],
-            blocking_reason=None,
-            warnings=[],
-        ),
-    )
-
-    async def fake_issue(_db):
-        return {
+    _enable_codex_runtime(
+        client,
+        monkeypatch,
+        issue={
             "code": "llm_provider_unavailable_codex",
             "message": "codex command not found",
             "seen_at": "2026-03-01T00:00:00+00:00",
-        }
-
-    async def fake_pending(_db):
-        return 3
-
-    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
+        },
+        pending=3,
+    )
 
     client.app.state.runtime.llm_wake_event.clear()
-    resume_response = client.post("/api/settings/llm/resume")
+    resume_response = client.post("/views/settings/llm/resume")
     assert resume_response.status_code == 200
-    assert resume_response.json()["ok"] is True
-    assert resume_response.json()["resumed_count"] == 3
+    toast = _runtime_toast(resume_response)
+    assert toast["tone"] == "success"
+    assert toast["message"] == TXT["settings_llm_runtime_resume_requested_toast"].format(count=3)
     assert client.app.state.runtime.llm_wake_event.is_set() is True
 
 
 def test_settings_llm_resume_allows_retry_when_auth_issue_exists(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-        },
-    )
-    assert response.status_code == 200
-
-    from app.routers import api as api_router
-
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=["codex"],
-            blocking_reason=None,
-            warnings=[],
-        ),
-    )
-
-    async def fake_issue(_db):
-        return {
+    _enable_codex_runtime(
+        client,
+        monkeypatch,
+        issue={
             "code": "llm_provider_auth_required",
             "message": "Not logged in",
             "seen_at": "2026-03-01T00:00:00+00:00",
-        }
-
-    async def fake_pending(_db):
-        return 2
-
-    monkeypatch.setattr(api_router.llm_repo, "get_llm_runtime_issue", fake_issue)
-    monkeypatch.setattr(api_router.llm_repo, "count_llm_pending_videos", fake_pending)
+        },
+        pending=2,
+    )
 
     client.app.state.runtime.llm_wake_event.clear()
-    resume_response = client.post("/api/settings/llm/resume")
+    resume_response = client.post("/views/settings/llm/resume")
     assert resume_response.status_code == 200
-    assert resume_response.json()["ok"] is True
-    assert resume_response.json()["resumed_count"] == 2
+    toast = _runtime_toast(resume_response)
+    assert toast["tone"] == "success"
+    assert toast["message"] == TXT["settings_llm_runtime_resume_requested_toast"].format(count=2)
     assert client.app.state.runtime.llm_wake_event.is_set() is True
 
 
 def test_settings_llm_resume_clears_auth_issue_for_worker_retry(
     client: TestClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = client.put(
-        "/api/settings/llm",
-        json={
-            "provider_primary": "codex",
-            "provider_fallback": "none",
-            "prompt_template": "Body={transcript_text}",
-        },
-    )
-    assert response.status_code == 200
-
-    monkeypatch.setattr(
-        client.app.state.runtime.llm_client,
-        "resolve_runtime_plan",
-        lambda _settings: LlmRuntimePlan(
-            providers_to_try=["codex"],
-            blocking_reason=None,
-            warnings=[],
-        ),
-    )
+    _enable_codex_runtime(client, monkeypatch)
 
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -1024,10 +939,13 @@ def test_settings_llm_resume_clears_auth_issue_for_worker_retry(
         conn.commit()
 
     client.app.state.runtime.llm_wake_event.clear()
-    resume_response = client.post("/api/settings/llm/resume")
+    resume_response = client.post("/views/settings/llm/resume")
     assert resume_response.status_code == 200
-    assert resume_response.json()["ok"] is True
+    assert _runtime_toast(resume_response)["tone"] == "success"
     assert client.app.state.runtime.llm_wake_event.is_set() is True
+    # The returned fragment is rebuilt after the issue is cleared.
+    assert TXT["settings_llm_runtime_ready"] in resume_response.text
+    assert TXT["settings_llm_runtime_reason_auth_required"] not in resume_response.text
 
     with sqlite3.connect(db_path) as conn:
         code = conn.execute(

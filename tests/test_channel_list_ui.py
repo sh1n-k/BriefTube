@@ -8,6 +8,10 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
+from app.repositories import categories as categories_repo
+from app.repositories import channels as channels_repo
+from tests.helpers.app_repo import call_repo
+
 FRAGMENT_HEADERS = {"HX-Request": "true"}
 
 
@@ -94,9 +98,7 @@ def test_inactive_channel_list_fragment_uses_reactivate_bulk_action(client: Test
 
 
 def test_channel_list_move_dropdown_selects_current_category(client: TestClient) -> None:
-    created = client.post("/api/categories", json={"name": "선택카테고리"})
-    assert created.status_code == 200
-    category_id = int(created.json()["id"])
+    category_id = int(call_repo(client, categories_repo.create_category, "선택카테고리")["id"])
 
     response = client.get(
         f"/views/channel-list?status=active&category_id={category_id}",
@@ -124,17 +126,15 @@ def test_channel_list_direct_access_redirects_to_channels_page(client: TestClien
 
 
 def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestClient) -> None:
-    created = client.post(
-        "/api/channels",
-        json={
-            "channel_id": "UCmetaaccordion12345678901",
-            "channel_name": "Meta Accordion",
-            "channel_handle": "@metaaccordion",
-            "channel_thumbnail_url": "https://i.ytimg.com/vi/test/hqdefault.jpg",
-            "channel_language_hint": "ko",
-        },
+    call_repo(
+        client,
+        channels_repo.add_channel,
+        channel_id="UCmetaaccordion12345678901",
+        channel_name="Meta Accordion",
+        channel_handle="@metaaccordion",
+        channel_thumbnail_url="https://i.ytimg.com/vi/test/hqdefault.jpg",
+        channel_language_hint="ko",
     )
-    assert created.status_code == 200
 
     response = client.get("/views/channel-list?status=active", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
@@ -150,14 +150,12 @@ def test_channel_list_renders_meta_compact_and_accordion_controls(client: TestCl
 
 
 def test_channel_list_renders_rss_priority_selector(client: TestClient) -> None:
-    created = client.post(
-        "/api/channels",
-        json={
-            "channel_id": "UCpriorityui12345678901",
-            "channel_name": "Priority UI",
-        },
+    call_repo(
+        client,
+        channels_repo.add_channel,
+        channel_id="UCpriorityui12345678901",
+        channel_name="Priority UI",
     )
-    assert created.status_code == 200
     updated = client.patch(
         "/api/channels/UCpriorityui12345678901/rss-priority",
         json={"priority": "pinned"},
@@ -180,15 +178,13 @@ def test_channel_list_renders_rss_priority_selector(client: TestClient) -> None:
 
 def test_channel_list_displays_decoded_handle_but_keeps_raw_in_db(client: TestClient) -> None:
     raw_handle = "@%ED%95%9C%EA%B8%80"
-    created = client.post(
-        "/api/channels",
-        json={
-            "channel_id": "UChandledecode12345678901",
-            "channel_name": "Handle Decode",
-            "channel_handle": raw_handle,
-        },
+    call_repo(
+        client,
+        channels_repo.add_channel,
+        channel_id="UChandledecode12345678901",
+        channel_name="Handle Decode",
+        channel_handle=raw_handle,
     )
-    assert created.status_code == 200
 
     response = client.get("/views/channel-list?status=active", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200
@@ -267,6 +263,8 @@ def test_add_channel_view_saves_resolved_channel(
                 "channel_id": "UCsingle001",
                 "channel_name": "Single Channel",
                 "channel_url": "https://www.youtube.com/channel/UCsingle001",
+                "channel_description": "Single channel description",
+                "channel_language_hint": "ko",
             },
         }
 
@@ -283,16 +281,18 @@ def test_add_channel_view_saves_resolved_channel(
         response.text,
     )
 
-    channels = client.get("/api/channels").json()
-    assert any(item["channel_id"] == "UCsingle001" for item in channels)
+    saved = call_repo(client, channels_repo.get_channel_by_id, "UCsingle001")
+    assert saved is not None
+    assert saved["channel_url_canonical"] == "https://www.youtube.com/channel/UCsingle001"
+    assert saved["channel_description"] == "Single channel description"
+    assert saved["channel_language_hint"] == "ko"
+    assert saved["metadata_fetch_status"] == channels_repo.CHANNEL_METADATA_STATUS_PENDING
 
 
 def test_add_channel_view_preserves_selected_category(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    created = client.post("/api/categories", json={"name": "저장카테고리"})
-    assert created.status_code == 200
-    category_id = int(created.json()["id"])
+    category_id = int(call_repo(client, categories_repo.create_category, "저장카테고리")["id"])
     resolver = client.app.state.runtime.channel_resolver
 
     async def fake_resolve_input(raw_input: str) -> dict:
@@ -373,7 +373,7 @@ def test_add_channel_view_saves_selected_candidate(client: TestClient) -> None:
         response.text,
     )
 
-    channels = client.get("/api/channels").json()
+    channels = call_repo(client, channels_repo.list_channels)
     assert any(
         item["channel_id"] == "UCpicked001" and item["channel_name"] == "Picked Channel"
         for item in channels
@@ -402,9 +402,7 @@ def test_bulk_commit_refreshes_category_sidebar_oob(client: TestClient) -> None:
 def test_bulk_resolve_and_commit_preserve_selected_category(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    created = client.post("/api/categories", json={"name": "일괄카테고리"})
-    assert created.status_code == 200
-    category_id = int(created.json()["id"])
+    category_id = int(call_repo(client, categories_repo.create_category, "일괄카테고리")["id"])
     resolver = client.app.state.runtime.channel_resolver
 
     async def fake_resolve_input(raw_input: str) -> dict:

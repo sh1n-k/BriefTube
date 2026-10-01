@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
@@ -66,22 +67,7 @@ def _seed_video(
         conn.commit()
 
 
-def test_article_request_api_rejects_when_more_than_ten_selected(client: TestClient) -> None:
-    db_path = os.environ["DB_PATH"]
-    video_ids = [f"vid-manual-max-{idx:02d}" for idx in range(11)]
-    for video_id in video_ids:
-        _seed_video(db_path, video_id=video_id, with_transcript=True)
-
-    response = client.post(
-        "/api/videos/article-request",
-        json={"video_ids": video_ids},
-    )
-
-    assert response.status_code in (400, 422)
-    assert "10" in response.text
-
-
-def test_article_request_api_returns_new_retry_skip_failed_summary(client: TestClient) -> None:
+def test_article_request_view_returns_new_retry_skip_failed_summary(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
 
     class _EventProbe:
@@ -112,28 +98,28 @@ def test_article_request_api_returns_new_retry_skip_failed_summary(client: TestC
     )
 
     response = client.post(
-        "/api/videos/article-request",
-        json={
-            "video_ids": [
+        "/views/videos/article-request-selected",
+        data={
+            "video_id": [
                 "vid-manual-new",
                 "vid-manual-retry",
                 "vid-manual-skip",
                 "vid-manual-missing",
-            ]
+            ],
+            "_page": "1",
+            "_limit": "20",
         },
     )
 
     assert response.status_code == 200
-    payload = response.json()
-    assert set(payload.keys()) == {"ok", "requested_count", "summary", "llm_worker_waiting"}
-    assert payload["ok"] is True
-    assert payload["requested_count"] == 4
-    assert payload["summary"] == {"new": 1, "retry": 1, "skip": 1, "failed": 1}
-    assert payload["llm_worker_waiting"] is False
+    toast = json.loads(response.headers["HX-Trigger"])["video-article-request-toast"]
+    message = str(toast.get("message") or "")
+    assert "신규 1건, 재시도 1건, 건너뜀 1건, 실패 1건" in message
+    assert "LLM 워커가 꺼져 있어" not in message
     assert wake_probe.called is True
 
 
-def test_article_request_api_allows_when_llm_worker_disabled_and_marks_waiting(
+def test_article_request_view_allows_when_llm_worker_disabled_and_marks_waiting(
     client: TestClient,
 ) -> None:
     db_path = os.environ["DB_PATH"]
@@ -163,17 +149,15 @@ def test_article_request_api_allows_when_llm_worker_disabled_and_marks_waiting(
     assert settings_response.json()["workers"]["llm"] is False
 
     response = client.post(
-        "/api/videos/article-request",
-        json={"video_ids": ["vid-manual-disabled-001"]},
+        "/views/videos/article-request-selected",
+        data={"video_id": ["vid-manual-disabled-001"], "_page": "1", "_limit": "20"},
     )
 
     assert response.status_code == 200
-    payload = response.json()
-    assert set(payload.keys()) == {"ok", "requested_count", "summary", "llm_worker_waiting"}
-    assert payload["ok"] is True
-    assert payload["requested_count"] == 1
-    assert payload["summary"] == {"new": 0, "retry": 1, "skip": 0, "failed": 0}
-    assert payload["llm_worker_waiting"] is True
+    toast = json.loads(response.headers["HX-Trigger"])["video-article-request-toast"]
+    message = str(toast.get("message") or "")
+    assert "신규 0건, 재시도 1건, 건너뜀 0건, 실패 0건" in message
+    assert "LLM 워커가 꺼져 있어 대기열에만 등록되었습니다." in message
     assert wake_probe.called is True
 
     with sqlite3.connect(db_path) as conn:
