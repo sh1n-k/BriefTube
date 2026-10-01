@@ -789,6 +789,11 @@ def test_settings_llm_runtime_status_ignores_stale_unavailable_issue_when_ready(
     assert response.status_code == 200
     assert TXT["settings_llm_runtime_ready"] in response.text
     assert "border-emerald-200" in response.text
+    assert (
+        f"{TXT['settings_llm_runtime_status_label']}: {TXT['settings_llm_runtime_reason_ok']}"
+        in response.text
+    )
+    assert TXT["settings_llm_runtime_reason_generic"] not in response.text
     assert f"{TXT['settings_llm_runtime_pending_label']}: 2" in response.text
 
 

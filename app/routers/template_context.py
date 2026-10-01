@@ -80,7 +80,7 @@ async def _build_llm_runtime_context(
         "code": status.code,
         "reason": status.reason,
         "reason_text_key": reason_key,
-        "reason_text": runtime_reason_text(status.code, txt),
+        "reason_text": runtime_reason_text(status.code, txt) if status.code else "",
         "providers_to_try": status.providers_to_try,
         "warnings": status.warnings,
         "warning_texts": warning_texts,
