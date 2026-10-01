@@ -2,13 +2,7 @@
 
 import app.repositories._categories as repository
 
-CATEGORY_PROCESSING_STAGE_OFF = repository.CATEGORY_PROCESSING_STAGE_OFF
-CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY = repository.CATEGORY_PROCESSING_STAGE_TRANSCRIPT_ONLY
-CATEGORY_PROCESSING_STAGE_FULL = repository.CATEGORY_PROCESSING_STAGE_FULL
-
-normalize_category_processing_stage = repository.normalize_category_processing_stage
 parse_category_processing_stage = repository.parse_category_processing_stage
-next_category_processing_stage = repository.next_category_processing_stage
 
 get_default_category_id = repository.get_default_category_id
 list_categories = repository.list_categories

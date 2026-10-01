@@ -13,7 +13,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from app import llm_policy as _llm_policy
+from app.llm_policy import (
+    LLM_CODEX_REASONING_EFFORT_OPTIONS,
+    LLM_GROK_REASONING_EFFORT_OPTIONS,
+    LLM_PROVIDER_CODEX,
+    LLM_PROVIDER_CURSOR,
+    LLM_PROVIDER_GROK,
+    normalize_codex_model,
+    normalize_cursor_model,
+    normalize_grok_model,
+    normalize_llm_provider,
+)
 from app.services.llm_errors import LlmClientError
 
 LLM_GROK_MAX_TURNS = 15
@@ -73,16 +83,6 @@ LLM_CURSOR_DENIED_PERMISSIONS: tuple[str, ...] = (
     "WebFetch(*)",
     "Mcp(*:*)",
 )
-LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
-LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
-LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
-LLM_PROVIDER_CURSOR = _llm_policy.LLM_PROVIDER_CURSOR
-LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
-LLM_GROK_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_GROK_REASONING_EFFORT_OPTIONS
-normalize_codex_model = _llm_policy.normalize_codex_model
-normalize_grok_model = _llm_policy.normalize_grok_model
-normalize_cursor_model = _llm_policy.normalize_cursor_model
-normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 
 @dataclass(slots=True)

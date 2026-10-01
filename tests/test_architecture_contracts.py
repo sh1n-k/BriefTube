@@ -68,3 +68,61 @@ def test_repository_row_helpers_are_not_redefined_outside_common() -> None:
             }:
                 redefined.append(f"{path.name}:{node.name}")
     assert redefined == []
+
+
+def _repository_facade_paths(root: Path) -> list[Path]:
+    return [
+        path
+        for path in sorted((root / "app" / "repositories").glob("*.py"))
+        if not path.name.startswith("_")
+    ]
+
+
+def test_application_code_imports_only_repository_facades() -> None:
+    root = Path(__file__).resolve().parents[1]
+    violations: list[str] = []
+    for path in sorted((root / "app").rglob("*.py")):
+        if path.parent.name == "repositories" and path.name.startswith("_"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                base = node.module or ""
+                if node.level:
+                    package = ".".join(path.relative_to(root).with_suffix("").parts[: -node.level])
+                    base = f"{package}.{base}" if base else package
+                modules = [base]
+                if base == "app.repositories":
+                    modules += [f"app.repositories.{alias.name}" for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if module.startswith("app.repositories._") and path.parent.name != "repositories":
+                    violations.append(f"{path.relative_to(root)}:{node.lineno}:{module}")
+    assert violations == []
+
+
+def test_repository_facades_only_re_export_private_modules() -> None:
+    root = Path(__file__).resolve().parents[1]
+    violations: list[str] = []
+    for path in _repository_facade_paths(root):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.Import) and all(
+                alias.name.startswith("app.repositories._") for alias in node.names
+            ):
+                continue
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Attribute)
+                and isinstance(node.value.value, ast.Name)
+            ):
+                continue
+            violations.append(f"{path.name}:{node.lineno}")
+    assert violations == []

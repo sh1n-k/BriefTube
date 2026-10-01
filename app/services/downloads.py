@@ -8,12 +8,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from app import download_policy as _download_policy
+from app.download_policy import validate_download_output_dir
 
 logger = logging.getLogger(__name__)
-
-DownloadOutputDirValidationResult = _download_policy.DownloadOutputDirValidationResult
-validate_download_output_dir = _download_policy.validate_download_output_dir
 
 
 @dataclass(slots=True)

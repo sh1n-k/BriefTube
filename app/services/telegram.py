@@ -12,14 +12,6 @@ TELEGRAM_SOURCE_CONFIG = "config"
 TELEGRAM_SOURCE_NONE = "none"
 
 
-def _pick_telegram_value(*candidates: tuple[str, str]) -> tuple[str, str]:
-    for source, raw_value in candidates:
-        value = str(raw_value or "").strip()
-        if value:
-            return value, source
-    return "", TELEGRAM_SOURCE_NONE
-
-
 def _pick_telegram_bundle(*candidates: tuple[str, str, str]) -> tuple[str, str, str]:
     for source, raw_token, raw_chat_id in candidates:
         token = str(raw_token or "").strip()

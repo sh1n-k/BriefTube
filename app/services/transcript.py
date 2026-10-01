@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
-import httpx
 from requests import Session
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -26,8 +24,7 @@ class _TimeoutSession(Session):
 
 
 class TranscriptService:
-    def __init__(self, client: httpx.AsyncClient, *, request_timeout_seconds: int = 45):
-        self.client = client
+    def __init__(self, *, request_timeout_seconds: int = 45):
         self._request_headers = default_transcript_request_headers()
         self._request_timeout_seconds = max(1, int(request_timeout_seconds))
 
@@ -93,16 +90,3 @@ class TranscriptService:
             video_id,
             preferred_language,
         )
-
-    async def download_thumbnail(self, video_id: str, thumbnail_dir: str) -> str | None:
-        directory = Path(thumbnail_dir)
-        directory.mkdir(parents=True, exist_ok=True)
-
-        url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        target = directory / f"{video_id}.jpg"
-
-        response = await self.client.get(url, timeout=15)
-        if response.status_code >= 400:
-            return None
-        target.write_bytes(response.content)
-        return str(target)

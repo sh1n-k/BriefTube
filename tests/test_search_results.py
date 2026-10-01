@@ -125,3 +125,10 @@ def test_search_results_fragment_renders_empty_state(client: TestClient) -> None
 
     assert response.status_code == 200
     assert "일치하는 결과가 없습니다." in response.text
+
+
+def test_search_results_fragment_treats_malformed_fts_query_as_empty(client: TestClient) -> None:
+    response = client.get('/views/search-results?q="unterminated', headers=FRAGMENT_HEADERS)
+
+    assert response.status_code == 200
+    assert "일치하는 결과가 없습니다." in response.text

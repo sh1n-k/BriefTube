@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
+from app.pipeline_status import LLM_QUEUE_STATUSES, TRANSCRIPT_QUEUE_STATUSES
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
@@ -24,11 +25,11 @@ async def queue_poll(request: Request):
     db = request.app.state.runtime.db
     transcript_items = await transcripts_repo.list_queue_items(
         db,
-        transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
+        TRANSCRIPT_QUEUE_STATUSES,
     )
     llm_items = await transcripts_repo.list_queue_items(
         db,
-        llm_repo.LLM_QUEUE_STATUSES,
+        LLM_QUEUE_STATUSES,
     )
     counts = await transcripts_repo.queue_status(db)
     workers = await settings_repo.get_worker_settings(db)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import logging
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -44,6 +45,8 @@ def _append_viewed_filter(
     elif viewed == "read":
         conditions.append("v.viewed_at IS NOT NULL")
 
+
+logger = logging.getLogger("app.repositories.videos")
 
 _SNIPPET_MARK_START = "\ue000"
 _SNIPPET_MARK_END = "\ue001"
@@ -441,28 +444,14 @@ async def get_transcript(db: aiosqlite.Connection, video_id: str) -> dict[str, A
     return _row_to_dict(row)
 
 
-async def get_article(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:
-    cursor = await db.execute(
-        """
-        SELECT
-            video_id,
-            title,
-            lead,
-            body,
-            fact_box,
-            timestamps,
-            llm_provider,
-            llm_model,
-            llm_reasoning_effort,
-            llm_generated_at,
-            created_at
-        FROM articles
-        WHERE video_id = ?
-        """,
-        (video_id,),
+def _is_malformed_fts_query_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "syntax error" in message
+        or ("fts5" in message and "parse" in message)
+        or "unterminated" in message
+        or ("malformed" in message and "match" in message)
     )
-    row = await cursor.fetchone()
-    return _row_to_dict(row)
 
 
 async def search_documents(
@@ -471,6 +460,26 @@ async def search_documents(
     limit: int = 20,
     *,
     highlight: bool = False,
+) -> list[dict[str, Any]]:
+    try:
+        return await _search_documents(db, query=query, limit=limit, highlight=highlight)
+    except aiosqlite.OperationalError as exc:
+        if not _is_malformed_fts_query_error(exc):
+            raise
+        logger.warning(
+            "event=videos.search_query_rejected error_type=%s",
+            exc.__class__.__name__,
+            extra={"event": "videos.search_query_rejected"},
+        )
+        return []
+
+
+async def _search_documents(
+    db: aiosqlite.Connection,
+    query: str,
+    limit: int,
+    *,
+    highlight: bool,
 ) -> list[dict[str, Any]]:
     cursor = await db.execute(
         """

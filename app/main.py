@@ -195,7 +195,6 @@ async def lifespan(app: FastAPI):
             longform_min_seconds=config.yt_dlp_longform_min_seconds,
         ),
         transcript_service=TranscriptService(
-            http_client,
             request_timeout_seconds=config.transcript_fetch_timeout_seconds,
         ),
         channel_resolver=ChannelResolverService(http_client),

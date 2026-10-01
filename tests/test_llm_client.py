@@ -7,17 +7,20 @@ from pathlib import Path
 
 import pytest
 
-from app.services import llm_invocation
-from app.services.llm import (
+from app.llm_policy import (
     LLM_CODEX_MODEL_DEFAULT,
     LLM_CURSOR_MODEL_DEFAULT,
     LLM_GROK_MODEL_DEFAULT,
-    CommandExecutionResult,
-    LlmClientError,
-    UnifiedLlmClient,
 )
+from app.services import llm_invocation
+from app.services.llm import LlmClientError, UnifiedLlmClient
 from app.services.llm_errors import classify_command_failure
-from app.services.llm_invocation import default_command_runner, resolve_provider_command
+from app.services.llm_invocation import (
+    CommandExecutionResult,
+    default_command_runner,
+    resolve_provider_command,
+)
+from app.services.llm_payload import parse_provider_output
 
 _VALID_ARTICLE_BODY = (
     "원문은 이 사안의 경과와 핵심 주장을 차례로 설명했다. "
@@ -33,13 +36,13 @@ def _expected_provider_command(provider: str) -> str:
 
 def test_runtime_not_ready_when_prompt_is_empty() -> None:
     client = UnifiedLlmClient(timeout_seconds=10)
-    reason = client.runtime_not_ready_reason(
+    reason = client.resolve_runtime_plan(
         {
             "provider_primary": "codex",
             "provider_fallback": "none",
             "prompt_template": "",
         }
-    )
+    ).blocking_reason
     assert reason == "llm_prompt_missing"
 
 
@@ -326,13 +329,13 @@ def test_runtime_plan_blocks_when_codex_schema_contract_is_invalid() -> None:
         }
 
     client._provider_schema = fake_schema  # type: ignore[method-assign]
-    reason = client.runtime_not_ready_reason(
+    reason = client.resolve_runtime_plan(
         {
             "provider_primary": "codex",
             "provider_fallback": "none",
             "prompt_template": "Body={transcript_text}",
         }
-    )
+    ).blocking_reason
     assert reason == "llm_provider_schema_invalid_codex"
 
 
@@ -447,9 +450,8 @@ def test_restructure_allows_refusal_word_inside_valid_article_json() -> None:
 
 
 def test_parse_non_json_refusal_text_still_reports_provider_refusal() -> None:
-    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda _: True)
     try:
-        client._parse_provider_output("codex", "요청을 거부합니다.")
+        parse_provider_output("codex", "요청을 거부합니다.")
         assert False, "expected LlmClientError"
     except LlmClientError as exc:
         assert exc.code == "llm_provider_refused"
@@ -590,13 +592,13 @@ def test_runtime_plan_blocks_when_grok_command_missing() -> None:
         timeout_seconds=10,
         command_exists=lambda name: name == "codex",
     )
-    reason = client.runtime_not_ready_reason(
+    reason = client.resolve_runtime_plan(
         {
             "provider_primary": "grok",
             "provider_fallback": "none",
             "prompt_template": "{transcript_text}",
         }
-    )
+    ).blocking_reason
     assert reason == "llm_provider_unavailable_grok"
 
 
@@ -726,13 +728,13 @@ def test_runtime_plan_blocks_when_cursor_command_missing() -> None:
         timeout_seconds=10,
         command_exists=lambda name: name == "grok",
     )
-    reason = client.runtime_not_ready_reason(
+    reason = client.resolve_runtime_plan(
         {
             "provider_primary": "cursor",
             "provider_fallback": "none",
             "prompt_template": "{transcript_text}",
         }
-    )
+    ).blocking_reason
     assert reason == "llm_provider_unavailable_cursor"
 
 

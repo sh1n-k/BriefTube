@@ -2,7 +2,6 @@
 
 import app.repositories._transcripts as repository
 import app.repositories._transcripts_guard as guard_repository
-from app.pipeline_status import TRANSCRIPT_QUEUE_STATUSES as TRANSCRIPT_QUEUE_STATUSES
 
 list_queue_items = repository.list_queue_items
 queue_status = repository.queue_status

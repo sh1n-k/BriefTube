@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from app.pipeline_status import LLM_QUEUE_STATUSES, TRANSCRIPT_QUEUE_STATUSES
 from app.repositories import channels as channels_repo
 from app.repositories import downloads as downloads_repo
-from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers.helpers import build_rss_poll_preview
@@ -94,11 +94,11 @@ async def queue_page(request: Request):
     db = request.app.state.runtime.db
     transcript_items = await transcripts_repo.list_queue_items(
         db,
-        transcripts_repo.TRANSCRIPT_QUEUE_STATUSES,
+        TRANSCRIPT_QUEUE_STATUSES,
     )
     llm_items = await transcripts_repo.list_queue_items(
         db,
-        llm_repo.LLM_QUEUE_STATUSES,
+        LLM_QUEUE_STATUSES,
     )
     queue_counts = await transcripts_repo.queue_status(db)
     worker_settings = await settings_repo.get_worker_settings(db)

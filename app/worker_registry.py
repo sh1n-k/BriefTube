@@ -30,10 +30,6 @@ class WorkerSpec:
     def disable_env_name(self) -> str:
         return f"BRIEFTUBE_DISABLE_{self.worker_name.upper()}_WORKER"
 
-    @property
-    def test_enable_env_name(self) -> str:
-        return f"BRIEFTUBE_ENABLE_{self.worker_name.upper()}_WORKER_IN_TESTS"
-
 
 WORKER_SPECS: tuple[WorkerSpec, ...] = (
     WorkerSpec("rss", "rss_poller", run_rss_poller, order=10),

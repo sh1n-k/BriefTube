@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
@@ -9,16 +8,6 @@ from app.services.llm_errors import LlmClientError, schema_error_code
 
 ARTICLE_FIELD_KEYS: tuple[str, ...] = ("title", "lead", "body", "fact_box", "timestamps")
 ARTICLE_CORE_KEYS: tuple[str, ...] = ("title", "lead", "body")
-
-ARTICLE_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {key: {"type": "string"} for key in ARTICLE_FIELD_KEYS},
-    "required": list(ARTICLE_FIELD_KEYS),
-    "additionalProperties": False,
-}
-ARTICLE_JSON_SCHEMA_COMPACT = json.dumps(
-    ARTICLE_JSON_SCHEMA, ensure_ascii=True, separators=(",", ":")
-)
 
 
 def build_provider_schema(provider: str) -> dict[str, Any]:

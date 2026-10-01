@@ -3,7 +3,6 @@
 import app.repositories._alerts_retention as alerts_repository
 import app.repositories._llm as repository
 import app.repositories._settings_llm as settings_repository
-from app.pipeline_status import LLM_QUEUE_STATUSES as LLM_QUEUE_STATUSES
 
 ALERT_TYPE_LLM_CONFIG_MISSING = alerts_repository.ALERT_TYPE_LLM_CONFIG_MISSING
 LLM_CONFIG_MISSING_ALERT_SENT_KEY = settings_repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY

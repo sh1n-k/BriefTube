@@ -11,9 +11,10 @@ from app.domains.downloads.types import (
     DownloadFileTargetResult,
 )
 from app.download_error_registry import build_download_error_payload, get_download_error_spec
+from app.download_policy import validate_download_output_dir
 from app.repositories import downloads as downloads_repo
 from app.repositories import videos as videos_repo
-from app.services.downloads import is_ffmpeg_available, validate_download_output_dir
+from app.services.downloads import is_ffmpeg_available
 
 
 def resolve_worker_timeout_seconds(*, quality: str, base_timeout_seconds: int) -> int:

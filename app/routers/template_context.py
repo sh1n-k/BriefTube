@@ -7,11 +7,7 @@ from typing import TypeVar
 from fastapi import Request
 
 from app.i18n import DEFAULT_LANGUAGE, get_languages, get_texts, normalize_language
-from app.repositories import alerts_retention as alerts_repo
-from app.repositories import llm as llm_repo
-from app.repositories import settings as settings_repo
-from app.services.channel_handle import format_channel_handle_display
-from app.services.llm import (
+from app.llm_policy import (
     LLM_CODEX_MODEL_OPTIONS,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_CURSOR_MODEL_OPTIONS,
@@ -19,6 +15,10 @@ from app.services.llm import (
     LLM_GROK_REASONING_EFFORT_OPTIONS,
     LLM_GROK_REASONING_EFFORT_ORDER,
 )
+from app.repositories import alerts_retention as alerts_repo
+from app.repositories import llm as llm_repo
+from app.repositories import settings as settings_repo
+from app.services.channel_handle import format_channel_handle_display
 from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
     resolve_llm_runtime_status,

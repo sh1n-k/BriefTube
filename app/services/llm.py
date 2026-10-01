@@ -7,11 +7,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app import llm_policy as _llm_policy
-from app.services.llm_errors import AUTH_KEYWORDS as AUTH_KEYWORDS
-from app.services.llm_errors import REFUSAL_KEYWORDS as REFUSAL_KEYWORDS
+from app.llm_policy import (
+    LLM_CODEX_MODEL_DEFAULT,
+    LLM_CODEX_REASONING_EFFORT_OPTIONS,
+    LLM_CURSOR_MODEL_DEFAULT,
+    LLM_GROK_MODEL_DEFAULT,
+    LLM_GROK_REASONING_EFFORT_OPTIONS,
+    LLM_PROVIDER_CODEX,
+    LLM_PROVIDER_CURSOR,
+    LLM_PROVIDER_GROK,
+    LLM_PROVIDER_NONE,
+    normalize_codex_model,
+    normalize_cursor_model,
+    normalize_grok_model,
+    normalize_llm_provider,
+)
 from app.services.llm_errors import LlmClientError
-from app.services.llm_invocation import CommandExecutionResult as CommandExecutionResult
 from app.services.llm_invocation import (
     CommandExists,
     CommandRunner,
@@ -22,48 +33,13 @@ from app.services.llm_invocation import (
     run_cursor_provider_command,
     run_grok_provider_command,
 )
-from app.services.llm_payload import (
-    coerce_article,
-    extract_article_payload,
-    is_article_payload,
-    load_json,
-    parse_provider_output,
-)
 from app.services.llm_provider_result import (
     parse_and_capture_provider_result,
     raise_for_provider_command_failure,
 )
 from app.services.llm_runtime import LlmRuntimePlan, resolve_llm_runtime_plan
-from app.services.llm_schema import ARTICLE_CORE_KEYS as ARTICLE_CORE_KEYS
-from app.services.llm_schema import ARTICLE_FIELD_KEYS as ARTICLE_FIELD_KEYS
-from app.services.llm_schema import ARTICLE_JSON_SCHEMA as ARTICLE_JSON_SCHEMA
-from app.services.llm_schema import ARTICLE_JSON_SCHEMA_COMPACT as ARTICLE_JSON_SCHEMA_COMPACT
 from app.services.llm_schema import build_provider_schema
 from app.services.llm_schema import validate_provider_schema as _validate_provider_schema
-
-LLM_CODEX_MODEL_DEFAULT = _llm_policy.LLM_CODEX_MODEL_DEFAULT
-LLM_CODEX_MODEL_MAX_LENGTH = _llm_policy.LLM_CODEX_MODEL_MAX_LENGTH
-LLM_CODEX_MODEL_OPTIONS = _llm_policy.LLM_CODEX_MODEL_OPTIONS
-LLM_CODEX_MODEL_VALUES = _llm_policy.LLM_CODEX_MODEL_VALUES
-LLM_CODEX_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_CODEX_REASONING_EFFORT_OPTIONS
-LLM_CURSOR_MODEL_DEFAULT = _llm_policy.LLM_CURSOR_MODEL_DEFAULT
-LLM_CURSOR_MODEL_OPTIONS = _llm_policy.LLM_CURSOR_MODEL_OPTIONS
-LLM_GROK_MODEL_DEFAULT = _llm_policy.LLM_GROK_MODEL_DEFAULT
-LLM_GROK_MODEL_MAX_LENGTH = _llm_policy.LLM_GROK_MODEL_MAX_LENGTH
-LLM_GROK_MODEL_OPTIONS = _llm_policy.LLM_GROK_MODEL_OPTIONS
-LLM_GROK_MODEL_VALUES = _llm_policy.LLM_GROK_MODEL_VALUES
-LLM_GROK_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_GROK_REASONING_EFFORT_OPTIONS
-LLM_GROK_REASONING_EFFORT_ORDER = _llm_policy.LLM_GROK_REASONING_EFFORT_ORDER
-LLM_PROMPT_TEMPLATE_MAX_LENGTH = _llm_policy.LLM_PROMPT_TEMPLATE_MAX_LENGTH
-LLM_PROVIDER_CODEX = _llm_policy.LLM_PROVIDER_CODEX
-LLM_PROVIDER_GROK = _llm_policy.LLM_PROVIDER_GROK
-LLM_PROVIDER_CURSOR = _llm_policy.LLM_PROVIDER_CURSOR
-LLM_PROVIDER_NONE = _llm_policy.LLM_PROVIDER_NONE
-LLM_REASONING_EFFORT_OPTIONS = _llm_policy.LLM_REASONING_EFFORT_OPTIONS
-normalize_codex_model = _llm_policy.normalize_codex_model
-normalize_grok_model = _llm_policy.normalize_grok_model
-normalize_cursor_model = _llm_policy.normalize_cursor_model
-normalize_llm_provider = _llm_policy.normalize_llm_provider
 
 _UNTRUSTED_TRANSCRIPT_GUARD = """
 Security and accuracy rules:
@@ -175,9 +151,6 @@ class UnifiedLlmClient:
             provider_command=self._provider_command,
             validate_provider_schema=self.validate_provider_schema,
         )
-
-    def runtime_not_ready_reason(self, settings: Mapping[str, Any] | None) -> str | None:
-        return self.resolve_runtime_plan(settings).blocking_reason
 
     def _provider_command(self, provider: str) -> str:
         return resolve_provider_command(provider, command_exists=self._command_exists)
@@ -367,21 +340,6 @@ class UnifiedLlmClient:
             capture_max_chars=self._response_capture_max_chars,
             include_content=self._capture_full_response_content,
         )
-
-    def _parse_provider_output(self, provider: str, stdout: str) -> dict[str, str]:
-        return parse_provider_output(provider, stdout)
-
-    def _load_json(self, raw: str, provider: str) -> Any:
-        return load_json(raw, provider)
-
-    def _extract_article_payload(self, data: Any, provider: str) -> Mapping[str, Any]:
-        return extract_article_payload(data, provider)
-
-    def _is_article_payload(self, payload: Mapping[str, Any]) -> bool:
-        return is_article_payload(payload)
-
-    def _coerce_article(self, payload: Mapping[str, Any], *, provider: str) -> dict[str, str]:
-        return coerce_article(payload, provider=provider)
 
     def _provider_schema_compact(self, provider: str) -> str:
         schema = self._provider_schema(provider)

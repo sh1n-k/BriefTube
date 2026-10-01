@@ -439,10 +439,7 @@ def test_transcript_service_reapplies_configured_headers_after_api_init(
     monkeypatch.setattr(
         transcript_service_module, "YouTubeTranscriptApi", _FakeYouTubeTranscriptApi
     )
-    service = transcript_service_module.TranscriptService(
-        client=None,  # type: ignore[arg-type]
-        request_timeout_seconds=7,
-    )
+    service = transcript_service_module.TranscriptService(request_timeout_seconds=7)
     service.apply_transcript_request_headers({"Accept-Language": "ko-KR,ko;q=0.9"})
 
     raw_text, language, source_type = service._fetch_transcript_sync("vid-header-001", "ko")
