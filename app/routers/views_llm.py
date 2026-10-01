@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from app.repositories import llm as llm_repo
 from app.routers.helpers import (
     full_page_redirect_for_non_fragment_request,
     llm_runtime_toast_header,
@@ -48,6 +49,11 @@ async def resume_llm_runtime(request: Request):
         )
         if is_runtime_ready_for_resume(status):
             pending_count = int(llm_runtime_status.get("pending_count") or 0)
+            await llm_repo.clear_llm_runtime_issue(request.app.state.runtime.db)
+            context = await build_template_context(
+                request,
+                include_llm_runtime_status=True,
+            )
             if pending_count > 0:
                 request.app.state.runtime.llm_wake_event.set()
                 message = txt["settings_llm_runtime_resume_requested_toast"].format(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from starlette.datastructures import UploadFile
 
 from app.repositories import categories as categories_repo
@@ -12,6 +12,7 @@ from app.routers.views_common import (
     _resolve_channel_management_state,
 )
 from app.services.bulk_channels import (
+    TakeoutImportTooLargeError,
     collect_inputs_from_sources,
     parse_takeout_entries,
     resolve_bulk_inputs,
@@ -34,7 +35,10 @@ async def bulk_resolve(request: Request):
     takeout_data = parse_takeout_entries("takeout.txt", b"")
     if isinstance(upload, UploadFile):
         data = await upload.read()
-        takeout_data = parse_takeout_entries(upload.filename or "takeout.txt", data)
+        try:
+            takeout_data = parse_takeout_entries(upload.filename or "takeout.txt", data)
+        except TakeoutImportTooLargeError as exc:
+            raise HTTPException(status_code=413, detail="takeout file is too large") from exc
 
     collected = collect_inputs_from_sources(
         bulk_text=bulk_text,
