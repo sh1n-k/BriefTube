@@ -11,6 +11,12 @@ Settings DB(`app_settings.llm_prompt_template`)에 들어가는 재구조화 프
 | `versions/2026-08-07-prod-baseline.txt` | 적용 직전 prod 스냅샷 (롤백 기준) |
 | `versions/2026-08-07-dev-baseline.txt` | 적용 직전 dev 스냅샷 |
 | `versions/2026-08-07-reader-clarity-v1.txt` | 독자 이해 보강 규칙 추가본 |
+| `versions/2026-10-13-structure-v2.txt` | reader-clarity-v1 + 영상 유형별 서술·원문 표기·분량 규칙. 원본 제목 중복 제거 |
+
+필드 의미(lead·fact_box·timestamps 형식과 분량)는 DB 프롬프트가 아니라 코드의 공통 출력 계약
+(`app/services/llm.py`의 `_ARTICLE_OUTPUT_CONTRACT`)이 모든 provider 프롬프트 끝에 붙입니다.
+원본 제목은 코드의 입력 블록(`Source title:`)에 이미 들어가므로 템플릿에 `{source_title}`을
+다시 넣지 않아도 됩니다.
 
 ## 적용 / 롤백
 
@@ -23,12 +29,12 @@ uv run python scripts/apply_llm_prompt.py list
 # dry-run (기본)
 uv run python scripts/apply_llm_prompt.py apply \
   --db data.prod.db \
-  --version 2026-08-07-reader-clarity-v1
+  --version 2026-10-13-structure-v2
 
 # 실제 적용
 uv run python scripts/apply_llm_prompt.py apply \
   --db data.prod.db \
-  --version 2026-08-07-reader-clarity-v1 \
+  --version 2026-10-13-structure-v2 \
   --write
 
 # 롤백 (prod baseline)

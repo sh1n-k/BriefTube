@@ -472,7 +472,7 @@ def test_response_capture_redacts_content_by_default(tmp_path) -> None:
                     "lead": "Sensitive lead",
                     "body": _VALID_ARTICLE_BODY,
                     "fact_box": '{"secret":"value"}',
-                    "timestamps": '["00:00"]',
+                    "timestamps": "- [00:00] secret moment",
                 }
             ),
             encoding="utf-8",
@@ -510,7 +510,7 @@ def test_response_capture_redacts_content_by_default(tmp_path) -> None:
         "lead_chars": len("Sensitive lead"),
         "body_chars": len(_VALID_ARTICLE_BODY),
         "fact_box_chars": len('{"secret":"value"}'),
-        "timestamps_chars": len('["00:00"]'),
+        "timestamps_chars": len("- [00:00] secret moment"),
     }
 
 
@@ -773,6 +773,7 @@ def test_restructure_cursor_uses_ask_mode_temp_workspace_and_stdin_prompt() -> N
         assert "Title=Source" in stdin_text
         assert "Transcript" in stdin_text
         assert "Output contract (mandatory)" in stdin_text
+        assert "Article field contract:" in stdin_text
         assert '"required":["title","lead","body","fact_box","timestamps"]' in stdin_text
         seen["workspace"] = workspace
 
@@ -795,7 +796,7 @@ def test_restructure_cursor_uses_ask_mode_temp_workspace_and_stdin_prompt() -> N
     article = asyncio.run(
         client.restructure(
             source_title="Source",
-            transcript_text="Transcript",
+            transcript_text="[00:00] Transcript",
             settings={
                 "provider_primary": "cursor",
                 "provider_fallback": "none",
@@ -807,7 +808,7 @@ def test_restructure_cursor_uses_ask_mode_temp_workspace_and_stdin_prompt() -> N
 
     assert not Path(str(seen["workspace"])).exists()
     assert article["title"] == "Cursor title"
-    assert article["timestamps"] == "- 00:00 intro"
+    assert article["timestamps"] == "- [00:00] intro"
     assert article["_llm_provider"] == "cursor"
     assert article["_llm_model"] == LLM_CURSOR_MODEL_DEFAULT
     assert article["_llm_reasoning_effort"] == ""

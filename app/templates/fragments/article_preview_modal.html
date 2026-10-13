@@ -56,47 +56,11 @@
         </button>
       </div>
     </div>
-    <div class="mt-4 max-h-[75vh] space-y-4 overflow-y-auto pr-1" data-article-preview-scroll>
+    <div class="mt-4 max-h-[75vh] space-y-4 overflow-y-auto pr-1" data-article-preview-scroll data-article-toc-root>
       <h4 class="text-lg font-semibold text-slate-900">{{ video.article_title }}</h4>
-      {% if video.lead %}
-      <blockquote class="border-l-4 border-indigo-400 pl-4 text-sm italic text-slate-700">
-        {% if article_lead_html %}
-        {{ article_lead_html | safe }}
-        {% else %}
-        {{ video.lead }}
-        {% endif %}
-      </blockquote>
-      {% endif %}
-      {% if article_body_html %}
-      <article class="article-rendered" data-article-preview-content>
-        {{ article_body_html | safe }}
-      </article>
-      {% else %}
-      <p class="text-sm text-slate-500">{{ txt.detail_article_modal_empty }}</p>
-      {% endif %}
-      {% if video.fact_box and video.fact_box not in ['{}', ''] %}
-      <div class="fact-box-panel rounded-xl p-4">
-        <h4 class="fact-box-panel-title mb-3 flex items-center gap-1.5 text-sm font-semibold">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
-          </svg>
-          {{ txt.detail_key_facts }}
-        </h4>
-        <div>
-          {% if article_fact_box_html %}
-          <div class="fact-box-rendered">{{ article_fact_box_html | safe }}</div>
-          {% else %}
-          <div class="whitespace-pre-wrap break-words">{{ video.fact_box }}</div>
-          {% endif %}
-        </div>
-      </div>
-      {% endif %}
-      {% if video.timestamps and video.timestamps not in ['[]', ''] %}
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <h4 class="mb-2 text-sm font-semibold text-slate-700">{{ txt.detail_timestamps }}</h4>
-        <div class="text-sm font-mono text-slate-600 whitespace-pre-wrap">{{ video.timestamps }}</div>
-      </div>
-      {% endif %}
+      {% with article_in_modal=True %}
+      {% include "fragments/article_content.html" %}
+      {% endwith %}
     </div>
   </div>
 </div>

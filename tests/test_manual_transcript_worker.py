@@ -8,13 +8,14 @@ import pytest
 
 from app.database import init_database, open_database
 from app.repositories import manual_transcripts as manual_transcripts_repo
+from app.services.transcript import TranscriptFetchResult
 from app.services.transcript_guard import TranscriptErrorCategory
 from app.workers import manual_transcript_worker
 
 
 class _FakeTranscriptService:
     def __init__(self, result=None, exc: Exception | None = None) -> None:
-        self.result = result or ("collected transcript", "ko", "manual")
+        self.result = result or TranscriptFetchResult("collected transcript", "ko", "manual", None)
         self.exc = exc
         self.calls: list[tuple[str, str | None]] = []
 
@@ -138,7 +139,9 @@ def test_manual_transcript_worker_collects_transcript(tmp_path: Path) -> None:
             assert result["status"] == "queued"
             return await _run_worker_until(
                 db,
-                _FakeTranscriptService(result=("worker transcript", "ko", "manual")),
+                _FakeTranscriptService(
+                    result=TranscriptFetchResult("worker transcript", "ko", "manual", None)
+                ),
                 "vid-manual-tx-worker-001",
                 "succeeded",
             )

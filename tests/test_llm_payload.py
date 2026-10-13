@@ -282,7 +282,7 @@ def test_parse_provider_output_reads_article_json_from_result_string(wrap) -> No
     }
     article = parse_provider_output("cursor", json.dumps(envelope, ensure_ascii=False))
     assert article["title"] == fields["title"]
-    assert article["timestamps"] == fields["timestamps"]
+    assert article["timestamps"] == "- [00:00] 도입"
 
 
 def test_parse_provider_output_does_not_treat_article_text_as_refusal() -> None:

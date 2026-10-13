@@ -407,3 +407,65 @@ def test_video_repository_includes_llm_article_metadata(client: TestClient) -> N
     assert detail_payload["llm_model"] == "sonnet"
     assert detail_payload["llm_reasoning_effort"] == "high"
     assert detail_payload["llm_generated_at"] == "2026-03-02T11:00:00+00:00"
+
+
+_TOC_BODY = (
+    "## 첫 섹션\n\n첫 문단.\n\n## 두 번째 & 섹션\n\n둘째 문단.\n\n## 세 번째 섹션\n\n셋째 문단."
+)
+
+
+def test_detail_article_reading_order_lead_facts_body_meta(client: TestClient) -> None:
+    """리드 → 핵심 팩트 → 본문 → LLM 메타 순서이며 리드는 이탤릭이 아니다."""
+    _seed_video(lead="Lead marker", body="Body marker paragraph", fact_box="- Fact marker")
+    html = client.get("/videos/vid-001").text
+    card = html[html.index("data-detail-article-card") :]
+    card = card[: card.index("data-article-preview-modal")]
+    lead_idx = card.index("Lead marker")
+    fact_idx = card.index("Fact marker")
+    body_idx = card.index("Body marker paragraph")
+    meta_idx = card.index("data-detail-article-meta")
+    assert lead_idx < fact_idx < body_idx < meta_idx
+    lead_tag = card[card.index("data-article-lead") - 200 : card.index("data-article-lead")]
+    assert "italic" not in lead_tag
+    assert "<details" in card[meta_idx - 200 : meta_idx]
+
+
+def test_detail_article_toc_rendered_for_three_sections(client: TestClient) -> None:
+    _seed_video(body=_TOC_BODY)
+    html = client.get("/videos/vid-001").text
+    assert "data-article-toc-root" in html
+    assert html.count('data-article-toc-index="0"') == 2  # detail card + preview modal
+    assert 'data-article-toc-index="2"' in html
+    assert "두 번째 &amp; 섹션" in html
+
+
+def test_detail_article_toc_hidden_for_short_articles(client: TestClient) -> None:
+    _seed_video(body="## 하나\n\n본문.\n\n## 둘\n\n본문.")
+    html = client.get("/videos/vid-001").text
+    assert "data-article-toc-index" not in html
+
+
+def test_detail_timestamps_render_youtube_links(client: TestClient) -> None:
+    _seed_video(timestamps="- [01:05] 도입\n- [1:02:03] 결론")
+    html = client.get("/videos/vid-001").text
+    assert "data-detail-timestamps" in html
+    assert "https://www.youtube.com/watch?v=vid-001&amp;t=65s" in html
+    assert 'data-article-timestamp-seconds="3723"' in html
+    assert 'data-article-timestamp-video-id="vid-001"' in html
+    assert "1:02:03" in html
+
+
+def test_detail_timestamp_placeholder_text_hidden(client: TestClient) -> None:
+    """근거 없는 안내 문구만 있는 기존 기사는 타임스탬프 블록을 숨긴다."""
+    _seed_video(timestamps="원문에 타임스탬프 없음")
+    html = client.get("/videos/vid-001").text
+    assert "data-detail-timestamps" not in html
+    assert "원문에 타임스탬프 없음" not in html
+
+
+def test_detail_legacy_guessed_timestamps_hidden(client: TestClient) -> None:
+    """정규 형식이 아닌 기존(추정) 타임스탬프는 링크로 노출하지 않는다."""
+    _seed_video(timestamps="- 00:00 도입\n- 01:05 추정 구간")
+    html = client.get("/videos/vid-001").text
+    assert "data-detail-timestamps" not in html
+    assert "data-article-timestamp-seconds" not in html

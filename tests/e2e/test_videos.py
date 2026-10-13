@@ -308,3 +308,48 @@ def test_video_detail_auto_refresh_preserves_static_and_unchanged_dom(
         "data-refresh-stability-marker",
         "kept",
     )
+
+
+@pytest.mark.e2e
+def test_video_detail_article_toc_and_timestamp_links(e2e_page: Page, seeded_server: dict) -> None:
+    """목차 버튼은 해당 소제목으로 스크롤하고, 타임스탬프는 YouTube 시점 링크로 렌더링된다."""
+    page = e2e_page
+    video_id = "ALPHA_DONE_01"
+    sections = "\n\n".join(
+        f"## Section {idx}\n\n"
+        + "\n\n".join(f"Full article body for {video_id}. Section {idx} p{p}." for p in range(12))
+        for idx in range(1, 5)
+    )
+    conn = get_db_connection(seeded_server["db_path"])
+    try:
+        conn.execute(
+            "UPDATE articles SET body = ?, fact_box = ?, timestamps = ? WHERE video_id = ?",
+            (sections, "- Key fact one", "- [01:05] Intro", video_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    page.goto(f"{seeded_server['base_url']}/videos/{video_id}")
+    page.wait_for_selector("#video-detail-wrap")
+    article_card = page.locator("[data-detail-article-card]")
+    article_body = article_card.locator("[data-collapsible-body]")
+    if not article_body.is_visible():
+        article_card.locator("[data-collapsible-toggle]").click()
+
+    toc = article_card.locator("[data-article-toc]")
+    expect(toc.locator("[data-article-toc-index]")).to_have_count(4)
+    toc.locator("[data-article-toc-index='3']").click()
+    expect(article_card.locator(".article-rendered h2").nth(3)).to_be_in_viewport()
+
+    timestamp_links = article_card.locator("a[data-article-timestamp-seconds]")
+    expect(timestamp_links).to_have_count(1)
+    expect(timestamp_links.first).to_have_attribute(
+        "href", f"https://www.youtube.com/watch?v={video_id}&t=65s"
+    )
+
+    article_card.locator("[data-article-preview-open]").click()
+    modal = page.locator("#article-preview-modal")
+    expect(modal).to_be_visible()
+    modal.locator("[data-article-toc-index='3']").click()
+    expect(modal.locator(".article-rendered h2").nth(3)).to_be_in_viewport()

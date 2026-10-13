@@ -625,6 +625,15 @@ html[data-theme="dark"] tr.video-list-row--has-article:hover {
   margin-top: 0.95rem;
 }
 
+/* TOC targets: keep headings clear of the sticky top bar when scrolled into view. */
+.article-rendered h2 {
+  scroll-margin-top: 4.5rem;
+}
+
+.article-lead > * + * {
+  margin-top: 0.5rem;
+}
+
 .article-rendered h1,
 .article-rendered h2,
 .article-rendered h3,

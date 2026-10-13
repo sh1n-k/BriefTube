@@ -250,13 +250,12 @@ async def list_videos(
                 FROM transcripts t
                 WHERE t.video_id = v.video_id
             ) AS has_transcript,
-            EXISTS(
-                SELECT 1
-                FROM articles a
-                WHERE a.video_id = v.video_id
-            ) AS has_article
+            a.video_id IS NOT NULL AS has_article,
+            a.title AS article_title,
+            substr(a.lead, 1, 400) AS article_lead
         FROM videos v
         LEFT JOIN channels c ON c.channel_id = v.channel_id
+        LEFT JOIN articles a ON a.video_id = v.video_id
         {where_clause}
         ORDER BY v.{sort_column} {order_sql}
         LIMIT ? OFFSET ?

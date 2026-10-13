@@ -13,6 +13,7 @@ from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.services import transcript as transcript_service_module
+from app.services.transcript import TranscriptFetchResult
 from app.workers.transcript_worker import run_transcript_fetcher
 
 repository = SimpleNamespace(
@@ -255,7 +256,7 @@ def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
 
         async def fetch_transcript(self, video_id: str, preferred_language: str | None = None):
             self.calls.append(video_id)
-            return "recovered transcript", "ko", "manual"
+            return TranscriptFetchResult("recovered transcript", "ko", "manual", None)
 
     async def _run() -> tuple[str, str | None, list[str]]:
         db = await open_database(str(db_path))
@@ -432,9 +433,19 @@ def test_transcript_service_reapplies_configured_headers_after_api_init(
             self.http_client = http_client
             self.http_client.headers.update({"Accept-Language": "en-US"})
 
-        def fetch(self, video_id, languages):
-            observed_headers.update(dict(self.http_client.headers))
-            return _FakeFetchedTranscript()
+        def list(self, video_id):
+            http_client = self.http_client
+
+            class _FakeTrack:
+                language_code = "ko"
+                is_generated = False
+                _url = "https://www.youtube.com/api/timedtext?lang=ko"
+
+                def fetch(self):
+                    observed_headers.update(dict(http_client.headers))
+                    return _FakeFetchedTranscript()
+
+            return [_FakeTrack()]
 
     monkeypatch.setattr(
         transcript_service_module, "YouTubeTranscriptApi", _FakeYouTubeTranscriptApi
@@ -442,11 +453,14 @@ def test_transcript_service_reapplies_configured_headers_after_api_init(
     service = transcript_service_module.TranscriptService(request_timeout_seconds=7)
     service.apply_transcript_request_headers({"Accept-Language": "ko-KR,ko;q=0.9"})
 
-    raw_text, language, source_type = service._fetch_transcript_sync("vid-header-001", "ko")
+    raw_text, language, source_type, timed_text = service._fetch_transcript_sync(
+        "vid-header-001", "ko"
+    )
 
     assert raw_text == "hello"
     assert language == "ko"
     assert source_type == "manual"
+    assert timed_text is None
     assert observed_headers["Accept-Language"] == "ko-KR,ko;q=0.9"
 
 

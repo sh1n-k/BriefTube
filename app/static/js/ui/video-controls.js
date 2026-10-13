@@ -433,6 +433,50 @@
     });
   }
 
+  // Article TOC and timestamp links live in the detail card and in modals appended later,
+  // so one delegated listener covers every copy of the article markup.
+  function onArticleNavigationClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const tocButton = target.closest("[data-article-toc-index]");
+    if (tocButton instanceof HTMLElement) {
+      const root = tocButton.closest("[data-article-toc-root]");
+      const index = Number.parseInt(tocButton.dataset.articleTocIndex || "", 10);
+      const headings = root ? root.querySelectorAll(".article-rendered h2") : [];
+      const heading = Number.isInteger(index) ? headings[index] : null;
+      if (heading instanceof HTMLElement) {
+        event.preventDefault();
+        heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      return;
+    }
+
+    const timestampLink = target.closest("a[data-article-timestamp-seconds]");
+    if (!(timestampLink instanceof HTMLAnchorElement)) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const seconds = Number.parseInt(timestampLink.dataset.articleTimestampSeconds || "", 10);
+    const videoId = (timestampLink.dataset.articleTimestampVideoId || "").trim();
+    if (!Number.isInteger(seconds) || !videoId) return;
+    const embed = window.BrieftubeYoutubeEmbed;
+    if (!embed?.hasReadyYouTubeEmbed?.(videoId)) return;
+    event.preventDefault();
+    const modal = timestampLink.closest("[data-article-preview-modal]");
+    if (modal instanceof HTMLElement && modal.dataset.modalOpen === "1") {
+      closeArticlePreviewModal(modal);
+    }
+    embed.seekYouTubeEmbed(videoId, seconds);
+  }
+
+  function bindArticleNavigation() {
+    const root = document.body;
+    if (!root || root.dataset.articleNavigationBound === "1") return;
+    root.dataset.articleNavigationBound = "1";
+    document.addEventListener("click", onArticleNavigationClick);
+  }
+
   function initCopyButton(btn) {
     if (btn.dataset.copyBound === "1") return;
     btn.dataset.copyBound = "1";
@@ -881,6 +925,7 @@
     bindVideoArticleRequestButtons,
     bindVideoTranscriptRequestButtons,
     bindArticlePreviewModals,
+    bindArticleNavigation,
     bindCopyButtons,
     bindVideoTranscriptCopyButtons,
     bindVideoArticlePreviewLoadButtons,

@@ -879,3 +879,17 @@ def test_video_article_preview_modal_marks_viewed(client: TestClient) -> None:
         ).fetchone()
         assert after is not None
         assert after[0] is not None
+
+
+def test_video_list_shows_article_title_and_lead_summary(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _seed_video_outputs("vid-a-000", transcript=True, article=True)
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+
+    assert response.status_code == 200
+    html = response.text
+    # mobile card + desktop row
+    assert html.count("data-video-article-summary") == 2
+    assert html.count("Article for vid-a-000") >= 2
+    assert "Lead paragraph" in html

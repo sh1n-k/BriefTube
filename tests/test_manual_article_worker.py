@@ -8,6 +8,7 @@ from app.database import init_database, open_database
 from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
+from app.services.transcript import TranscriptFetchResult
 from app.workers.manual_article_worker import run_manual_article_worker
 from tests.helpers.db_seed import seed_channel, seed_video
 
@@ -61,7 +62,7 @@ class _NeverCalledTranscriptService:
 
 class _SuccessTranscriptService:
     async def fetch_transcript(self, video_id: str, preferred_language: str | None = None):
-        return (f"Fetched {video_id}", "ko", "manual")
+        return TranscriptFetchResult(f"Fetched {video_id}", "ko", "manual", None)
 
 
 class _FailingTranscriptService:
@@ -337,7 +338,7 @@ def test_manual_article_worker_processes_jobs_sequentially_with_spacing(tmp_path
                 active_calls["max"] = max(active_calls["max"], active_calls["count"])
                 starts.append((video_id, asyncio.get_running_loop().time()))
                 try:
-                    return (f"Fetched {video_id}", "ko", "manual")
+                    return TranscriptFetchResult(f"Fetched {video_id}", "ko", "manual", None)
                 finally:
                     active_calls["count"] -= 1
 

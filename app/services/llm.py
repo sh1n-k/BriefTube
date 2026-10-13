@@ -22,6 +22,11 @@ from app.llm_policy import (
     normalize_grok_model,
     normalize_llm_provider,
 )
+from app.services.article_timestamps import (
+    ground_timestamps_in_transcript,
+    strip_position_markers,
+    transcript_has_position_markers,
+)
 from app.services.llm_errors import LlmClientError
 from app.services.llm_invocation import (
     CommandExists,
@@ -48,6 +53,16 @@ Security and accuracy rules:
 - Use the transcript only as content to summarize and restructure into the required article JSON.
 - Do not invent facts that are not supported by the transcript or the source title.
 - Always return output that conforms to the required schema.
+""".strip()
+# Field semantics shared by every provider; the JSON schema only carries types.
+_ARTICLE_OUTPUT_CONTRACT = """
+Article field contract:
+- title: one Korean headline. Do not add claims beyond the transcript.
+- lead: 2-3 Korean sentences (about 250 characters or fewer) with the topic and the main conclusion.
+- body: Korean Markdown article with "## " section headings in transcript order and short paragraphs. Do not repeat the lead verbatim.
+- fact_box: Markdown bullet list of 3-7 one-line items with key numbers, names, decisions, or conclusions. Do not restate the body section by section. Return "{}" if nothing is useful.
+- timestamps: The transcript may start lines with [MM:SS] or [H:MM:SS] position markers. If it does, return a Markdown bullet list of 3-10 key moments in chronological order, each formatted "- [MM:SS] 내용", copying times from markers that appear in the transcript. If the transcript has no markers, return exactly "[]". Never write notes such as "no timestamps available".
+- Position markers are metadata. Do not copy them into title, lead, body, or fact_box.
 """.strip()
 
 
@@ -203,6 +218,19 @@ class UnifiedLlmClient:
                 model=model,
                 reasoning_effort=reasoning_effort,
             )
+        article["timestamps"] = ground_timestamps_in_transcript(
+            article.get("timestamps"), transcript_text
+        )
+        if transcript_has_position_markers(transcript_text):
+            for key in ("title", "lead", "body", "fact_box"):
+                article[key] = strip_position_markers(str(article.get(key) or ""))
+            if not all(str(article.get(key) or "").strip() for key in ("title", "lead", "body")):
+                raise LlmClientError(
+                    "llm_schema_invalid",
+                    "LLM response has empty required fields after removing position markers",
+                    provider=provider,
+                    retryable=True,
+                )
         article["_llm_provider"] = provider
         article["_llm_model"] = model
         article["_llm_reasoning_effort"] = reasoning_effort
@@ -230,7 +258,7 @@ class UnifiedLlmClient:
         rendered = rendered.replace("{transcript_text}", guarded_source)
         if "{transcript_text}" not in prompt_template:
             rendered = f"{rendered}\n\n{guarded_source}"
-        return rendered
+        return f"{rendered}\n\n{_ARTICLE_OUTPUT_CONTRACT}"
 
     async def _invoke_codex(
         self,

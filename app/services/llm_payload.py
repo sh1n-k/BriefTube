@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from app.services.article_timestamps import normalize_timestamps_text
 from app.services.llm_errors import (
     LlmClientError,
     looks_like_auth,
@@ -285,7 +286,7 @@ def coerce_article(payload: Mapping[str, Any], *, provider: str) -> dict[str, st
     lead = normalize_article_text(str(payload.get("lead") or ""))
     body = normalize_article_text(str(payload.get("body") or ""))
     fact_box = normalize_fact_box_text(str(payload.get("fact_box") or "{}"))
-    timestamps = str(payload.get("timestamps") or "[]").strip() or "[]"
+    timestamps = normalize_timestamps_text(str(payload.get("timestamps") or ""))
 
     if not title or not lead or not body:
         raise LlmClientError(

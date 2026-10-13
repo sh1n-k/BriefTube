@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import quote
 
+from app.services.article_timestamps import parse_timestamp_entries
 from app.services.markdown_render import render_markdown_to_safe_html
 
 
@@ -81,3 +84,38 @@ def _humanize_fact_key(raw_key: str) -> str:
     if not words:
         return "핵심 정보"
     return " ".join(word.capitalize() for word in words)
+
+
+_H2_RE = re.compile(r"<h2>(.*?)</h2>", re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+ARTICLE_TOC_MIN_HEADINGS = 3
+
+
+def build_article_toc(body_html: str | None) -> list[dict[str, object]]:
+    """Rendered ## headings with their DOM index; empty when too few to need a TOC."""
+    items: list[dict[str, object]] = []
+    for index, match in enumerate(_H2_RE.finditer(str(body_html or ""))):
+        title = html.unescape(_TAG_RE.sub("", match.group(1))).strip()
+        if title:
+            # Keep the DOM index so the client scrolls to the same h2 even if some are empty.
+            items.append({"index": index, "title": title})
+    if len(items) < ARTICLE_TOC_MIN_HEADINGS:
+        return []
+    return items
+
+
+def build_article_timestamp_links(
+    timestamps_text: str | None, video_id: str | None
+) -> list[dict[str, str]]:
+    safe_video_id = quote(str(video_id or "").strip(), safe="")
+    links: list[dict[str, str]] = []
+    for entry in parse_timestamp_entries(timestamps_text):
+        url = (
+            f"https://www.youtube.com/watch?v={safe_video_id}&t={entry.seconds}s"
+            if safe_video_id
+            else ""
+        )
+        links.append(
+            {"label": entry.label, "seconds": str(entry.seconds), "text": entry.text, "url": url}
+        )
+    return links

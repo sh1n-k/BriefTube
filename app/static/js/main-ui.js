@@ -231,6 +231,7 @@
     videoControls?.bindVideoTranscriptCopyButtons?.(scope);
     videoControls?.bindVideoArticlePreviewLoadButtons?.(scope);
     videoControls?.bindArticlePreviewModals?.(scope);
+    videoControls?.bindArticleNavigation?.();
     downloadControls?.bindDownloadDetailButtons?.(scope);
     downloadControls?.bindDownloadRetryButtons?.(scope);
     categoryControls?.bindCategorySortable?.(scope);

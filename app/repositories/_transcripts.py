@@ -181,19 +181,21 @@ async def save_transcript(
     source_type: str,
     thumbnail_path: str | None,
     *,
+    timed_text: str | None = None,
     force_llm_pending: bool = False,
 ) -> None:
     await db.execute(
         f"""
-        INSERT INTO transcripts(video_id, raw_text, language, source_type)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO transcripts(video_id, raw_text, timed_text, language, source_type)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(video_id) DO UPDATE SET
             raw_text=excluded.raw_text,
+            timed_text=excluded.timed_text,
             language=excluded.language,
             source_type=excluded.source_type,
             updated_at={UPDATED_AT_SQL}
         """,
-        (video_id, raw_text, language, source_type),
+        (video_id, raw_text, timed_text, language, source_type),
     )
     await db.execute(
         """

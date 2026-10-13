@@ -937,3 +937,73 @@ def test_save_article_keeps_cursor_provider(tmp_path) -> None:
     assert provider == "cursor"
     assert model == "cursor-grok-4.6-high"
     assert effort == ""
+
+
+class RecordingSuccessClient:
+    def __init__(self) -> None:
+        self.transcripts: list[str] = []
+
+    def resolve_runtime_plan(self, settings):
+        return LlmRuntimePlan(providers_to_try=["codex"], blocking_reason=None, warnings=[])
+
+    async def restructure(self, source_title: str, transcript_text: str, settings):
+        self.transcripts.append(transcript_text)
+        return {
+            "title": "Article title",
+            "lead": "Article lead",
+            "body": "Article body",
+            "fact_box": "{}",
+            "timestamps": "[]",
+            "_llm_provider": "codex",
+            "_llm_model": "gpt-5.3-codex",
+            "_llm_reasoning_effort": "",
+            "_llm_generated_at": "2026-03-02T10:00:00+00:00",
+        }
+
+
+def test_llm_worker_sends_timed_transcript_when_available(tmp_path) -> None:
+    db_path = tmp_path / "worker-runtime-timed-text.db"
+
+    async def _run() -> list[str]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await db.execute(
+            "INSERT INTO channels(channel_id, channel_name, rss_url, is_active) "
+            "VALUES ('UCtimed', 'Timed', 'https://example.invalid/rss', 1)"
+        )
+        for video_id, timed_text in (("vid-timed", "[00:00] hello"), ("vid-plain", None)):
+            await db.execute(
+                """
+                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+                VALUES (?, 'UCtimed', ?, '2026-02-24T00:00:00+00:00', 'llm_pending', 0)
+                """,
+                (video_id, video_id),
+            )
+            await db.execute(
+                """
+                INSERT INTO transcripts(video_id, raw_text, timed_text, language, source_type)
+                VALUES (?, 'hello', ?, 'en', 'auto')
+                """,
+                (video_id, timed_text),
+            )
+        await db.commit()
+
+        client = RecordingSuccessClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            for video_id in ("vid-timed", "vid-plain"):
+                await _wait_for_video_status(db, video_id=video_id, expected="done")
+            return sorted(client.transcripts)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    assert asyncio.run(_run()) == ["[00:00] hello", "hello"]

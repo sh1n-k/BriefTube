@@ -99,7 +99,7 @@ async def _run_single_llm_job(
     try:
         article = await state.llm_client.restructure(
             source_title=candidate["title"],
-            transcript_text=candidate["raw_text"],
+            transcript_text=candidate.get("timed_text") or candidate["raw_text"],
             settings=llm_settings,
         )
         saved = await llm_repo.save_article(

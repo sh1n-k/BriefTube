@@ -8,6 +8,16 @@ from app.services.llm_errors import LlmClientError, schema_error_code
 
 ARTICLE_FIELD_KEYS: tuple[str, ...] = ("title", "lead", "body", "fact_box", "timestamps")
 ARTICLE_CORE_KEYS: tuple[str, ...] = ("title", "lead", "body")
+ARTICLE_FIELD_DESCRIPTIONS: dict[str, str] = {
+    "title": "Korean headline faithful to the transcript.",
+    "lead": "2-3 Korean sentences with the topic and main conclusion.",
+    "body": "Korean Markdown article with ## section headings and short paragraphs.",
+    "fact_box": 'Markdown bullet list of 3-7 one-line key facts, or "{}" if none.',
+    "timestamps": (
+        'Markdown bullet list "- [MM:SS] 내용" using only transcript [MM:SS] markers, '
+        'or "[]" when the transcript has no markers.'
+    ),
+}
 
 
 def build_provider_schema(provider: str) -> dict[str, Any]:
@@ -15,7 +25,10 @@ def build_provider_schema(provider: str) -> dict[str, Any]:
     required = list(ARTICLE_FIELD_KEYS)
     return {
         "type": "object",
-        "properties": {key: {"type": "string"} for key in ARTICLE_FIELD_KEYS},
+        "properties": {
+            key: {"type": "string", "description": ARTICLE_FIELD_DESCRIPTIONS[key]}
+            for key in ARTICLE_FIELD_KEYS
+        },
         "required": required,
         "additionalProperties": False,
     }

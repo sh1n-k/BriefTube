@@ -68,7 +68,7 @@ LLM_CURSOR_OUTPUT_CONTRACT_TEMPLATE = """
 Output contract (mandatory):
 - Respond with exactly one JSON object and nothing else: no markdown code fences, no prose before or after.
 - The object must match this JSON Schema: {schema_json}
-- Every value must be a JSON string. fact_box and timestamps are Markdown bullet lists inside a string, not arrays or objects.
+- Every value must be a JSON string, not an array or object.
 - Do not use any tools. Do not read or write files.
 """.strip()
 # Ask mode still allows file reads outside --workspace and web search, and a

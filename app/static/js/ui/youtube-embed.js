@@ -99,7 +99,7 @@
         host.id = `yt-player-${videoId}-${Math.random().toString(36).slice(2, 8)}`;
         slot.replaceChildren(host);
 
-        new window.YT.Player(host, {
+        const player = new window.YT.Player(host, {
           host: "https://www.youtube-nocookie.com",
           videoId,
           playerVars: {
@@ -111,6 +111,7 @@
           },
           events: {
             onReady: () => {
+              section.brieftubePlayer = player;
               setYouTubeEmbedState(section, "player");
             },
             onError: (event) => {
@@ -156,7 +157,37 @@
     root.querySelectorAll("[data-youtube-embed]").forEach(initYouTubeEmbed);
   }
 
+  function findReadyYouTubeEmbed(videoId) {
+    const sections = document.querySelectorAll("[data-youtube-embed]");
+    for (const section of sections) {
+      if (!(section instanceof HTMLElement)) continue;
+      if ((section.dataset.youtubeVideoId || "").trim() !== videoId) continue;
+      // onError can follow onReady (e.g. embedding blocked); only a visible player can seek.
+      if (section.dataset.youtubeState !== "player") continue;
+      const player = section.brieftubePlayer;
+      if (player && typeof player.seekTo === "function") return section;
+    }
+    return null;
+  }
+
+  function hasReadyYouTubeEmbed(videoId) {
+    return findReadyYouTubeEmbed(videoId) !== null;
+  }
+
+  // Seek the ready embed for videoId; false when no ready player is on the page.
+  function seekYouTubeEmbed(videoId, seconds) {
+    const section = findReadyYouTubeEmbed(videoId);
+    if (!section) return false;
+    const player = section.brieftubePlayer;
+    player.seekTo(seconds, true);
+    if (typeof player.playVideo === "function") player.playVideo();
+    section.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return true;
+  }
+
   window.BrieftubeYoutubeEmbed = {
     bindYouTubeEmbeds,
+    hasReadyYouTubeEmbed,
+    seekYouTubeEmbed,
   };
 })();

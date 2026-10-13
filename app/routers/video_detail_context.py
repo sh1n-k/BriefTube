@@ -8,7 +8,12 @@ from fastapi import Request
 from app.repositories import downloads as downloads_repo
 from app.repositories import videos as videos_repo
 from app.routers.template_context import build_template_context
-from app.services.article_render import render_fact_box_to_safe_html
+from app.services.article_render import (
+    build_article_timestamp_links,
+    build_article_toc,
+    render_fact_box_to_safe_html,
+)
+from app.services.article_timestamps import is_grounded_timestamps_text
 from app.services.downloads import is_ffmpeg_available
 from app.services.markdown_render import render_markdown_to_safe_html
 
@@ -61,14 +66,26 @@ def _build_video_detail_dynamic_context_values(
     article_body_html = ""
     article_lead_html = ""
     article_fact_box_html = ""
+    article_toc: list[dict[str, object]] = []
+    article_timestamp_links: list[dict[str, str]] = []
     if detail and str(detail.get("article_title") or "").strip():
         article_lead_html = render_markdown_to_safe_html(str(detail.get("lead") or ""))
         article_body_html = render_markdown_to_safe_html(str(detail.get("body") or ""))
         article_fact_box_html = render_fact_box_to_safe_html(str(detail.get("fact_box") or ""))
+        article_toc = build_article_toc(article_body_html)
+        timestamps = str(detail.get("timestamps") or "")
+        # Legacy timestamps were guessed without transcript timing; grounded generation
+        # always stores the canonical "- [MM:SS] 내용" form, so only that form links.
+        if is_grounded_timestamps_text(timestamps):
+            article_timestamp_links = build_article_timestamp_links(
+                timestamps, str(detail.get("video_id") or "")
+            )
     return {
         "article_lead_html": article_lead_html,
         "article_body_html": article_body_html,
         "article_fact_box_html": article_fact_box_html,
+        "article_toc": article_toc,
+        "article_timestamp_links": article_timestamp_links,
         "detail_dynamic_refresh_key": _build_video_detail_dynamic_refresh_key(detail),
         "detail_dynamic_auto_refresh": _should_auto_refresh_video_detail(detail),
     }

@@ -12,7 +12,7 @@ import aiosqlite
 from app.pipeline_status import PIPELINE_STATUSES
 
 logger = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 DEFAULT_CATEGORY_UID = "default"
 UPDATED_AT_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')"
 
@@ -816,7 +816,13 @@ async def _migrate_to_v2(db: aiosqlite.Connection) -> None:
         )
 
 
-MIGRATIONS = ((1, _migrate_to_v1), (2, _migrate_to_v2))
+async def _migrate_to_v3(db: aiosqlite.Connection) -> None:
+    # Transcript text with [MM:SS] markers for grounded article timestamps.
+    if not await _column_exists(db, "transcripts", "timed_text"):
+        await db.execute("ALTER TABLE transcripts ADD COLUMN timed_text TEXT")
+
+
+MIGRATIONS = ((1, _migrate_to_v1), (2, _migrate_to_v2), (3, _migrate_to_v3))
 
 
 async def run_database_migrations(db: aiosqlite.Connection) -> None:

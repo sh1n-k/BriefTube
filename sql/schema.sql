@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     video_id    TEXT NOT NULL UNIQUE REFERENCES videos(video_id),
     raw_text    TEXT NOT NULL,
+    timed_text  TEXT,
     language    TEXT,
     source_type TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),

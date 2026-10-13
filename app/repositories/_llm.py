@@ -78,7 +78,8 @@ async def pop_llm_candidate(
             v.video_id,
             v.title,
             v.retry_count,
-            t.raw_text
+            t.raw_text,
+            t.timed_text
         FROM videos v
         JOIN transcripts t ON t.video_id = v.video_id
         WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')

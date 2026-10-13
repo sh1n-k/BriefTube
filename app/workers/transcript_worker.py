@@ -206,7 +206,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         if marked == 0:
                             continue
                         async with state.transcript_fetch_lock:
-                            raw_text, language, source_type = await asyncio.wait_for(
+                            raw_text, language, source_type, timed_text = await asyncio.wait_for(
                                 state.transcript_service.fetch_transcript(
                                     video_id,
                                     preferred_language=preferred_language,
@@ -227,6 +227,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             db,
                             video_id=video_id,
                             raw_text=raw_text,
+                            timed_text=timed_text,
                             language=language,
                             source_type=source_type,
                             thumbnail_path=None,

@@ -290,3 +290,25 @@ def test_legacy_channels_gain_adaptive_rss_columns(tmp_path: Path) -> None:
     assert rows["UCrecent001"]["rss_last_modified"] is None
     assert rows["UCrecent001"]["rss_cache_feed_mode"] is None
     assert rows["UCold001"]["rss_poll_interval_seconds"] == 3600
+
+
+def test_v3_migration_adds_timed_text_to_legacy_transcripts(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-v2.db"
+
+    async def _run() -> tuple[int, bool]:
+        db = await open_database(str(db_path))
+        try:
+            await init_database(db)
+            await db.execute("ALTER TABLE transcripts DROP COLUMN timed_text")
+            await db.execute("PRAGMA user_version = 2")
+            await db.commit()
+            await init_database(db)
+            cursor = await db.execute("PRAGMA table_info(transcripts)")
+            columns = {str(row[1]) for row in await cursor.fetchall()}
+            return await get_schema_version(db), "timed_text" in columns
+        finally:
+            await db.close()
+
+    version, has_column = asyncio.run(_run())
+    assert version == 3
+    assert has_column
