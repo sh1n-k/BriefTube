@@ -414,8 +414,8 @@ _TOC_BODY = (
 )
 
 
-def test_detail_article_reading_order_lead_facts_body_meta(client: TestClient) -> None:
-    """리드 → 핵심 팩트 → 본문 → LLM 메타 순서이며 리드는 이탤릭이 아니다."""
+def test_detail_article_reading_order_lead_body_facts_meta(client: TestClient) -> None:
+    """리드 → 본문 → 핵심 팩트 → LLM 메타 순서이며 리드는 이탤릭이 아니다."""
     _seed_video(lead="Lead marker", body="Body marker paragraph", fact_box="- Fact marker")
     html = client.get("/videos/vid-001").text
     card = html[html.index("data-detail-article-card") :]
@@ -424,7 +424,7 @@ def test_detail_article_reading_order_lead_facts_body_meta(client: TestClient) -
     fact_idx = card.index("Fact marker")
     body_idx = card.index("Body marker paragraph")
     meta_idx = card.index("data-detail-article-meta")
-    assert lead_idx < fact_idx < body_idx < meta_idx
+    assert lead_idx < body_idx < fact_idx < meta_idx
     lead_tag = card[card.index("data-article-lead") - 200 : card.index("data-article-lead")]
     assert "italic" not in lead_tag
     assert "<details" in card[meta_idx - 200 : meta_idx]

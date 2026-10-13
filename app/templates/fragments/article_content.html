@@ -1,4 +1,4 @@
-{# Shared article reading order: lead → key facts → TOC → body → timestamps.
+{# Shared article reading order: lead → TOC → body → key facts → timestamps.
    Set article_in_modal via {% with %} when included from the preview modal. #}
 {% set in_modal = article_in_modal is defined and article_in_modal %}
 {% if video.lead %}
@@ -9,23 +9,6 @@
   {{ video.lead }}
   {% endif %}
 </blockquote>
-{% endif %}
-{% if video.fact_box and video.fact_box not in ['{}', ''] %}
-<div class="fact-box-panel rounded-xl p-4"{% if not in_modal %} data-detail-fact-box{% endif %}>
-  <h4 class="fact-box-panel-title mb-3 flex items-center gap-1.5 text-sm font-semibold">
-    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
-    </svg>
-    {{ txt.detail_key_facts }}
-  </h4>
-  <div>
-    {% if article_fact_box_html %}
-    <div class="fact-box-rendered">{{ article_fact_box_html | safe }}</div>
-    {% else %}
-    <div class="whitespace-pre-wrap break-words">{{ video.fact_box }}</div>
-    {% endif %}
-  </div>
-</div>
 {% endif %}
 {% if article_toc and article_body_html %}
 <nav class="article-toc rounded-lg border border-slate-200 px-4 py-3" aria-label="{{ txt.detail_article_toc }}" data-article-toc>
@@ -54,6 +37,23 @@
 <pre class="whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">{{ video.body }}</pre>
 {% else %}
 <p class="text-sm text-slate-500">{{ txt.detail_article_modal_empty }}</p>
+{% endif %}
+{% if video.fact_box and video.fact_box not in ['{}', ''] %}
+<div class="fact-box-panel rounded-xl p-4"{% if not in_modal %} data-detail-fact-box{% endif %}>
+  <h4 class="fact-box-panel-title mb-3 flex items-center gap-1.5 text-sm font-semibold">
+    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
+    </svg>
+    {{ txt.detail_key_facts }}
+  </h4>
+  <div>
+    {% if article_fact_box_html %}
+    <div class="fact-box-rendered">{{ article_fact_box_html | safe }}</div>
+    {% else %}
+    <div class="whitespace-pre-wrap break-words">{{ video.fact_box }}</div>
+    {% endif %}
+  </div>
+</div>
 {% endif %}
 {% if article_timestamp_links %}
 <div class="rounded-lg border border-slate-200 bg-slate-50 p-4"{% if not in_modal %} data-detail-timestamps{% endif %}>
