@@ -175,8 +175,17 @@ async def set_llm_settings(request: Request):
 
     runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
     runtime_issue_code = str(runtime_issue.get("code") or "").strip().lower()
-    if runtime_issue_code.startswith("llm_provider_schema_invalid_"):
+    # Auth and missing-command issues are not tied to a provider, so one left by
+    # the previous provider would keep blocking the queue after a switch.
+    provider_changed = saved["provider_primary"] != current["provider_primary"]
+    stale_provider_issue = provider_changed and (
+        runtime_issue_code == "llm_provider_auth_required"
+        or runtime_issue_code.startswith("llm_provider_unavailable_")
+    )
+    if runtime_issue_code.startswith("llm_provider_schema_invalid_") or stale_provider_issue:
         await llm_repo.clear_llm_runtime_issue(request.app.state.runtime.db)
     await llm_repo.clear_llm_schema_invalid_alert_flag(request.app.state.runtime.db)
+    if stale_provider_issue:
+        request.app.state.runtime.llm_wake_event.set()
 
     return {"ok": True, "llm_settings": saved}

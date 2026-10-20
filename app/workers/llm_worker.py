@@ -189,6 +189,23 @@ async def _run_single_llm_job(
                 state.db,
                 video_id=video_id,
             )
+            # The runtime issue has no provider. A job that started before a provider
+            # switch must not block the new provider with its own failure.
+            current_settings = await settings_repo.get_llm_settings(state.db)
+            if str(current_settings.get("provider_primary") or "") != job_provider:
+                logger.warning(
+                    "event=llm.runtime_unavailable_stale_provider worker=llm video_id=%s reason=%s provider=%s requeued=%s",
+                    video_id,
+                    error_code,
+                    job_provider,
+                    requeued,
+                    extra={
+                        "event": "llm.runtime_unavailable_stale_provider",
+                        "worker": "llm",
+                        "code": error_code,
+                    },
+                )
+                return (0.0, job_provider)
             if _is_schema_invalid_issue(error_code):
                 alert_created = await llm_repo.ensure_llm_schema_invalid_alert(state.db)
             else:
@@ -353,11 +370,14 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     alert_created = await llm_repo.ensure_llm_config_missing_alert(state.db)
                 if alert_created:
                     invalidate_alert_groups_cache(state)
-                await llm_repo.set_llm_runtime_issue(
-                    state.db,
-                    code=runtime_reason,
-                    message=str(runtime_status.reason or "LLM runtime is not ready"),
-                )
+                # Rewriting an issue read at the top of this loop could revive one that
+                # a settings save cleared in the meantime; only record new reasons.
+                if runtime_reason.lower() != runtime_issue_code.lower():
+                    await llm_repo.set_llm_runtime_issue(
+                        state.db,
+                        code=runtime_reason,
+                        message=str(runtime_status.reason or "LLM runtime is not ready"),
+                    )
                 now = time.monotonic()
                 if now >= next_missing_config_log_at:
                     logger.warning(

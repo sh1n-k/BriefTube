@@ -1032,3 +1032,37 @@ def test_settings_llm_update_rejects_fable_claude_model(client: TestClient) -> N
     )
     assert response.status_code == 400
     assert "Fable" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "issue_code", ["llm_provider_auth_required", "llm_provider_unavailable_cursor"]
+)
+def test_settings_llm_provider_switch_clears_previous_provider_issue(
+    client: TestClient, issue_code: str
+) -> None:
+    call_repo(client, settings_repo.set_llm_settings, provider_primary="cursor")
+    call_repo(client, llm_repo.set_llm_runtime_issue, code=issue_code, message="previous provider")
+    client.app.state.runtime.llm_wake_event.clear()
+
+    response = client.put("/api/settings/llm", json={"provider_primary": "claude"})
+
+    assert response.status_code == 200
+    issue = call_repo(client, llm_repo.get_llm_runtime_issue)
+    assert str(issue.get("code") or "") == ""
+    assert client.app.state.runtime.llm_wake_event.is_set() is True
+
+
+def test_settings_llm_save_keeps_issue_when_provider_is_unchanged(client: TestClient) -> None:
+    call_repo(client, settings_repo.set_llm_settings, provider_primary="cursor")
+    call_repo(
+        client,
+        llm_repo.set_llm_runtime_issue,
+        code="llm_provider_auth_required",
+        message="still not logged in",
+    )
+
+    response = client.put("/api/settings/llm", json={"llm_model": {"cursor": "grok-4.7-high"}})
+
+    assert response.status_code == 200
+    issue = call_repo(client, llm_repo.get_llm_runtime_issue)
+    assert issue.get("code") == "llm_provider_auth_required"

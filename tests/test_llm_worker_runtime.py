@@ -1336,3 +1336,60 @@ def test_llm_worker_keeps_rate_limit_pause_for_last_pending_job(tmp_path, monkey
     # The rate-limited call ends at ~0.3s; the retry must wait the full pause after it.
     assert len(succeeded_at) == 1
     assert succeeded_at[0] - started >= 0.3 + backoff - 0.05
+
+
+def test_llm_worker_ignores_auth_failure_from_previous_provider_job(tmp_path, monkeypatch) -> None:
+    import app.workers.llm_worker as llm_worker
+
+    monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
+    db_path = tmp_path / "worker-runtime-stale-provider-auth.db"
+
+    class SwitchDuringJobClient(TimedSuccessClient):
+        def __init__(self, db) -> None:
+            super().__init__()
+            self.db = db
+            self.calls = 0
+
+        async def restructure(self, source_title: str, transcript_text: str, settings):
+            self.calls += 1
+            if self.calls == 1:
+                # The user switches provider while the cursor job is still running.
+                await settings_repo.set_llm_settings(self.db, provider_primary="claude")
+                raise LlmClientError(
+                    "llm_provider_auth_required",
+                    "Authentication required",
+                    provider="cursor",
+                    retryable=False,
+                )
+            return await super().restructure(source_title, transcript_text, settings)
+
+    async def _run() -> tuple[int, dict]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-stale-auth",))
+        await settings_repo.set_llm_settings(db, provider_primary="cursor")
+        await db.commit()
+
+        client = SwitchDuringJobClient(db)
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            await _wait_for_video_status(
+                db, video_id="vid-stale-auth", expected="done", timeout_seconds=8
+            )
+            issue = await llm_repo.get_llm_runtime_issue(db)
+            return client.calls, dict(issue)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    calls, issue = asyncio.run(_run())
+    assert calls == 2
+    assert str(issue.get("code") or "") == ""
