@@ -394,8 +394,11 @@ def test_settings_llm_update(client: TestClient) -> None:
     ("payload", "detail"),
     [
         ({"max_concurrent": 5}, "max_concurrent must be between 1 and 4"),
-        ({"provider_primary": "claude"}, "provider_primary must be one of: codex, cursor, grok"),
-        ({"provider_fallback": "claude"}, "fallback provider is not supported"),
+        (
+            {"provider_primary": "gemini"},
+            "provider_primary must be one of: claude, codex, cursor, grok",
+        ),
+        ({"provider_fallback": "gemini"}, "fallback provider is not supported"),
         ({}, "empty llm settings payload"),
         (
             {
@@ -412,16 +415,16 @@ def test_settings_llm_update(client: TestClient) -> None:
             "llm_model.codex is too long (max 200)",
         ),
         (
-            {"llm_model": {"claude": "sonnet"}},
-            "llm_model must contain only codex, cursor, grok",
+            {"llm_model": {"gemini": "pro"}},
+            "llm_model must contain only claude, codex, cursor, grok",
         ),
         (
             {"llm_reasoning_effort": {"gemini": "low"}},
-            "llm_reasoning_effort must contain only codex, grok",
+            "llm_reasoning_effort must contain only claude, codex, grok",
         ),
         (
             {"llm_reasoning_effort": {"cursor": "high"}},
-            "llm_reasoning_effort must contain only codex, grok",
+            "llm_reasoning_effort must contain only claude, codex, grok",
         ),
         (
             {"llm_reasoning_effort": {"codex": "ultra"}},
@@ -625,6 +628,57 @@ def test_settings_llm_update_accepts_cursor_provider_and_model(
     assert after_llm_settings["llm_model"]["cursor"] == "grok-4.7-high"
 
 
+def test_settings_llm_update_accepts_claude_provider_model_and_effort(
+    client: TestClient,
+) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={
+            "provider_primary": "claude",
+            "llm_model": {"claude": "claude-opus-5-5"},
+            "llm_reasoning_effort": {"claude": "max"},
+        },
+    )
+    assert response.status_code == 200
+    llm_settings = response.json()["llm_settings"]
+    assert llm_settings["provider_primary"] == "claude"
+    assert llm_settings["llm_model"]["claude"] == "claude-opus-5-5"
+    assert llm_settings["llm_reasoning_effort"]["claude"] == "max"
+
+    after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
+    assert after_llm_settings["provider_primary"] == "claude"
+    assert after_llm_settings["llm_model"]["claude"] == "claude-opus-5-5"
+    assert after_llm_settings["llm_reasoning_effort"]["claude"] == "max"
+
+
+def test_settings_llm_form_update_accepts_claude_model_and_effort(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        data={
+            "llm_provider_primary": "claude",
+            "llm_model_claude": "claude-haiku-5-5",
+            "llm_reasoning_effort_claude": "low",
+        },
+    )
+    assert response.status_code == 200
+    llm_settings = response.json()["llm_settings"]
+    assert llm_settings["provider_primary"] == "claude"
+    assert llm_settings["llm_model"]["claude"] == "claude-haiku-5-5"
+    assert llm_settings["llm_reasoning_effort"]["claude"] == "low"
+
+
+def test_settings_llm_update_rejects_invalid_claude_effort(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={"llm_reasoning_effort": {"claude": "ultra"}},
+    )
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "reasoning_effort must be one of: high, low, max, medium, xhigh"
+    )
+
+
 def test_settings_llm_form_update_accepts_cursor_model(client: TestClient) -> None:
     response = client.put(
         "/api/settings/llm",
@@ -685,7 +739,9 @@ def test_settings_llm_update_rejects_unsupported_provider(client: TestClient) ->
         },
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "provider_primary must be one of: codex, cursor, grok"
+    assert (
+        response.json()["detail"] == "provider_primary must be one of: claude, codex, cursor, grok"
+    )
 
     after_llm_settings = call_repo(client, settings_repo.get_llm_settings)
     assert after_llm_settings["provider_primary"] == "codex"
@@ -957,3 +1013,22 @@ def test_settings_llm_resume_clears_auth_issue_for_worker_retry(
             "SELECT value FROM app_settings WHERE key = 'llm_runtime_last_code'"
         ).fetchone()[0]
     assert code == ""
+
+
+def test_llm_settings_load_legacy_claude_values_safely(client: TestClient) -> None:
+    call_repo(client, settings_repo.set_setting, key="llm_model_claude", value="")
+    call_repo(client, settings_repo.set_setting, key="llm_reasoning_effort_claude", value="none")
+
+    llm_settings = call_repo(client, settings_repo.get_llm_settings)
+
+    assert llm_settings["llm_model"]["claude"] == "claude-sonnet-5-5"
+    assert llm_settings["llm_reasoning_effort"]["claude"] == ""
+
+
+def test_settings_llm_update_rejects_fable_claude_model(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/llm",
+        json={"llm_model": {"claude": "claude-fable-5-1"}},
+    )
+    assert response.status_code == 400
+    assert "Fable" in response.json()["detail"]

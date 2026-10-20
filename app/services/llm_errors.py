@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
+from typing import Any
 
-from app.llm_policy import normalize_llm_provider
+from app.llm_policy import LLM_PROVIDER_CLAUDE, normalize_llm_provider
 
 REFUSAL_KEYWORDS = (
     "prompt injection",
@@ -23,7 +26,21 @@ AUTH_KEYWORDS = (
     "unauthorized",
     "forbidden",
     "auth failed",
+    # Claude Code: "Not logged in · Please run /login", "Login expired · Please run /login".
+    "run /login",
 )
+# Claude subscription usage limits. Only checked for the claude provider, whose
+# usage limit resets on a schedule instead of failing the article.
+USAGE_LIMIT_KEYWORDS = (
+    "usage limit",
+    "limit reached",
+    # Claude Code limit notices: "You've hit your weekly limit", "You've reached
+    # your ... limit", "You're out of usage credits".
+    "you've hit your",
+    "you've reached your",
+    "you're out of",
+)
+LLM_PROVIDER_RATE_LIMITED_CODE = "llm_provider_rate_limited"
 SCHEMA_KEYWORDS = (
     "invalid_json_schema",
     "response_format",
@@ -60,6 +77,38 @@ def looks_like_refusal(text: str) -> bool:
 def looks_like_auth(text: str) -> bool:
     lowered = text.lower()
     return any(keyword in lowered for keyword in AUTH_KEYWORDS)
+
+
+def _has_usage_limit_text(text: str) -> bool:
+    lowered = text.lower().replace("\u2019", "'")
+    return any(keyword in lowered for keyword in USAGE_LIMIT_KEYWORDS)
+
+
+def claude_envelope_is_usage_limit(envelope: Mapping[str, Any]) -> bool:
+    """True when a Claude CLI error envelope reports a usage limit.
+
+    The keywords are only trusted when the model produced no output, so a refusal
+    or article text that mentions a limit is not mistaken for one.
+    """
+    if envelope.get("api_error_status") == 429:
+        return True
+    usage = envelope.get("usage")
+    output_tokens = usage.get("output_tokens") if isinstance(usage, Mapping) else None
+    if isinstance(output_tokens, int) and output_tokens > 0:
+        return False
+    return _has_usage_limit_text(str(envelope.get("error") or envelope.get("result") or ""))
+
+
+def looks_like_usage_limit(provider: str | None, *, stdout: str, stderr: str) -> bool:
+    if provider != LLM_PROVIDER_CLAUDE:
+        return False
+    try:
+        envelope = json.loads(stdout.strip() or "null")
+    except json.JSONDecodeError:
+        envelope = None
+    if isinstance(envelope, Mapping) and claude_envelope_is_usage_limit(envelope):
+        return True
+    return _has_usage_limit_text(stderr)
 
 
 def looks_like_schema_mismatch(text: str) -> bool:
@@ -130,6 +179,13 @@ def classify_command_failure(
             schema_error_code(provider),
             _sanitized_command_failure_message(exit_code=exit_code, category="schema"),
             retryable=False,
+            **common,
+        )
+    if looks_like_usage_limit(provider, stdout=stdout, stderr=stderr):
+        return LlmClientError(
+            LLM_PROVIDER_RATE_LIMITED_CODE,
+            _sanitized_command_failure_message(exit_code=exit_code, category="rate_limit"),
+            retryable=True,
             **common,
         )
     if looks_like_auth(combined):

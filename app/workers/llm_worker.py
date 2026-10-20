@@ -4,8 +4,10 @@ import asyncio
 import logging
 import time
 
+from app.llm_policy import llm_min_call_interval_seconds
 from app.repositories import llm as llm_repo
 from app.repositories import settings as settings_repo
+from app.services.llm_errors import LLM_PROVIDER_RATE_LIMITED_CODE
 from app.services.llm_runtime import resolve_llm_runtime_status
 from app.state import AppState, invalidate_alert_groups_cache
 from app.workers.wake_sleep import sleep_with_wake_event
@@ -14,6 +16,30 @@ logger = logging.getLogger(__name__)
 LLM_RETRYABLE_FAILURE_DELAY_SECONDS = 5.0
 LLM_MAX_CONCURRENT_LIMIT = 4
 LLM_RUNTIME_UNAVAILABLE_SLEEP_SECONDS = 5.0
+LLM_IDLE_RECHECK_SECONDS = 5.0
+# A subscription usage limit resets on a schedule. Requeue without spending a
+# retry and pause claiming for every slot before probing again.
+LLM_RATE_LIMITED_SLEEP_SECONDS = 600.0
+
+
+# (backoff seconds, provider) requested by a finished job.
+_JobResult = tuple[float, str]
+
+
+class _ProviderBackoff:
+    """Claim pause per provider, so switching provider is not held back."""
+
+    def __init__(self) -> None:
+        self._until: dict[str, float] = {}
+
+    def extend(self, provider: str, seconds: float) -> None:
+        if seconds <= 0:
+            return
+        until = time.monotonic() + seconds
+        self._until[provider] = max(self._until.get(provider, 0.0), until)
+
+    def until(self, provider: str) -> float:
+        return self._until.get(provider, 0.0)
 
 
 def _is_schema_invalid_issue(code: str) -> bool:
@@ -42,8 +68,8 @@ async def _sleep_with_wake(state: AppState, timeout_seconds: float) -> None:
 
 
 async def _wait_for_task_completion(
-    active_tasks: set[asyncio.Task[bool]],
-) -> set[asyncio.Task[bool]]:
+    active_tasks: set[asyncio.Task[_JobResult]],
+) -> set[asyncio.Task[_JobResult]]:
     if not active_tasks:
         return set()
     done, _ = await asyncio.wait(
@@ -54,19 +80,21 @@ async def _wait_for_task_completion(
     return done
 
 
-async def _collect_done_tasks(done_tasks: set[asyncio.Task[bool]]) -> bool:
-    runtime_unavailable = False
+async def _collect_done_tasks(
+    done_tasks: set[asyncio.Task[_JobResult]],
+    backoff: _ProviderBackoff,
+) -> None:
     for task in done_tasks:
         if task.cancelled():
             continue
         try:
-            runtime_unavailable = bool(task.result()) or runtime_unavailable
+            seconds, provider = task.result()
+            backoff.extend(provider, seconds)
         except Exception:
             logger.exception(
                 "event=llm.worker_task_failed worker=llm",
                 extra={"event": "llm.worker_task_failed", "worker": "llm"},
             )
-    return runtime_unavailable
 
 
 async def _clear_runtime_issue_after_success(
@@ -94,8 +122,9 @@ async def _run_single_llm_job(
     llm_settings: dict,
     *,
     runtime_issue_code_at_start: str,
-) -> bool:
+) -> _JobResult:
     video_id = str(candidate["video_id"])
+    job_provider = str(llm_settings.get("provider_primary") or "")
     try:
         article = await state.llm_client.restructure(
             source_title=candidate["title"],
@@ -121,7 +150,7 @@ async def _run_single_llm_job(
                 video_id,
                 extra={"event": "llm.restructure_succeeded_stale_skip", "worker": "llm"},
             )
-            return False
+            return (0.0, job_provider)
         await state.notification_queue.put(
             {
                 "video_id": video_id,
@@ -138,9 +167,23 @@ async def _run_single_llm_job(
             video_id,
             extra={"event": "llm.restructure_succeeded", "worker": "llm"},
         )
-        return False
+        return (0.0, job_provider)
     except Exception as exc:
         error_code = str(getattr(exc, "code", "unknown") or "unknown")
+        if error_code == LLM_PROVIDER_RATE_LIMITED_CODE:
+            requeued = await llm_repo.requeue_llm_pending_without_retry(
+                state.db,
+                video_id=video_id,
+            )
+            logger.warning(
+                "event=llm.rate_limited worker=llm video_id=%s provider=%s requeued=%s sleep_seconds=%s",
+                video_id,
+                getattr(exc, "provider", None),
+                requeued,
+                LLM_RATE_LIMITED_SLEEP_SECONDS,
+                extra={"event": "llm.rate_limited", "worker": "llm", "code": error_code},
+            )
+            return (LLM_RATE_LIMITED_SLEEP_SECONDS, job_provider)
         if _is_runtime_unavailable_issue(error_code):
             requeued = await llm_repo.requeue_llm_pending_without_retry(
                 state.db,
@@ -169,7 +212,7 @@ async def _run_single_llm_job(
                     "code": error_code,
                 },
             )
-            return True
+            return (LLM_RUNTIME_UNAVAILABLE_SLEEP_SECONDS, job_provider)
 
         stderr_summary = str(getattr(exc, "stderr_summary", "") or "") or "-"
         stdout_summary = str(getattr(exc, "stdout_summary", "") or "") or "-"
@@ -202,7 +245,7 @@ async def _run_single_llm_job(
                     "stdout_summary": stdout_summary,
                 },
             )
-            return False
+            return (0.0, job_provider)
 
         next_status, affected = await llm_repo.mark_restructure_failed(
             state.db,
@@ -239,14 +282,15 @@ async def _run_single_llm_job(
             )
             if next_status == "llm_failed":
                 await _sleep_with_wake(state, LLM_RETRYABLE_FAILURE_DELAY_SECONDS)
-        return False
+        return (0.0, job_provider)
 
 
 async def run_llm_queue_worker(state: AppState) -> None:
     next_missing_config_log_at = 0.0
     next_runtime_warning_log_at = 0.0
-    runtime_backoff_until = 0.0
-    active_tasks: set[asyncio.Task[bool]] = set()
+    backoff = _ProviderBackoff()
+    last_call_started_at: float | None = None
+    active_tasks: set[asyncio.Task[_JobResult]] = set()
     logger.info(
         "event=llm.worker_started worker=llm",
         extra={"event": "llm.worker_started", "worker": "llm"},
@@ -256,19 +300,20 @@ async def run_llm_queue_worker(state: AppState) -> None:
             done_tasks = {task for task in active_tasks if task.done()}
             if done_tasks:
                 active_tasks.difference_update(done_tasks)
-                if await _collect_done_tasks(done_tasks):
-                    runtime_backoff_until = time.monotonic() + LLM_RUNTIME_UNAVAILABLE_SLEEP_SECONDS
+                await _collect_done_tasks(done_tasks, backoff)
 
             if not await settings_repo.is_worker_enabled(state.db, "llm"):
                 if active_tasks:
                     done_tasks = await _wait_for_task_completion(active_tasks)
                     active_tasks.difference_update(done_tasks)
-                    await _collect_done_tasks(done_tasks)
+                    await _collect_done_tasks(done_tasks, backoff)
                 else:
                     await _sleep_with_wake(state, 5)
                 continue
 
             llm_settings = await settings_repo.get_llm_settings(state.db)
+            current_provider = str(llm_settings["provider_primary"])
+            runtime_backoff_until = backoff.until(current_provider)
             max_concurrent = _llm_max_concurrent(llm_settings)
             runtime_issue = await llm_repo.get_llm_runtime_issue(state.db)
             runtime_issue_code = str(runtime_issue.get("code") if runtime_issue else "").strip()
@@ -298,7 +343,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     if active_tasks:
                         done_tasks = await _wait_for_task_completion(active_tasks)
                         active_tasks.difference_update(done_tasks)
-                        await _collect_done_tasks(done_tasks)
+                        await _collect_done_tasks(done_tasks, backoff)
                     else:
                         await _sleep_with_wake(state, 10)
                     continue
@@ -330,7 +375,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 if active_tasks:
                     done_tasks = await _wait_for_task_completion(active_tasks)
                     active_tasks.difference_update(done_tasks)
-                    await _collect_done_tasks(done_tasks)
+                    await _collect_done_tasks(done_tasks, backoff)
                 else:
                     await _sleep_with_wake(state, 10)
                 continue
@@ -339,13 +384,23 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 if active_tasks:
                     done_tasks = await _wait_for_task_completion(active_tasks)
                     active_tasks.difference_update(done_tasks)
-                    await _collect_done_tasks(done_tasks)
+                    await _collect_done_tasks(done_tasks, backoff)
                 else:
                     await _sleep_with_wake(state, 5)
                 continue
 
             claimed = False
+            call_interval = llm_min_call_interval_seconds(current_provider)
+            next_call_at = 0.0
             while len(active_tasks) < max_concurrent and time.monotonic() >= runtime_backoff_until:
+                # Claims yield to running jobs. Collect a finished job's backoff before
+                # claiming again so a requeued video is not picked up straight away.
+                if any(task.done() for task in active_tasks):
+                    break
+                if call_interval > 0 and last_call_started_at is not None:
+                    next_call_at = last_call_started_at + call_interval
+                    if time.monotonic() < next_call_at:
+                        break
                 candidate = await llm_repo.claim_next_llm_candidate(
                     state.db,
                     state.config.max_retry_count,
@@ -362,6 +417,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                 )
                 active_tasks.add(task)
                 claimed = True
+                last_call_started_at = time.monotonic()
                 logger.debug(
                     "event=llm.worker_claimed worker=llm video_id=%s active_tasks=%s max_concurrent=%s",
                     candidate.get("video_id"),
@@ -373,12 +429,16 @@ async def run_llm_queue_worker(state: AppState) -> None:
             if active_tasks:
                 done_tasks = await _wait_for_task_completion(active_tasks)
                 active_tasks.difference_update(done_tasks)
-                if await _collect_done_tasks(done_tasks):
-                    runtime_backoff_until = time.monotonic() + LLM_RUNTIME_UNAVAILABLE_SLEEP_SECONDS
+                await _collect_done_tasks(done_tasks, backoff)
                 continue
             if claimed:
                 continue
-            await _sleep_with_wake(state, 1)
+            # Settings saves do not wake the worker, so re-read them every few seconds.
+            resume_at = max(next_call_at, runtime_backoff_until)
+            await _sleep_with_wake(
+                state,
+                min(LLM_IDLE_RECHECK_SECONDS, max(1.0, resume_at - time.monotonic())),
+            )
         except asyncio.CancelledError:
             for task in active_tasks:
                 task.cancel()

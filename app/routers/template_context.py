@@ -8,6 +8,8 @@ from fastapi import Request
 
 from app.i18n import DEFAULT_LANGUAGE, get_languages, get_texts, normalize_language
 from app.llm_policy import (
+    LLM_CLAUDE_MODEL_OPTIONS,
+    LLM_CLAUDE_REASONING_EFFORT_ORDER,
     LLM_CODEX_MODEL_OPTIONS,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_CURSOR_MODEL_OPTIONS,
@@ -94,8 +96,10 @@ async def _build_llm_capability_context(
     current_codex_model: str,
     current_grok_model: str,
     current_cursor_model: str,
+    current_claude_model: str,
     current_codex_reasoning_effort: str,
     current_grok_reasoning_effort: str,
+    current_claude_reasoning_effort: str,
     refresh: bool = False,
 ) -> dict[str, object]:
     codex = await resolve_codex_capabilities(request.app.state.runtime, refresh=refresh)
@@ -139,6 +143,17 @@ async def _build_llm_capability_context(
     }:
         cursor_model_options.append((current_cursor_model, current_cursor_model))
 
+    claude_model_options = list(LLM_CLAUDE_MODEL_OPTIONS)
+    if current_claude_model and current_claude_model not in {
+        value for value, _label in claude_model_options
+    }:
+        claude_model_options.append((current_claude_model, current_claude_model))
+    claude_effort_options = list(LLM_CLAUDE_REASONING_EFFORT_ORDER)
+    if current_claude_reasoning_effort and current_claude_reasoning_effort not in (
+        claude_effort_options
+    ):
+        claude_effort_options.append(current_claude_reasoning_effort)
+
     return {
         "codex": codex.as_payload(),
         "codex_model_options": tuple(codex_model_options) or LLM_CODEX_MODEL_OPTIONS,
@@ -146,6 +161,8 @@ async def _build_llm_capability_context(
         "grok_model_options": tuple(grok_model_options),
         "grok_reasoning_effort_options": tuple(grok_effort_options),
         "cursor_model_options": tuple(cursor_model_options),
+        "claude_model_options": tuple(claude_model_options),
+        "claude_reasoning_effort_options": tuple(claude_effort_options),
     }
 
 
@@ -207,8 +224,10 @@ async def build_template_context(
             current_codex_model=str(llm_model_map.get("codex", "")),
             current_grok_model=str(llm_model_map.get("grok", "")),
             current_cursor_model=str(llm_model_map.get("cursor", "")),
+            current_claude_model=str(llm_model_map.get("claude", "")),
             current_codex_reasoning_effort=str(llm_effort_map.get("codex", "")),
             current_grok_reasoning_effort=str(llm_effort_map.get("grok", "")),
+            current_claude_reasoning_effort=str(llm_effort_map.get("claude", "")),
             refresh=request.query_params.get("llm_capabilities_refresh") == "1",
         )
     else:
@@ -219,6 +238,8 @@ async def build_template_context(
             "grok_model_options": LLM_GROK_MODEL_OPTIONS,
             "grok_reasoning_effort_options": LLM_GROK_REASONING_EFFORT_ORDER,
             "cursor_model_options": LLM_CURSOR_MODEL_OPTIONS,
+            "claude_model_options": LLM_CLAUDE_MODEL_OPTIONS,
+            "claude_reasoning_effort_options": LLM_CLAUDE_REASONING_EFFORT_ORDER,
         }
     context: dict[str, object] = {
         "language": language,
@@ -235,6 +256,8 @@ async def build_template_context(
         "grok_model_options": llm_capabilities["grok_model_options"],
         "grok_reasoning_effort_options": llm_capabilities["grok_reasoning_effort_options"],
         "cursor_model_options": llm_capabilities["cursor_model_options"],
+        "claude_model_options": llm_capabilities["claude_model_options"],
+        "claude_reasoning_effort_options": llm_capabilities["claude_reasoning_effort_options"],
         "format_upload_time": format_upload_time,
         "format_channel_handle_display": format_channel_handle_display,
     }

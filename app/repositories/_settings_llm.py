@@ -6,6 +6,9 @@ from typing import Any
 import aiosqlite
 
 from app.llm_policy import (
+    LLM_CLAUDE_MODEL_DEFAULT,
+    LLM_CLAUDE_MODEL_MAX_LENGTH,
+    LLM_CLAUDE_REASONING_EFFORT_OPTIONS,
     LLM_CODEX_MODEL_DEFAULT,
     LLM_CODEX_MODEL_MAX_LENGTH,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
@@ -18,6 +21,7 @@ from app.llm_policy import (
     LLM_PROVIDER_CODEX,
     LLM_PROVIDER_NONE,
     LLM_PROVIDER_VALUES,
+    normalize_claude_model,
     normalize_codex_model,
     normalize_cursor_model,
     normalize_grok_model,
@@ -32,17 +36,19 @@ LLM_PROVIDER_PRIMARY_KEY = "llm_provider_primary"
 LLM_MODEL_CODEX_KEY = "llm_model_codex"
 LLM_MODEL_GROK_KEY = "llm_model_grok"
 LLM_MODEL_CURSOR_KEY = "llm_model_cursor"
+LLM_MODEL_CLAUDE_KEY = "llm_model_claude"
 LLM_REASONING_EFFORT_CODEX_KEY = "llm_reasoning_effort_codex"
 LLM_REASONING_EFFORT_GROK_KEY = "llm_reasoning_effort_grok"
+LLM_REASONING_EFFORT_CLAUDE_KEY = "llm_reasoning_effort_claude"
 LLM_MAX_CONCURRENT_KEY = "llm_max_concurrent"
 LLM_RUNTIME_LAST_CODE_KEY = "llm_runtime_last_code"
 LLM_RUNTIME_LAST_MESSAGE_KEY = "llm_runtime_last_message"
 LLM_RUNTIME_LAST_SEEN_AT_KEY = "llm_runtime_last_seen_at"
 LLM_MAX_CONCURRENT_DEFAULT = 1
 LLM_MAX_CONCURRENT_LIMIT = 4
-_LLM_MODEL_KEYS = frozenset({"codex", "grok", "cursor"})
+_LLM_MODEL_KEYS = frozenset({"codex", "grok", "cursor", "claude"})
 # Cursor encodes reasoning effort in the model slug.
-_LLM_REASONING_EFFORT_KEYS = frozenset({"codex", "grok"})
+_LLM_REASONING_EFFORT_KEYS = frozenset({"codex", "grok", "claude"})
 
 
 def _validate_llm_prompt_template(value: str | None) -> str:
@@ -82,8 +88,15 @@ def _validate_llm_model_settings(value: Mapping[str, Any]) -> dict[str, str]:
         if len(raw_cursor) > LLM_CURSOR_MODEL_MAX_LENGTH:
             raise ValueError(f"llm_model.cursor is too long (max {LLM_CURSOR_MODEL_MAX_LENGTH})")
         result["cursor"] = normalize_cursor_model(value.get("cursor"))
+    if "claude" in value:
+        raw_claude = str(value.get("claude") or "").strip().lower()
+        if len(raw_claude) > LLM_CLAUDE_MODEL_MAX_LENGTH:
+            raise ValueError(f"llm_model.claude is too long (max {LLM_CLAUDE_MODEL_MAX_LENGTH})")
+        if "fable" in raw_claude:
+            raise ValueError("llm_model.claude must not be a Fable model (billed as usage credits)")
+        result["claude"] = normalize_claude_model(value.get("claude"))
     if not result:
-        raise ValueError("llm_model must include codex, grok, and/or cursor")
+        raise ValueError("llm_model must include codex, grok, cursor, and/or claude")
     return result
 
 
@@ -112,8 +125,13 @@ def _validate_llm_reasoning_effort_settings(value: Mapping[str, Any]) -> dict[st
             value.get("grok"),
             allowed=LLM_GROK_REASONING_EFFORT_OPTIONS,
         )
+    if "claude" in value:
+        result["claude"] = _normalize_reasoning_effort(
+            value.get("claude"),
+            allowed=LLM_CLAUDE_REASONING_EFFORT_OPTIONS,
+        )
     if not result:
-        raise ValueError("llm_reasoning_effort must include codex and/or grok")
+        raise ValueError("llm_reasoning_effort must include codex, grok, and/or claude")
     return result
 
 
@@ -138,8 +156,10 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
             LLM_MODEL_CODEX_KEY: LLM_CODEX_MODEL_DEFAULT,
             LLM_MODEL_GROK_KEY: LLM_GROK_MODEL_DEFAULT,
             LLM_MODEL_CURSOR_KEY: LLM_CURSOR_MODEL_DEFAULT,
+            LLM_MODEL_CLAUDE_KEY: LLM_CLAUDE_MODEL_DEFAULT,
             LLM_REASONING_EFFORT_CODEX_KEY: "",
             LLM_REASONING_EFFORT_GROK_KEY: "",
+            LLM_REASONING_EFFORT_CLAUDE_KEY: "",
             LLM_MAX_CONCURRENT_KEY: str(LLM_MAX_CONCURRENT_DEFAULT),
         },
     )
@@ -148,8 +168,10 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     model_codex_raw = settings[LLM_MODEL_CODEX_KEY]
     model_grok_raw = settings[LLM_MODEL_GROK_KEY]
     model_cursor_raw = settings[LLM_MODEL_CURSOR_KEY]
+    model_claude_raw = settings[LLM_MODEL_CLAUDE_KEY]
     reasoning_effort_codex_raw = settings[LLM_REASONING_EFFORT_CODEX_KEY]
     reasoning_effort_grok_raw = settings[LLM_REASONING_EFFORT_GROK_KEY]
+    reasoning_effort_claude_raw = settings[LLM_REASONING_EFFORT_CLAUDE_KEY]
     max_concurrent_raw = settings[LLM_MAX_CONCURRENT_KEY]
 
     try:
@@ -163,13 +185,19 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         prompt_template = ""
     try:
         model = _validate_llm_model_settings(
-            {"codex": model_codex_raw, "grok": model_grok_raw, "cursor": model_cursor_raw}
+            {
+                "codex": model_codex_raw,
+                "grok": model_grok_raw,
+                "cursor": model_cursor_raw,
+                "claude": model_claude_raw,
+            }
         )
     except ValueError:
         model = {
             "codex": LLM_CODEX_MODEL_DEFAULT,
             "grok": LLM_GROK_MODEL_DEFAULT,
             "cursor": LLM_CURSOR_MODEL_DEFAULT,
+            "claude": LLM_CLAUDE_MODEL_DEFAULT,
         }
     try:
         reasoning_effort_codex = _normalize_reasoning_effort(
@@ -186,6 +214,13 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
     except ValueError:
         reasoning_effort_grok = ""
     try:
+        reasoning_effort_claude = _normalize_reasoning_effort(
+            reasoning_effort_claude_raw,
+            allowed=LLM_CLAUDE_REASONING_EFFORT_OPTIONS,
+        )
+    except ValueError:
+        reasoning_effort_claude = ""
+    try:
         max_concurrent = _validate_llm_max_concurrent(max_concurrent_raw)
     except ValueError:
         max_concurrent = LLM_MAX_CONCURRENT_DEFAULT
@@ -198,6 +233,7 @@ async def get_llm_settings(db: aiosqlite.Connection) -> dict[str, Any]:
         "llm_reasoning_effort": {
             "codex": reasoning_effort_codex,
             "grok": reasoning_effort_grok,
+            "claude": reasoning_effort_claude,
         },
         "max_concurrent": max_concurrent,
     }
@@ -221,8 +257,10 @@ async def set_llm_settings(
     next_model_codex = str(current_model.get("codex", LLM_CODEX_MODEL_DEFAULT))
     next_model_grok = str(current_model.get("grok", LLM_GROK_MODEL_DEFAULT))
     next_model_cursor = str(current_model.get("cursor", LLM_CURSOR_MODEL_DEFAULT))
+    next_model_claude = str(current_model.get("claude", LLM_CLAUDE_MODEL_DEFAULT))
     next_reasoning_effort_codex = str(current_reasoning_effort.get("codex", ""))
     next_reasoning_effort_grok = str(current_reasoning_effort.get("grok", ""))
+    next_reasoning_effort_claude = str(current_reasoning_effort.get("claude", ""))
     next_max_concurrent = int(current.get("max_concurrent", LLM_MAX_CONCURRENT_DEFAULT))
 
     if provider_primary is not None:
@@ -237,12 +275,16 @@ async def set_llm_settings(
             next_model_grok = validated_model["grok"]
         if "cursor" in validated_model:
             next_model_cursor = validated_model["cursor"]
+        if "claude" in validated_model:
+            next_model_claude = validated_model["claude"]
     if llm_reasoning_effort is not None:
         validated_effort = _validate_llm_reasoning_effort_settings(llm_reasoning_effort)
         if "codex" in validated_effort:
             next_reasoning_effort_codex = validated_effort["codex"]
         if "grok" in validated_effort:
             next_reasoning_effort_grok = validated_effort["grok"]
+        if "claude" in validated_effort:
+            next_reasoning_effort_claude = validated_effort["claude"]
     if max_concurrent is not None:
         next_max_concurrent = _validate_llm_max_concurrent(max_concurrent)
 
@@ -254,10 +296,12 @@ async def set_llm_settings(
             "codex": next_model_codex,
             "grok": next_model_grok,
             "cursor": next_model_cursor,
+            "claude": next_model_claude,
         },
         "llm_reasoning_effort": {
             "codex": next_reasoning_effort_codex,
             "grok": next_reasoning_effort_grok,
+            "claude": next_reasoning_effort_claude,
         },
         "max_concurrent": next_max_concurrent,
     }
@@ -269,7 +313,9 @@ async def set_llm_settings(
     await set_setting(db, key=LLM_MODEL_CODEX_KEY, value=next_model_codex)
     await set_setting(db, key=LLM_MODEL_GROK_KEY, value=next_model_grok)
     await set_setting(db, key=LLM_MODEL_CURSOR_KEY, value=next_model_cursor)
+    await set_setting(db, key=LLM_MODEL_CLAUDE_KEY, value=next_model_claude)
     await set_setting(db, key=LLM_REASONING_EFFORT_CODEX_KEY, value=next_reasoning_effort_codex)
     await set_setting(db, key=LLM_REASONING_EFFORT_GROK_KEY, value=next_reasoning_effort_grok)
+    await set_setting(db, key=LLM_REASONING_EFFORT_CLAUDE_KEY, value=next_reasoning_effort_claude)
     await set_setting(db, key=LLM_MAX_CONCURRENT_KEY, value=str(next_max_concurrent))
     return next_settings

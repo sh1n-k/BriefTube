@@ -5,9 +5,12 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from app.llm_policy import LLM_PROVIDER_CLAUDE
 from app.services.article_timestamps import normalize_timestamps_text
 from app.services.llm_errors import (
+    LLM_PROVIDER_RATE_LIMITED_CODE,
     LlmClientError,
+    claude_envelope_is_usage_limit,
     looks_like_auth,
     looks_like_refusal,
     trim_error_message,
@@ -79,6 +82,13 @@ def extract_article_payload(data: Any, provider: str) -> Mapping[str, Any]:
             subtype = str(data.get("subtype") or "").strip().lower()
             message = str(data.get("error") or data.get("result") or "provider error").strip()
             message = trim_error_message(message)
+            if provider == LLM_PROVIDER_CLAUDE and claude_envelope_is_usage_limit(data):
+                raise LlmClientError(
+                    LLM_PROVIDER_RATE_LIMITED_CODE,
+                    message,
+                    provider=provider,
+                    retryable=True,
+                )
             if "refus" in subtype or looks_like_refusal(message):
                 raise LlmClientError(
                     "llm_provider_refused",

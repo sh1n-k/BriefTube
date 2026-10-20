@@ -8,15 +8,19 @@ from pathlib import Path
 from typing import Any
 
 from app.llm_policy import (
+    LLM_CLAUDE_MODEL_DEFAULT,
+    LLM_CLAUDE_REASONING_EFFORT_OPTIONS,
     LLM_CODEX_MODEL_DEFAULT,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_CURSOR_MODEL_DEFAULT,
     LLM_GROK_MODEL_DEFAULT,
     LLM_GROK_REASONING_EFFORT_OPTIONS,
+    LLM_PROVIDER_CLAUDE,
     LLM_PROVIDER_CODEX,
     LLM_PROVIDER_CURSOR,
     LLM_PROVIDER_GROK,
     LLM_PROVIDER_NONE,
+    normalize_claude_model,
     normalize_codex_model,
     normalize_cursor_model,
     normalize_grok_model,
@@ -34,6 +38,7 @@ from app.services.llm_invocation import (
     default_command_exists,
     default_command_runner,
     resolve_provider_command,
+    run_claude_provider_command,
     run_codex_provider_command,
     run_cursor_provider_command,
     run_grok_provider_command,
@@ -94,6 +99,11 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         if isinstance(model_payload, Mapping)
         else payload.get("llm_model_cursor", "")
     )
+    claude_model_raw = (
+        model_payload.get("claude", "")
+        if isinstance(model_payload, Mapping)
+        else payload.get("llm_model_claude", "")
+    )
     effort_payload = payload.get("llm_reasoning_effort")
     codex_effort_raw = (
         effort_payload.get("codex", "")
@@ -104,6 +114,11 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
         effort_payload.get("grok", "")
         if isinstance(effort_payload, Mapping)
         else payload.get("llm_reasoning_effort_grok", "")
+    )
+    claude_effort_raw = (
+        effort_payload.get("claude", "")
+        if isinstance(effort_payload, Mapping)
+        else payload.get("llm_reasoning_effort_claude", "")
     )
     return LlmSettings(
         provider_primary=normalize_llm_provider(
@@ -116,6 +131,7 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
             "codex": normalize_codex_model(codex_model_raw),
             "grok": normalize_grok_model(grok_model_raw),
             "cursor": normalize_cursor_model(cursor_model_raw),
+            "claude": normalize_claude_model(claude_model_raw),
         },
         llm_reasoning_effort={
             "codex": _normalize_reasoning_effort(
@@ -125,6 +141,10 @@ def normalize_llm_settings(raw: Mapping[str, Any] | None) -> LlmSettings:
             "grok": _normalize_reasoning_effort(
                 grok_effort_raw,
                 allowed=LLM_GROK_REASONING_EFFORT_OPTIONS,
+            ),
+            "claude": _normalize_reasoning_effort(
+                claude_effort_raw,
+                allowed=LLM_CLAUDE_REASONING_EFFORT_OPTIONS,
             ),
         },
     )
@@ -199,6 +219,15 @@ class UnifiedLlmClient:
                 prompt,
                 source_title=source_title,
                 model=model,
+            )
+        elif provider == LLM_PROVIDER_CLAUDE:
+            model = str(normalized.llm_model.get(provider, "") or LLM_CLAUDE_MODEL_DEFAULT)
+            reasoning_effort = str(normalized.llm_reasoning_effort.get(provider, "") or "")
+            article = await self._invoke_claude(
+                prompt,
+                source_title=source_title,
+                model=model,
+                reasoning_effort=reasoning_effort,
             )
         elif provider == LLM_PROVIDER_GROK:
             model = str(normalized.llm_model.get(provider, "") or LLM_GROK_MODEL_DEFAULT)
@@ -349,6 +378,37 @@ class UnifiedLlmClient:
         )
         return self._parse_and_capture_provider_output(
             provider=LLM_PROVIDER_CURSOR,
+            source_title=source_title,
+            result=result,
+        )
+
+    async def _invoke_claude(
+        self,
+        prompt: str,
+        *,
+        source_title: str,
+        model: str,
+        reasoning_effort: str,
+    ) -> dict[str, str]:
+        result = await run_claude_provider_command(
+            prompt=prompt,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            schema_json=self._provider_schema_compact(LLM_PROVIDER_CLAUDE),
+            timeout_seconds=self.timeout_seconds,
+            runner=self._runner,
+            command_exists=self._command_exists,
+        )
+        raise_for_provider_command_failure(
+            provider=LLM_PROVIDER_CLAUDE,
+            source_title=source_title,
+            result=result,
+            capture_dir=self._response_capture_dir,
+            capture_max_chars=self._response_capture_max_chars,
+            include_content=self._capture_full_response_content,
+        )
+        return self._parse_and_capture_provider_output(
+            provider=LLM_PROVIDER_CLAUDE,
             source_title=source_title,
             result=result,
         )

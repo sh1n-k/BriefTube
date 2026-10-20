@@ -13,9 +13,9 @@ from app.routers.helpers import llm_runtime_toast_header
 from app.services.llm_runtime import runtime_reason_text
 
 router = APIRouter(tags=["api"])
-_ALLOWED_MODEL_KEYS = frozenset({"codex", "grok", "cursor"})
+_ALLOWED_MODEL_KEYS = frozenset({"codex", "grok", "cursor", "claude"})
 # Cursor encodes reasoning effort in the model slug.
-_ALLOWED_REASONING_EFFORT_KEYS = frozenset({"codex", "grok"})
+_ALLOWED_REASONING_EFFORT_KEYS = frozenset({"codex", "grok", "claude"})
 
 
 def _provider_model_setting(
@@ -95,6 +95,8 @@ async def set_llm_settings(request: Request):
             model_updates["grok"] = str(form.get("llm_model_grok", ""))
         if "llm_model_cursor" in form:
             model_updates["cursor"] = str(form.get("llm_model_cursor", ""))
+        if "llm_model_claude" in form:
+            model_updates["claude"] = str(form.get("llm_model_claude", ""))
         if model_updates:
             llm_model = model_updates
         effort_updates: dict[str, str] = {}
@@ -102,6 +104,8 @@ async def set_llm_settings(request: Request):
             effort_updates["codex"] = str(form.get("llm_reasoning_effort_codex", ""))
         if "llm_reasoning_effort_grok" in form:
             effort_updates["grok"] = str(form.get("llm_reasoning_effort_grok", ""))
+        if "llm_reasoning_effort_claude" in form:
+            effort_updates["claude"] = str(form.get("llm_reasoning_effort_claude", ""))
         if effort_updates:
             llm_reasoning_effort = effort_updates
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-BriefTube는 YouTube RSS 수집, 자막 수집, Codex/Grok/Cursor 기사화, 다운로드와 알림을 단일
+BriefTube는 YouTube RSS 수집, 자막 수집, Codex/Grok/Cursor/Claude 기사화, 다운로드와 알림을 단일
 FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 규칙의 canonical source는
 `CONTRIBUTING.md`다.
 
@@ -36,9 +36,16 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `state.transcript_worker_lock`으로 보장한다.
 - pytest에서는 background worker를 기본 비활성화하고 필요한 테스트만
   `BRIEFTUBE_ENABLE_<NAME>_WORKER_IN_TESTS=1`로 활성화한다.
-- LLM은 schema-validated JSON만 저장한다. Codex/Grok은 CLI schema 옵션으로, schema 옵션이 없는
+- LLM은 schema-validated JSON만 저장한다. Codex/Grok/Claude는 CLI schema 옵션으로, schema 옵션이 없는
   Cursor(`cursor-agent`)는 프롬프트 출력 계약과 `coerce_article`의 문자열 타입·품질 검증으로 강제한다.
   Cursor ask 모드는 workspace 밖 읽기와 웹 검색을 허용하므로 호출별 `CURSOR_CONFIG_DIR` deny 설정을 유지한다.
+  Claude는 구독 로그인으로 과금되어야 하므로 `--bare`를 쓰지 않고, `CLAUDE_CODE_OAUTH_TOKEN`을 뺀
+  `ANTHROPIC_*`/`CLAUDE_CODE_*`/`CLAUDE_EFFORT`를 제거한 env, 빈 임시 cwd, `--tools ""`, `--setting-sources ""`로
+  격리한다. 프롬프트의 `@경로`는 `--tools ""`와 무관하게 파일을 첨부하므로
+  `CLAUDE_CODE_DISABLE_FILE_MENTIONS`/`CLAUDE_CODE_DISABLE_ATTACHMENTS`를 유지한다. 사용량 크레딧으로 과금되는
+  모델(Fable)은 옵션에 넣지 않는다. 구독 한도 보호를 위해 호출 시작 간격 60초
+  (`LLM_CLAUDE_MIN_CALL_INTERVAL_SECONDS`)를 지키고, 사용 한도 응답(`llm_provider_rate_limited`)은 retry를
+  소모하지 않고 재대기열에 넣은 뒤 해당 provider의 claim을 정지한다.
   로그에는 provider 원응답 전문 대신
   길이 제한·마스킹된 `stderr_summary`/`stdout_summary`만 남긴다.
 - LLM 응답 캡처 디렉터리는 dev=`./output/llm_raw`, prod=`./logs/prod/llm_raw`(또는

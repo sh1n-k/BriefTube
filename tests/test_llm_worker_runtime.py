@@ -1007,3 +1007,332 @@ def test_llm_worker_sends_timed_transcript_when_available(tmp_path) -> None:
             await db.close()
 
     assert asyncio.run(_run()) == ["[00:00] hello", "hello"]
+
+
+class TimedSuccessClient:
+    def __init__(self) -> None:
+        self.started_at: list[float] = []
+
+    def resolve_runtime_plan(self, settings):
+        return LlmRuntimePlan(
+            providers_to_try=["claude"],
+            blocking_reason=None,
+            warnings=[],
+        )
+
+    async def restructure(self, source_title: str, transcript_text: str, settings):
+        self.started_at.append(asyncio.get_running_loop().time())
+        return {
+            "title": f"Article {source_title}",
+            "lead": "Article lead",
+            "body": "Article body",
+            "fact_box": "{}",
+            "timestamps": "[]",
+            "_llm_provider": "claude",
+            "_llm_model": "claude-sonnet-5-5",
+            "_llm_reasoning_effort": "",
+            "_llm_generated_at": "2026-03-02T10:00:00+00:00",
+        }
+
+
+class RateLimitedThenSuccessClient(TimedSuccessClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def restructure(self, source_title: str, transcript_text: str, settings):
+        self.calls += 1
+        if self.calls == 1:
+            raise LlmClientError(
+                "llm_provider_rate_limited",
+                "You've hit your limit",
+                provider="claude",
+                retryable=True,
+            )
+        return await super().restructure(source_title, transcript_text, settings)
+
+
+async def _seed_llm_pending_videos(db, video_ids: tuple[str, ...]) -> None:
+    await db.execute(
+        """
+        INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+        VALUES (?, ?, ?, 1)
+        """,
+        (
+            "UCworkerclaude",
+            "Worker Channel",
+            "https://www.youtube.com/feeds/videos.xml?channel_id=UCworkerclaude",
+        ),
+    )
+    for video_id in video_ids:
+        await db.execute(
+            """
+            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
+            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            """,
+            (video_id, "UCworkerclaude", video_id, "2026-02-24T00:00:00+00:00"),
+        )
+        await db.execute(
+            """
+            INSERT INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            (video_id, f"hello transcript {video_id}", "ko", "manual"),
+        )
+
+
+def test_llm_worker_spaces_claude_call_starts_even_with_free_slots(tmp_path, monkeypatch) -> None:
+    import app.workers.llm_worker as llm_worker
+
+    interval = 1.5
+    monkeypatch.setattr(
+        llm_worker,
+        "llm_min_call_interval_seconds",
+        lambda provider: interval if provider == "claude" else 0.0,
+    )
+    db_path = tmp_path / "worker-runtime-claude-interval.db"
+
+    async def _run() -> list[float]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-claude-a", "vid-claude-b"))
+        await settings_repo.set_llm_settings(db, provider_primary="claude", max_concurrent=4)
+        await db.commit()
+
+        client = TimedSuccessClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            for video_id in ("vid-claude-a", "vid-claude-b"):
+                await _wait_for_video_status(
+                    db, video_id=video_id, expected="done", timeout_seconds=5
+                )
+            return client.started_at
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    started_at = asyncio.run(_run())
+    assert len(started_at) == 2
+    assert started_at[1] - started_at[0] >= interval - 0.05
+
+
+def test_llm_worker_does_not_space_other_provider_calls(tmp_path) -> None:
+    db_path = tmp_path / "worker-runtime-codex-no-interval.db"
+
+    async def _run() -> list[float]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-codex-a", "vid-codex-b"))
+        await settings_repo.set_llm_settings(db, provider_primary="codex", max_concurrent=2)
+        await db.commit()
+
+        client = TimedSuccessClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            for video_id in ("vid-codex-a", "vid-codex-b"):
+                await _wait_for_video_status(
+                    db, video_id=video_id, expected="done", timeout_seconds=5
+                )
+            return client.started_at
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    started_at = asyncio.run(_run())
+    assert len(started_at) == 2
+    assert started_at[1] - started_at[0] < 1.0
+
+
+def test_llm_worker_requeues_rate_limited_job_without_spending_retry(tmp_path, monkeypatch) -> None:
+    import app.workers.llm_worker as llm_worker
+
+    monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", 0.2)
+    monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
+    db_path = tmp_path / "worker-runtime-claude-rate-limited.db"
+
+    async def _run() -> tuple[int, dict]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-claude-limit",))
+        await settings_repo.set_llm_settings(db, provider_primary="claude")
+        await db.commit()
+
+        client = RateLimitedThenSuccessClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            row = await _wait_for_video_status(
+                db, video_id="vid-claude-limit", expected="done", timeout_seconds=5
+            )
+            return client.calls, dict(row)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    calls, row = asyncio.run(_run())
+    assert calls == 2
+    assert int(row["retry_count"]) == 0
+
+
+def test_llm_worker_rate_limit_pauses_every_slot(tmp_path, monkeypatch) -> None:
+    import app.workers.llm_worker as llm_worker
+
+    backoff = 1.0
+    monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", backoff)
+    monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
+    db_path = tmp_path / "worker-runtime-claude-rate-limit-global.db"
+
+    async def _run() -> list[float]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-limit-a", "vid-limit-b"))
+        await settings_repo.set_llm_settings(db, provider_primary="claude", max_concurrent=4)
+        await db.commit()
+
+        client = RateLimitedThenSuccessClient()
+        calls_at: list[float] = []
+        original = client.restructure
+
+        async def recording_restructure(source_title, transcript_text, settings):
+            calls_at.append(asyncio.get_running_loop().time())
+            return await original(source_title, transcript_text, settings)
+
+        client.restructure = recording_restructure  # type: ignore[method-assign]
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            await asyncio.sleep(0.2)
+            # Wake events must not bypass the usage-limit pause.
+            state.llm_wake_event.set()
+            for video_id in ("vid-limit-a", "vid-limit-b"):
+                await _wait_for_video_status(
+                    db, video_id=video_id, expected="done", timeout_seconds=8
+                )
+            return calls_at
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    calls_at = asyncio.run(_run())
+    # Both videos start together; the rate-limited one is retried only after the pause.
+    assert len(calls_at) == 3
+    assert calls_at[2] - calls_at[0] >= backoff - 0.05
+
+
+def test_llm_worker_provider_switch_lifts_rate_limit_pause(tmp_path, monkeypatch) -> None:
+    import app.workers.llm_worker as llm_worker
+
+    monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", 600.0)
+    monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
+    db_path = tmp_path / "worker-runtime-claude-rate-limit-switch.db"
+
+    async def _run() -> int:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-limit-switch",))
+        await settings_repo.set_llm_settings(db, provider_primary="claude")
+        await db.commit()
+
+        client = RateLimitedThenSuccessClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            deadline = asyncio.get_running_loop().time() + 3
+            while client.calls < 1:
+                assert asyncio.get_running_loop().time() < deadline
+                await asyncio.sleep(0.05)
+            await settings_repo.set_llm_settings(db, provider_primary="codex")
+            await _wait_for_video_status(
+                db, video_id="vid-limit-switch", expected="done", timeout_seconds=10
+            )
+            return client.calls
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    assert asyncio.run(_run()) == 2
+
+
+def test_llm_worker_keeps_rate_limit_pause_for_last_pending_job(tmp_path, monkeypatch) -> None:
+    import app.workers.llm_worker as llm_worker
+
+    backoff = 1.0
+    monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", backoff)
+    monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
+    db_path = tmp_path / "worker-runtime-claude-rate-limit-last.db"
+
+    class SlowRateLimitedClient(RateLimitedThenSuccessClient):
+        async def restructure(self, source_title: str, transcript_text: str, settings):
+            if self.calls == 0:
+                # Long enough for the loop to see no pending work while it runs.
+                await asyncio.sleep(0.3)
+            return await super().restructure(source_title, transcript_text, settings)
+
+    async def _run() -> tuple[float, list[float]]:
+        db = await open_database(str(db_path))
+        await init_database(db)
+        await _seed_llm_pending_videos(db, ("vid-limit-last",))
+        await settings_repo.set_llm_settings(db, provider_primary="claude")
+        await db.commit()
+
+        client = SlowRateLimitedClient()
+        state = SimpleNamespace(
+            db=db,
+            config=AppConfig(max_retry_count=3),
+            llm_client=client,
+            notification_queue=asyncio.Queue(),
+            llm_wake_event=asyncio.Event(),
+        )
+        started = asyncio.get_running_loop().time()
+        task = asyncio.create_task(run_llm_queue_worker(state))
+        try:
+            await _wait_for_video_status(
+                db, video_id="vid-limit-last", expected="done", timeout_seconds=8
+            )
+            return started, client.started_at
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await db.close()
+
+    started, succeeded_at = asyncio.run(_run())
+    # The rate-limited call ends at ~0.3s; the retry must wait the full pause after it.
+    assert len(succeeded_at) == 1
+    assert succeeded_at[0] - started >= 0.3 + backoff - 0.05

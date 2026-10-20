@@ -112,9 +112,30 @@ def test_settings_page_renders(client: TestClient) -> None:
     assert 'name="llm_reasoning_effort_cursor"' not in response.text
     assert "change from:select[name='llm_model_cursor']" in response.text
     assert 'name="llm_provider_fallback"' not in response.text
-    assert 'name="llm_model_claude"' not in response.text
+    assert '<option value="claude"' in response.text
+    assert "Claude Code CLI" in response.text
+    claude_model_select = re.search(
+        r'name="llm_model_claude".*?</select>',
+        response.text,
+        flags=re.S,
+    )
+    assert claude_model_select is not None
+    claude_model_html = claude_model_select.group(0)
+    assert 'value="claude-sonnet-5-5" selected' in claude_model_html
+    assert 'value="claude-opus-5-5"' in claude_model_html
+    assert 'value="claude-haiku-5-5"' in claude_model_html
+    claude_effort_select = re.search(
+        r'name="llm_reasoning_effort_claude".*?</select>',
+        response.text,
+        flags=re.S,
+    )
+    assert claude_effort_select is not None
+    claude_effort_html = claude_effort_select.group(0)
+    for effort in ("low", "medium", "high", "xhigh", "max"):
+        assert f'value="{effort}"' in claude_effort_html
+    assert "change from:select[name='llm_model_claude']" in response.text
+    assert "change from:select[name='llm_reasoning_effort_claude']" in response.text
     assert 'name="llm_model_gemini"' not in response.text
-    assert 'name="llm_reasoning_effort_claude"' not in response.text
     assert 'name="llm_reasoning_effort_gemini"' not in response.text
     assert "change from:select[name='llm_provider_primary']" in response.text
     assert "change from:select[name='llm_model_grok']" in response.text

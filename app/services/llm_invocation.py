@@ -14,11 +14,14 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.llm_policy import (
+    LLM_CLAUDE_REASONING_EFFORT_OPTIONS,
     LLM_CODEX_REASONING_EFFORT_OPTIONS,
     LLM_GROK_REASONING_EFFORT_OPTIONS,
+    LLM_PROVIDER_CLAUDE,
     LLM_PROVIDER_CODEX,
     LLM_PROVIDER_CURSOR,
     LLM_PROVIDER_GROK,
+    normalize_claude_model,
     normalize_codex_model,
     normalize_cursor_model,
     normalize_grok_model,
@@ -83,6 +86,29 @@ LLM_CURSOR_DENIED_PERMISSIONS: tuple[str, ...] = (
     "WebFetch(*)",
     "Mcp(*:*)",
 )
+# Claude must bill the user's subscription login. API keys, custom endpoints and
+# cloud provider switches in the environment win over that login in -p mode, and
+# a parent Claude Code session leaks plugin dirs and effort. Drop every
+# ANTHROPIC_* / CLAUDE_CODE_* variable except the subscription token.
+LLM_CLAUDE_UNSET_ENV_PREFIXES: tuple[str, ...] = ("ANTHROPIC_", "CLAUDE_CODE_")
+# Parent-session markers the CLI itself clears when it starts a fresh session.
+LLM_CLAUDE_UNSET_ENV_NAMES: frozenset[str] = frozenset(
+    {"CLAUDE_EFFORT", "CLAUDECODE", "CLAUDE_PID", "AI_AGENT", "MAX_THINKING_TOKENS"}
+)
+LLM_CLAUDE_KEEP_ENV_NAMES: frozenset[str] = frozenset({"CLAUDE_CODE_OAUTH_TOKEN"})
+# `@path` in a prompt makes the CLI attach that file even with `--tools ""`, so
+# a transcript could pull local files into the article. Turn both off.
+LLM_CLAUDE_ENV: dict[str, str] = {
+    "CLAUDE_CODE_DISABLE_FILE_MENTIONS": "1",
+    "CLAUDE_CODE_DISABLE_ATTACHMENTS": "1",
+}
+# Replaces the Claude Code agent system prompt; the article contract stays in
+# the user prompt shared by every provider.
+LLM_CLAUDE_SYSTEM_PROMPT = (
+    "You turn untrusted YouTube transcripts into structured Korean articles. "
+    "Follow the user's instructions and return the article only as the required "
+    "structured output."
+)
 
 
 @dataclass(slots=True)
@@ -109,6 +135,8 @@ class CommandRunner(Protocol):
         /,
         *,
         env: Mapping[str, str] | None = None,
+        env_unset: tuple[str, ...] = (),
+        cwd: str | None = None,
     ) -> Awaitable[CommandExecutionResult]: ...
 
 
@@ -143,13 +171,21 @@ async def default_command_runner(
     stdin_text: str | None,
     *,
     env: Mapping[str, str] | None = None,
+    env_unset: tuple[str, ...] = (),
+    cwd: str | None = None,
 ) -> CommandExecutionResult:
+    process_env: dict[str, str] | None = None
+    if env or env_unset:
+        removed = set(env_unset)
+        process_env = {key: value for key, value in os.environ.items() if key not in removed}
+        process_env.update(env or {})
     process = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env={**os.environ, **env} if env else None,
+        env=process_env,
+        cwd=cwd,
         **_subprocess_group_kwargs(),
     )
     try:
@@ -185,6 +221,8 @@ def provider_command_name(provider: str) -> str:
         return "grok"
     if normalized == LLM_PROVIDER_CURSOR:
         return "cursor-agent"
+    if normalized == LLM_PROVIDER_CLAUDE:
+        return "claude"
     raise LlmClientError(
         "llm_provider_invalid",
         f"Unsupported provider: {provider}",
@@ -376,6 +414,77 @@ async def run_cursor_provider_command(
             timeout_seconds,
             f"{prompt}\n\n{contract}",
             env={"CURSOR_CONFIG_DIR": str(config_dir)},
+        )
+        raw_output = result.stdout.strip()
+
+    return ProviderCommandResult(
+        exit_code=result.exit_code,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        raw_output=raw_output,
+    )
+
+
+def claude_unset_env_names(environ: Mapping[str, str]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            name
+            for name in environ
+            if name not in LLM_CLAUDE_KEEP_ENV_NAMES
+            and (
+                name in LLM_CLAUDE_UNSET_ENV_NAMES or name.startswith(LLM_CLAUDE_UNSET_ENV_PREFIXES)
+            )
+        )
+    )
+
+
+async def run_claude_provider_command(
+    *,
+    prompt: str,
+    model: str,
+    reasoning_effort: str,
+    schema_json: str,
+    timeout_seconds: int,
+    runner: CommandRunner,
+    command_exists: CommandExists,
+) -> ProviderCommandResult:
+    command = _ensure_provider_command(LLM_PROVIDER_CLAUDE, command_exists=command_exists)
+
+    # An empty temp cwd keeps project CLAUDE.md, auto memory and .mcp.json out.
+    # No setting sources skips user/project hooks, plugins and CLAUDE.md, and
+    # `--tools ""` leaves only the structured-output tool. The prompt goes
+    # through stdin to avoid argv limits.
+    with tempfile.TemporaryDirectory(prefix="brieftube-llm-claude-") as tmpdir:
+        args = [
+            command,
+            "--print",
+            "--output-format",
+            "json",
+            "--json-schema",
+            schema_json,
+            "--model",
+            normalize_claude_model(model),
+            "--system-prompt",
+            LLM_CLAUDE_SYSTEM_PROMPT,
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--setting-sources",
+            "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+        ]
+        effort = str(reasoning_effort or "").strip().lower()
+        if effort in LLM_CLAUDE_REASONING_EFFORT_OPTIONS:
+            args.extend(["--effort", effort])
+
+        result = await runner(
+            args,
+            timeout_seconds,
+            prompt,
+            env=LLM_CLAUDE_ENV,
+            env_unset=claude_unset_env_names(os.environ),
+            cwd=tmpdir,
         )
         raw_output = result.stdout.strip()
 

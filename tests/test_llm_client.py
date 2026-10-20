@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.llm_policy import (
+    LLM_CLAUDE_MODEL_DEFAULT,
     LLM_CODEX_MODEL_DEFAULT,
     LLM_CURSOR_MODEL_DEFAULT,
     LLM_GROK_MODEL_DEFAULT,
@@ -115,7 +116,7 @@ def test_runtime_plan_normalizes_legacy_provider_values_to_codex_only() -> None:
     )
     plan = client.resolve_runtime_plan(
         {
-            "provider_primary": "claude",
+            "provider_primary": "gemini",
             "provider_fallback": "gemini",
             "prompt_template": "{transcript_text}",
         }
@@ -888,3 +889,235 @@ def test_default_command_runner_passes_extra_env() -> None:
     )
     assert result.exit_code == 0
     assert result.stdout == "isolated"
+
+
+def test_default_command_runner_unsets_env_and_uses_cwd(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BRIEFTUBE_TEST_SECRET", "leak")
+    script = (
+        "import os, sys; "
+        "sys.stdout.write(os.environ.get('BRIEFTUBE_TEST_SECRET', '-') + '|' + os.getcwd())"
+    )
+    result = asyncio.run(
+        default_command_runner(
+            [sys.executable, "-c", script],
+            10,
+            None,
+            env_unset=("BRIEFTUBE_TEST_SECRET",),
+            cwd=str(tmp_path),
+        )
+    )
+    assert result.exit_code == 0
+    secret, cwd = result.stdout.split("|", 1)
+    assert secret == "-"
+    assert Path(cwd).resolve() == tmp_path.resolve()
+
+
+def _claude_envelope(article: dict[str, str]) -> str:
+    return json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "api_error_status": None,
+            "result": json.dumps(article),
+            "structured_output": article,
+        }
+    )
+
+
+def test_restructure_claude_isolates_cli_and_uses_subscription_login(monkeypatch) -> None:
+    for name in (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
+        "CLAUDE_CODE_USE_MANTLE",
+        "CLAUDE_CODE_PLUGIN_DIRS",
+        "CLAUDE_EFFORT",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+    ):
+        monkeypatch.setenv(name, "parent-value")
+    seen: dict[str, object] = {}
+
+    async def fake_runner(
+        args: list[str],
+        timeout: int,
+        stdin_text: str | None,
+        *,
+        env=None,
+        env_unset=(),
+        cwd=None,
+    ) -> CommandExecutionResult:
+        assert args[0] == _expected_provider_command("claude")
+        assert "--print" in args
+        assert "--bare" not in args
+        assert args[args.index("--output-format") + 1] == "json"
+        schema = json.loads(args[args.index("--json-schema") + 1])
+        assert schema["required"] == ["title", "lead", "body", "fact_box", "timestamps"]
+        assert args[args.index("--model") + 1] == LLM_CLAUDE_MODEL_DEFAULT
+        assert args[args.index("--tools") + 1] == ""
+        assert args[args.index("--setting-sources") + 1] == ""
+        assert "--strict-mcp-config" in args
+        assert "--disable-slash-commands" in args
+        assert "--no-session-persistence" in args
+        assert "--system-prompt" in args
+        assert "--effort" not in args
+        assert "--dangerously-skip-permissions" not in args
+        assert {
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_CODE_USE_MANTLE",
+            "CLAUDE_CODE_PLUGIN_DIRS",
+            "CLAUDE_EFFORT",
+        } <= set(env_unset)
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in env_unset
+        assert env == {
+            "CLAUDE_CODE_DISABLE_FILE_MENTIONS": "1",
+            "CLAUDE_CODE_DISABLE_ATTACHMENTS": "1",
+        }
+        assert cwd is not None
+        workspace = Path(cwd)
+        assert workspace.is_dir()
+        assert list(workspace.iterdir()) == []
+        assert Path.cwd() not in workspace.parents
+        assert stdin_text is not None
+        assert "Transcript" not in " ".join(args)
+        assert "Title=Source" in stdin_text
+        assert "Article field contract:" in stdin_text
+        seen["workspace"] = workspace
+        article = {
+            "title": "Claude title",
+            "lead": "Claude lead",
+            "body": _VALID_ARTICLE_BODY,
+            "fact_box": "- fact",
+            "timestamps": "- [00:00] intro",
+        }
+        return CommandExecutionResult(exit_code=0, stdout=_claude_envelope(article), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="[00:00] Transcript",
+            settings={
+                "provider_primary": "claude",
+                "prompt_template": "Title={source_title}\nBody={transcript_text}",
+            },
+        )
+    )
+
+    assert not Path(str(seen["workspace"])).exists()
+    assert article["title"] == "Claude title"
+    assert article["timestamps"] == "- [00:00] intro"
+    assert article["_llm_provider"] == "claude"
+    assert article["_llm_model"] == LLM_CLAUDE_MODEL_DEFAULT
+    assert article["_llm_reasoning_effort"] == ""
+
+
+def test_restructure_claude_applies_selected_model_and_effort() -> None:
+    async def fake_runner(args, timeout, stdin_text, **_kwargs) -> CommandExecutionResult:
+        assert args[args.index("--model") + 1] == "claude-opus-5-5"
+        assert args[args.index("--effort") + 1] == "max"
+        article = {
+            "title": "Claude title",
+            "lead": "Claude lead",
+            "body": _VALID_ARTICLE_BODY,
+            "fact_box": "{}",
+            "timestamps": "[]",
+        }
+        return CommandExecutionResult(exit_code=0, stdout=_claude_envelope(article), stderr="")
+
+    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
+    article = asyncio.run(
+        client.restructure(
+            source_title="Source",
+            transcript_text="Transcript",
+            settings={
+                "provider_primary": "claude",
+                "prompt_template": "{transcript_text}",
+                "llm_model": {"claude": "claude-opus-5-5"},
+                "llm_reasoning_effort": {"claude": "max"},
+            },
+        )
+    )
+    assert article["_llm_model"] == "claude-opus-5-5"
+    assert article["_llm_reasoning_effort"] == "max"
+
+
+def test_runtime_plan_blocks_when_claude_command_missing() -> None:
+    client = UnifiedLlmClient(timeout_seconds=10, command_exists=lambda name: name == "codex")
+    reason = client.resolve_runtime_plan(
+        {"provider_primary": "claude", "prompt_template": "{transcript_text}"}
+    ).blocking_reason
+    assert reason == "llm_provider_unavailable_claude"
+
+
+def _claude_error_envelope(result: str, *, api_error_status: int | None = None) -> str:
+    return json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "api_error_status": api_error_status,
+            "terminal_reason": "api_error",
+            "result": result,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("result", "api_error_status"),
+    [
+        ("You've hit your limit · resets 5pm (Asia/Seoul)", None),
+        ("You\u2019ve hit your weekly limit", None),
+        ("You're out of usage credits", None),
+        ("Claude AI usage limit reached|1760000000", None),
+        ("API Error: Request rejected", 429),
+    ],
+)
+def test_claude_usage_limit_is_classified_as_rate_limited(
+    result: str, api_error_status: int | None
+) -> None:
+    stdout = _claude_error_envelope(result, api_error_status=api_error_status)
+    failure = classify_command_failure(provider="claude", stdout=stdout, stderr="", exit_code=1)
+    assert failure.code == "llm_provider_rate_limited"
+    assert failure.retryable is True
+
+    with pytest.raises(LlmClientError) as exc_info:
+        parse_provider_output("claude", stdout)
+    assert exc_info.value.code == "llm_provider_rate_limited"
+
+
+def test_usage_limit_text_is_not_rate_limited_for_other_providers() -> None:
+    stdout = _claude_error_envelope("You've hit your limit")
+    failure = classify_command_failure(provider="codex", stdout=stdout, stderr="", exit_code=1)
+    assert failure.code == "llm_provider_command_failed"
+
+
+@pytest.mark.parametrize(
+    "result",
+    ["Not logged in · Please run /login", "Login expired · Please run /login"],
+)
+def test_claude_login_errors_require_auth(result: str) -> None:
+    stdout = _claude_error_envelope(result)
+    failure = classify_command_failure(provider="claude", stdout=stdout, stderr="", exit_code=1)
+    assert failure.code == "llm_provider_auth_required"
+    assert failure.retryable is False
+
+
+def test_claude_model_text_mentioning_limits_is_not_rate_limited() -> None:
+    envelope = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "api_error_status": None,
+            "stop_reason": "refusal",
+            "usage": {"output_tokens": 42},
+            "result": "I refuse: you're out of scope and the limit reached here is policy.",
+        }
+    )
+    failure = classify_command_failure(provider="claude", stdout=envelope, stderr="", exit_code=1)
+    assert failure.code == "llm_provider_refused"
+
+    with pytest.raises(LlmClientError) as exc_info:
+        parse_provider_output("claude", envelope)
+    assert exc_info.value.code == "llm_provider_refused"
