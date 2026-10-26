@@ -2,4 +2,20 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# LaunchAgent does not read shell profiles, so the Claude CLI would fall back to
+# its own keychain login. Load the subscription token from the login keychain
+# instead; the value is never written to the plist, the repository or the log.
+CLAUDE_TOKEN_KEYCHAIN_SERVICE="${BRIEFTUBE_CLAUDE_TOKEN_KEYCHAIN_SERVICE:-BriefTube.claude-oauth-token}"
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+  if claude_token="$(security find-generic-password -a "${USER:-$(id -un)}" -s "${CLAUDE_TOKEN_KEYCHAIN_SERVICE}" -w 2>/dev/null)" \
+    && [[ -n "${claude_token}" ]]; then
+    export CLAUDE_CODE_OAUTH_TOKEN="${claude_token}"
+    echo "launchd: CLAUDE_CODE_OAUTH_TOKEN loaded from keychain service ${CLAUDE_TOKEN_KEYCHAIN_SERVICE}" >&2
+  else
+    echo "launchd: keychain service ${CLAUDE_TOKEN_KEYCHAIN_SERVICE} not found; Claude CLI uses its own login" >&2
+  fi
+  unset claude_token
+fi
+
 exec "${ROOT_DIR}/run-prod.sh"

@@ -73,6 +73,15 @@ retention, page-size 값은 SQLite `app_settings`에 유지됩니다.
 BRIEFTUBE_LAUNCHD_DRY_RUN=1 ./scripts/install-launchd-prod.sh
 ```
 
+LaunchAgent는 셸 프로필을 읽지 않습니다. Claude provider에 `claude setup-token`으로 만든
+`CLAUDE_CODE_OAUTH_TOKEN`을 쓰려면 login keychain의 `BriefTube.claude-oauth-token` 항목에
+저장합니다. 시작 스크립트가 이 값을 읽어 환경변수로 넘기며 plist와 로그에는 남기지 않습니다.
+토큰이 현재 셸에 있을 때 다음처럼 stdin으로 저장한 뒤 `restart-launchd-prod.sh`를 실행합니다.
+
+```bash
+printf '%s\n%s\n' "$CLAUDE_CODE_OAUTH_TOKEN" "$CLAUDE_CODE_OAUTH_TOKEN" | security add-generic-password -U -a "$USER" -s BriefTube.claude-oauth-token -w
+```
+
 ## 구조
 
 | 경로 | 역할 |
