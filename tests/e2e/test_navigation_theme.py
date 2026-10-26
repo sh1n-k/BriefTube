@@ -123,13 +123,15 @@ def test_responsive_nav_preserves_page_transition(e2e_page: Page) -> None:
 
     theme_toggle = page.locator("button[data-theme-toggle]")
     expect(theme_toggle).to_be_visible()
+    brand_link = page.locator("header > div > a[href='/']")
+    expect(brand_link).to_be_visible()
 
     page.set_viewport_size({"width": 375, "height": 667})
     expect(page.locator("header")).to_be_visible()
     nav = page.locator("header nav")
     expect(nav).to_be_attached()
-    brand_link = page.locator("header > div > a[href='/']")
-    expect(brand_link).to_be_visible()
+    # The brand link is hidden on mobile to keep the header compact.
+    expect(brand_link).to_be_hidden()
     channels_link = page.locator('header nav a[href="/channels"]')
     expect(channels_link).to_be_visible()
     page.evaluate("sessionStorage.setItem('brieftube.enableNextPageFade', '1')")

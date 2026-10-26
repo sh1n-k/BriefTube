@@ -598,6 +598,7 @@ def test_video_download_selected_duplicate_only_returns_info_tone(
     client: TestClient,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr("app.domains.downloads.service.is_ffmpeg_available", lambda: True)
     _seed_channels_and_videos()
     _seed_pending_download_job(
         "vid-a-000",
@@ -631,6 +632,7 @@ def test_video_download_selected_uses_single_batch_query(client: TestClient, mon
         "app.domains.downloads.service.videos_repo.list_videos_by_ids", wrapped_list_videos_by_ids
     )
     monkeypatch.setattr("app.domains.downloads.service.videos_repo.get_video", should_not_be_called)
+    monkeypatch.setattr("app.domains.downloads.service.is_ffmpeg_available", lambda: True)
 
     response = client.post(
         "/views/videos/download-selected",

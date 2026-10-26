@@ -152,6 +152,14 @@ def e2e_server(tmp_path_factory: pytest.TempPathFactory):
         download_dir=download_dir,
         log_dir=log_dir,
     )
+    # Download UI gates on `shutil.which("ffmpeg")`; the download worker is disabled,
+    # so a stub on PATH keeps E2E independent of the host's ffmpeg install.
+    fake_bin_dir = base / "bin"
+    fake_bin_dir.mkdir()
+    fake_ffmpeg = fake_bin_dir / "ffmpeg"
+    fake_ffmpeg.write_text("#!/bin/sh\nexit 0\n")
+    fake_ffmpeg.chmod(0o755)
+    env["PATH"] = os.pathsep.join(filter(None, [str(fake_bin_dir), env.get("PATH")]))
     proc, port = _start_server(env=env, max_attempts=3)
 
     yield {
