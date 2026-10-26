@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116.0",
-  "uvicorn>=0.35.0",
+  "granian[reload]>=2.8",
   "aiosqlite>=0.22.0",
   "httpx>=0.28.0",
   "markdown-it-py>=3.0.0",

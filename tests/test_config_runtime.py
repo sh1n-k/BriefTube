@@ -4,6 +4,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from granian.constants import Interfaces, Loops
+from watchfiles import PythonFilter
+
 from app.config import load_config
 
 
@@ -115,21 +118,31 @@ def test_cli_uses_yaml_server_settings(monkeypatch, tmp_path: Path) -> None:
     )
     captured: dict[str, Any] = {}
 
-    def fake_run(app: str, **kwargs: Any) -> None:
-        captured["app"] = app
-        captured.update(kwargs)
+    class FakeGranian:
+        def __init__(self, target: str, **kwargs: Any) -> None:
+            captured["target"] = target
+            captured.update(kwargs)
+
+        def serve(self) -> None:
+            captured["served"] = True
 
     monkeypatch.setenv("APP_CONFIG_FILE", str(config_path))
     for env_name in ("SERVER_HOST", "HOST", "SERVER_PORT", "PORT", "SERVER_RELOAD"):
         monkeypatch.delenv(env_name, raising=False)
     monkeypatch.setattr("sys.argv", ["brieftube"])
-    monkeypatch.setattr(cli.uvicorn, "run", fake_run)
+    monkeypatch.setattr(cli, "Granian", FakeGranian)
 
     cli.main()
 
     assert captured == {
-        "app": "app.main:app",
-        "host": "127.0.0.3",
+        "target": "app.main:app",
+        "address": "127.0.0.3",
         "port": 48124,
+        "interface": Interfaces.ASGI,
+        "workers": 1,
+        "loop": Loops.asyncio,
         "reload": True,
+        "reload_paths": [cli.APP_DIR],
+        "reload_filter": PythonFilter,
+        "served": True,
     }

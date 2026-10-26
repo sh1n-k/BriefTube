@@ -98,7 +98,13 @@ def _start_server(
             [
                 sys.executable,
                 "-m",
-                "uvicorn",
+                "granian",
+                "--interface",
+                "asgi",
+                "--workers",
+                "1",
+                "--loop",
+                "asyncio",
                 "app.main:app",
                 "--host",
                 "127.0.0.1",
@@ -126,7 +132,7 @@ def _start_server(
 
 @pytest.fixture(scope="module")
 def e2e_server(tmp_path_factory: pytest.TempPathFactory):
-    """Start an independent uvicorn server for each test module."""
+    """Start an independent Granian server for each test module."""
     base = tmp_path_factory.mktemp("e2e")
     db_path = str(base / "test.db")
     thumbnail_dir = str(base / "thumbnails")

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-import uvicorn
+from granian import Granian
+from granian.constants import Interfaces, Loops
+from watchfiles import PythonFilter
 
 from app.config import load_config
+
+APP_DIR = Path(__file__).resolve().parent
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -21,13 +26,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reload",
         action="store_true",
         default=None,
-        help="Enable uvicorn reload regardless of YAML config.",
+        help="Enable server reload regardless of YAML config.",
     )
     reload_group.add_argument(
         "--no-reload",
         action="store_false",
         dest="reload",
-        help="Disable uvicorn reload regardless of YAML config.",
+        help="Disable server reload regardless of YAML config.",
     )
     return parser
 
@@ -40,7 +45,19 @@ def main() -> None:
     port = int(args.port if args.port is not None else config.server_port)
     reload = bool(config.server_reload if args.reload is None else args.reload)
 
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+    # Background workers start in the ASGI lifespan, so exactly one worker process may run.
+    # Reload watches only app/*.py; the default filter would restart on DB and log writes.
+    Granian(
+        "app.main:app",
+        address=host,
+        port=port,
+        interface=Interfaces.ASGI,
+        workers=1,
+        loop=Loops.asyncio,
+        reload=reload,
+        reload_paths=[APP_DIR],
+        reload_filter=PythonFilter,
+    ).serve()
 
 
 if __name__ == "__main__":

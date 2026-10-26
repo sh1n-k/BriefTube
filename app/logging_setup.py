@@ -18,7 +18,7 @@ DEPENDENCY_LOGGERS = (
     "httpx",
     "httpcore",
     "aiosqlite",
-    "uvicorn.access",
+    "granian.access",
     "python_multipart",
     "python_multipart.multipart",
 )

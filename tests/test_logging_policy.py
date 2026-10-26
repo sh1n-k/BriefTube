@@ -105,7 +105,7 @@ def test_dependency_loggers_use_configured_level(tmp_path: Path) -> None:
     assert logging.getLogger("httpx").level == logging.ERROR
     assert logging.getLogger("httpcore").level == logging.ERROR
     assert logging.getLogger("aiosqlite").level == logging.ERROR
-    assert logging.getLogger("uvicorn.access").level == logging.ERROR
+    assert logging.getLogger("granian.access").level == logging.ERROR
 
 
 def test_load_config_reads_console_color_from_file_and_env(monkeypatch, tmp_path: Path) -> None:
