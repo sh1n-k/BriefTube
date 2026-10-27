@@ -552,6 +552,14 @@ def test_video_list_renders_cdn_thumbnail_for_missing_local_path(client: TestCli
     assert 'loading="lazy"' in html
 
 
+def test_video_list_renders_status_badge_from_pipeline_status(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    assert "status-badge--transcript-pending" in response.text
+
+
 def test_video_list_renders_download_selected_button(client: TestClient) -> None:
     _seed_channels_and_videos()
 

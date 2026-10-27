@@ -308,7 +308,7 @@ async def article_request_selected_videos(request: Request):
 async def transcript_request_single_video(video_id: str, request: Request):
     txt = await request_texts(request)
     if manual_transcript_requests_disabled():
-        response = await video_detail(video_id=video_id, request=request)
+        response = await _render_video_detail(video_id=video_id, request=request)
         response.status_code = 403
         response.headers.update(
             _video_transcript_request_toast_header(
@@ -326,7 +326,7 @@ async def transcript_request_single_video(video_id: str, request: Request):
         request.app.state.runtime.manual_transcript_wake_event.set()
 
     toast_message, toast_tone = _manual_transcript_toast_from_result(txt, result)
-    response = await video_detail(video_id=video_id, request=request)
+    response = await _render_video_detail(video_id=video_id, request=request)
     response.headers.update(_video_transcript_request_toast_header(toast_message, toast_tone))
     return response
 
@@ -395,18 +395,12 @@ async def article_request_single_video(video_id: str, request: Request):
         failed_count=failed_count,
     )
 
-    response = await video_detail(video_id=video_id, request=request)
+    response = await _render_video_detail(video_id=video_id, request=request)
     response.headers.update(_video_article_request_toast_header(toast_message, toast_tone))
     return response
 
 
-@router.get("/video-detail/{video_id}")
-async def video_detail(video_id: str, request: Request):
-    if request.method == "GET":
-        redirect = full_page_redirect_for_non_fragment_request(request, f"/videos/{video_id}")
-        if redirect is not None:
-            return redirect
-
+async def _render_video_detail(video_id: str, request: Request):
     context = await build_video_detail_context(
         request,
         video_id=video_id,
@@ -440,21 +434,5 @@ async def search_results(request: Request, q: str = Query(default="")):
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="fragments/search_results.html",
-        context=context,
-    )
-
-
-@router.get("/status-badge/{video_id}")
-async def status_badge(video_id: str, request: Request):
-    redirect = full_page_redirect_for_non_fragment_request(request, f"/videos/{video_id}")
-    if redirect is not None:
-        return redirect
-
-    video = await videos_repo.get_video(request.app.state.runtime.db, video_id)
-    status = video["pipeline_status"] if video else "unknown"
-    context = await build_template_context(request, status=status)
-    return request.app.state.templates.TemplateResponse(
-        request=request,
-        name="fragments/status_badge.html",
         context=context,
     )

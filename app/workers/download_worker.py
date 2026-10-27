@@ -5,6 +5,7 @@ import logging
 import time
 
 from app.domains.downloads import resolve_worker_timeout_seconds
+from app.download_policy import DOWNLOAD_QUALITY_DEFAULT
 from app.repositories import downloads as downloads_repo
 from app.services.downloads import download_video
 from app.state import AppState
@@ -19,7 +20,7 @@ async def _run_single_download_job(
     started_monotonic = time.monotonic()
     job_id = int(str(job["id"]))
     video_id = str(job.get("video_id") or "").strip()
-    quality = str(job.get("quality") or downloads_repo.DOWNLOAD_QUALITY_DEFAULT)
+    quality = str(job.get("quality") or DOWNLOAD_QUALITY_DEFAULT)
     overwrite = bool(int(str(job.get("overwrite") or 0)))
     target_dir = (
         str(job.get("target_dir") or state.config.download_dir).strip() or state.config.download_dir

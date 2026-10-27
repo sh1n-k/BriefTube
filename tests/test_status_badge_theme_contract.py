@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
 import re
-import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-FRAGMENT_HEADERS = {"HX-Request": "true"}
+from app.i18n import get_texts
 
 REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS = {
     "transcript_pending": "status-badge--transcript-pending",
@@ -16,45 +14,20 @@ REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS = {
 }
 
 
-def _seed_video_status(video_id: str, status: str) -> None:
-    db_path = os.environ["DB_PATH"]
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UC_STATUS",
-                "Status Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UC_STATUS",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (video_id, "UC_STATUS", f"Video {status}", "2026-02-10T00:00:00+00:00", status, 0),
-        )
-        conn.commit()
+def _render_status_badge(client: TestClient, status: str) -> str:
+    template = client.app.state.templates.get_template("fragments/status_badge.html")
+    return template.render(status=status, txt=get_texts("ko"))
 
 
 def test_status_badge_renders_representative_semantic_classes(client: TestClient) -> None:
-    for index, (status, class_name) in enumerate(REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS.items()):
-        video_id = f"vid-status-{index}"
-        _seed_video_status(video_id, status)
-        response = client.get(f"/views/status-badge/{video_id}", headers=FRAGMENT_HEADERS)
-        assert response.status_code == 200
-        html = response.text
+    for status, class_name in REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS.items():
+        html = _render_status_badge(client, status)
         assert "status-badge" in html
         assert class_name in html
 
 
 def test_status_badge_unknown_fallback_class(client: TestClient) -> None:
-    response = client.get("/views/status-badge/not-found", headers=FRAGMENT_HEADERS)
-    assert response.status_code == 200
-    assert "status-badge--unknown" in response.text
+    assert "status-badge--unknown" in _render_status_badge(client, "unknown")
 
 
 def _extract_css_block(css_text: str, selector: str) -> str:

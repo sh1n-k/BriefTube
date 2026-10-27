@@ -7,7 +7,11 @@ from typing import Any
 import aiosqlite
 
 import app.repositories._settings as settings_repository
-from app.download_policy import validate_download_output_dir
+from app.download_policy import (
+    DOWNLOAD_QUALITY_DEFAULT,
+    normalize_download_quality,
+    validate_download_output_dir,
+)
 from app.repositories._common import (
     normalize_error_message as _normalize_error_message,
 )
@@ -23,9 +27,7 @@ parse_bool_setting = settings_repository.parse_bool_setting
 DOWNLOAD_DEFAULT_QUALITY_KEY = "download_default_quality"
 DOWNLOAD_DEFAULT_OVERWRITE_KEY = "download_default_overwrite"
 DOWNLOAD_DEFAULT_OUTPUT_DIR_KEY = "download_output_dir"
-DOWNLOAD_QUALITY_DEFAULT = "1080"
 DOWNLOAD_OUTPUT_DIR_DEFAULT = "./downloads"
-DOWNLOAD_QUALITY_OPTIONS = {"2160", "1440", "1080", "720", "480"}
 DOWNLOAD_STATUS_PENDING = "pending"
 DOWNLOAD_STATUS_RUNNING = "running"
 DOWNLOAD_STATUS_SUCCEEDED = "succeeded"
@@ -36,17 +38,6 @@ DOWNLOAD_STATUS_OPTIONS = {
     DOWNLOAD_STATUS_SUCCEEDED,
     DOWNLOAD_STATUS_FAILED,
 }
-
-
-def _normalize_download_quality(value: str | None) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in DOWNLOAD_QUALITY_OPTIONS:
-        return normalized
-    return DOWNLOAD_QUALITY_DEFAULT
-
-
-def normalize_download_quality(value: str | None) -> str:
-    return _normalize_download_quality(value)
 
 
 def normalize_download_status_filter(value: str | None) -> str:
@@ -83,7 +74,7 @@ async def get_download_default_settings(
     except OSError:
         output_dir_resolved = Path(default_dir_raw).expanduser().resolve(strict=False)
     return {
-        "quality": _normalize_download_quality(quality_raw),
+        "quality": normalize_download_quality(quality_raw),
         "overwrite": parse_bool_setting(overwrite_raw, default=False),
         "output_dir": str(output_dir_resolved),
     }
@@ -102,7 +93,7 @@ async def set_download_default_settings(
         default_output_dir=default_output_dir,
     )
     next_quality = (
-        _normalize_download_quality(quality) if quality is not None else str(current["quality"])
+        normalize_download_quality(quality) if quality is not None else str(current["quality"])
     )
     next_overwrite = bool(overwrite) if overwrite is not None else bool(current["overwrite"])
     next_output_dir = (
@@ -224,7 +215,7 @@ async def create_download_job(
 ) -> dict[str, Any]:
     normalized_video_id = str(video_id).strip()
     normalized_title = str(video_title).strip() or normalized_video_id
-    normalized_quality = _normalize_download_quality(quality)
+    normalized_quality = normalize_download_quality(quality)
     normalized_overwrite = 1 if bool(overwrite) else 0
     normalized_target_dir = str(target_dir).strip()
 

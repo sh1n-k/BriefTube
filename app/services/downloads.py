@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.download_policy import validate_download_output_dir
+from app.download_policy import normalize_download_quality, validate_download_output_dir
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +24,6 @@ class DownloadRunResult:
 
 def is_ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
-
-
-def _resolve_quality_bound(raw_quality: str | None) -> str:
-    normalized = str(raw_quality or "").strip()
-    if normalized in {"2160", "1440", "1080", "720", "480"}:
-        return normalized
-    return "1080"
 
 
 def _resolve_error_code(stderr_text: str, *, timed_out: bool = False) -> str:
@@ -116,7 +109,7 @@ async def download_video(
             error_message="video_id is required",
         )
 
-    quality_bound = _resolve_quality_bound(quality)
+    quality_bound = normalize_download_quality(quality)
     target_dir_validation = validate_download_output_dir(
         output_dir,
         require_absolute=True,

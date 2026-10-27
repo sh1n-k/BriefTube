@@ -4,6 +4,16 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+DOWNLOAD_QUALITY_OPTIONS = ("2160", "1440", "1080", "720", "480")
+DOWNLOAD_QUALITY_DEFAULT = "1080"
+
+
+def normalize_download_quality(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in DOWNLOAD_QUALITY_OPTIONS:
+        return normalized
+    return DOWNLOAD_QUALITY_DEFAULT
+
 
 @dataclass(slots=True)
 class DownloadOutputDirValidationResult:
