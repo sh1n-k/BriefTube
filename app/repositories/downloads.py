@@ -3,14 +3,11 @@
 import app.repositories._downloads as repository
 import app.repositories._downloads_queries as queries_repository
 
-DOWNLOAD_QUALITY_OPTIONS = repository.DOWNLOAD_QUALITY_OPTIONS
-DOWNLOAD_QUALITY_DEFAULT = repository.DOWNLOAD_QUALITY_DEFAULT
 DOWNLOAD_STATUS_PENDING = repository.DOWNLOAD_STATUS_PENDING
 DOWNLOAD_STATUS_RUNNING = repository.DOWNLOAD_STATUS_RUNNING
 DOWNLOAD_STATUS_SUCCEEDED = repository.DOWNLOAD_STATUS_SUCCEEDED
 DOWNLOAD_STATUS_FAILED = repository.DOWNLOAD_STATUS_FAILED
 
-normalize_download_quality = repository.normalize_download_quality
 normalize_download_status_filter = repository.normalize_download_status_filter
 
 get_download_default_settings = repository.get_download_default_settings

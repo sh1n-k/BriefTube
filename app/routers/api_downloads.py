@@ -7,7 +7,11 @@ from fastapi.responses import JSONResponse
 
 from app.domains.downloads import enqueue_video_download
 from app.domains.downloads import retry_download_job as retry_download_job_request
-from app.download_policy import validate_download_output_dir
+from app.download_policy import (
+    DOWNLOAD_QUALITY_OPTIONS,
+    normalize_download_quality,
+    validate_download_output_dir,
+)
 from app.repositories import downloads as downloads_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import parse_bool_input
@@ -32,13 +36,13 @@ async def request_video_download(video_id: str, request: Request):
     if "application/json" in content_type:
         payload = await request.json()
         if "quality" in payload:
-            quality = downloads_repo.normalize_download_quality(str(payload.get("quality")))
+            quality = normalize_download_quality(str(payload.get("quality")))
         if "overwrite" in payload:
             overwrite = parse_bool_input(payload.get("overwrite"), default=overwrite)
     else:
         form = await request.form()
         if "quality" in form:
-            quality = downloads_repo.normalize_download_quality(str(form.get("quality")))
+            quality = normalize_download_quality(str(form.get("quality")))
         if "overwrite" in form:
             overwrite = parse_bool_input(form.get("overwrite"), default=overwrite)
 
@@ -164,12 +168,12 @@ async def set_download_defaults(request: Request):
     quality: str | None = None
     overwrite: bool | None = None
     output_dir: str | None = None
-    allowed_qualities = ", ".join(["2160", "1440", "1080", "720", "480"])
+    allowed_qualities = ", ".join(DOWNLOAD_QUALITY_OPTIONS)
     if "application/json" in content_type:
         payload = await request.json()
         if "quality" in payload:
             parsed_quality = str(payload.get("quality", "")).strip().lower()
-            if parsed_quality not in downloads_repo.DOWNLOAD_QUALITY_OPTIONS:
+            if parsed_quality not in DOWNLOAD_QUALITY_OPTIONS:
                 raise HTTPException(
                     status_code=400, detail=f"quality must be one of: {allowed_qualities}"
                 )
@@ -184,7 +188,7 @@ async def set_download_defaults(request: Request):
         form = await request.form()
         if "download_quality" in form:
             parsed_quality = str(form.get("download_quality", "")).strip().lower()
-            if parsed_quality not in downloads_repo.DOWNLOAD_QUALITY_OPTIONS:
+            if parsed_quality not in DOWNLOAD_QUALITY_OPTIONS:
                 raise HTTPException(
                     status_code=400, detail=f"quality must be one of: {allowed_qualities}"
                 )
