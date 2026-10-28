@@ -250,6 +250,11 @@
     shell.classList.remove("is-leaving");
   }
 
+  function showLlmRuntimeBlockedToast() {
+    const marker = document.querySelector("[data-llm-runtime-blocked-toast]");
+    showUiToast(marker?.dataset.llmRuntimeBlockedToast, "error", 10000);
+  }
+
   function bootMainUi() {
     bindScrollFab();
     const themeState = themeController?.getThemeState?.() || { mode: "system", tone: "neutral" };
@@ -275,6 +280,7 @@
     categoryControls?.bindCategoryRename?.();
     channelActions?.initChannelImportForm?.();
     revealPageShell();
+    showLlmRuntimeBlockedToast();
   }
 
   if (document.readyState === "loading") {
