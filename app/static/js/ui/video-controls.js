@@ -801,6 +801,20 @@
       });
     });
 
+    form.querySelectorAll("[data-video-list-transcript-retry]").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement) || button.dataset.inlineTranscriptRetryBound === "1") return;
+      button.dataset.inlineTranscriptRetryBound = "1";
+      button.addEventListener("click", (event) => {
+        if (button.dataset.inlineInFlight === "1") {
+          event.preventDefault();
+          return;
+        }
+        button.dataset.inlineInFlight = "1";
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+      });
+    });
+
     sync();
   }
 
@@ -811,6 +825,12 @@
     const settle = (event) => {
       const source = event.detail?.requestConfig?.elt;
       if (!(source instanceof HTMLButtonElement)) return;
+      if (source.hasAttribute("data-video-list-transcript-retry")) {
+        delete source.dataset.inlineInFlight;
+        source.removeAttribute("aria-busy");
+        source.disabled = false;
+        return;
+      }
       if (!source.hasAttribute("data-video-list-inline-article")) return;
       delete source.dataset.inlineInFlight;
       source.disabled = false;

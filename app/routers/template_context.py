@@ -62,7 +62,7 @@ async def _get_cached_ui_value(
     return value
 
 
-async def _build_llm_runtime_context(
+async def build_llm_runtime_context(
     request: Request,
     txt: dict[str, str],
 ) -> dict[str, object]:
@@ -262,7 +262,7 @@ async def build_template_context(
         "format_channel_handle_display": format_channel_handle_display,
     }
     if include_llm_runtime_status:
-        context["llm_runtime_status"] = await _build_llm_runtime_context(
+        context["llm_runtime_status"] = await build_llm_runtime_context(
             request,
             txt=txt,
         )

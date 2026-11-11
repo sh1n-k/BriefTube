@@ -3,10 +3,12 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
+from starlette.datastructures import FormData
 
 from app.repositories import manual_articles as manual_articles_repo
 from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
+from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import (
     full_page_redirect_for_non_fragment_request,
@@ -171,6 +173,33 @@ async def video_list(
     )
 
 
+async def _video_list_response_from_form(request: Request, form: FormData):
+    page = max(1, safe_int(form.get("_page"), 1))
+    limit_val = safe_int(form.get("_limit"), 0)
+    if limit_val <= 0:
+        limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
+    sort = str(form.get("_sort") or "upload_time")
+    order = str(form.get("_order") or "desc")
+    channel_id = str(form.get("_channel_id") or "") or None
+    category_id = parse_optional_int(form.get("_category_id"))
+    pipeline_status = videos_repo.normalize_pipeline_status_filter(
+        str(form.get("_pipeline_status") or "")
+    )
+    viewed = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
+
+    return await video_list(
+        request=request,
+        channel_id=channel_id,
+        category_id=str(category_id) if category_id is not None else None,
+        pipeline_status=pipeline_status,
+        viewed=viewed,
+        sort=sort,
+        order=order,
+        page=page,
+        limit=limit_val,
+    )
+
+
 @router.post("/videos/delete-selected")
 async def delete_selected_videos(request: Request):
     form = await request.form()
@@ -276,31 +305,26 @@ async def article_request_selected_videos(request: Request):
             failed_count=failed_count,
         )
 
-    page = max(1, safe_int(form.get("_page"), 1))
-    limit_val = safe_int(form.get("_limit"), 0)
-    if limit_val <= 0:
-        limit_val = await settings_repo.get_videos_per_page_setting(request.app.state.runtime.db)
-    sort = str(form.get("_sort") or "upload_time")
-    order = str(form.get("_order") or "desc")
-    channel_id = str(form.get("_channel_id") or "") or None
-    category_id = parse_optional_int(form.get("_category_id"))
-    pipeline_status = videos_repo.normalize_pipeline_status_filter(
-        str(form.get("_pipeline_status") or "")
-    )
-    viewed = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
-
-    response = await video_list(
-        request=request,
-        channel_id=channel_id,
-        category_id=str(category_id) if category_id is not None else None,
-        pipeline_status=pipeline_status,
-        viewed=viewed,
-        sort=sort,
-        order=order,
-        page=page,
-        limit=limit_val,
-    )
+    response = await _video_list_response_from_form(request, form)
     response.headers.update(_video_article_request_toast_header(toast_message, toast_tone))
+    return response
+
+
+@router.post("/videos/{video_id}/transcript-retry")
+async def transcript_retry_list_video(video_id: str, request: Request):
+    form = await request.form()
+    txt = await request_texts(request)
+    db = request.app.state.runtime.db
+    affected = await transcripts_repo.reset_transcript_for_retry(db, video_id)
+    if affected <= 0:
+        toast_message, toast_tone = txt["video_transcript_retry_skipped"], "info"
+    elif not await settings_repo.is_worker_enabled(db, "transcript"):
+        toast_message, toast_tone = txt["video_transcript_retry_worker_waiting"], "info"
+    else:
+        toast_message, toast_tone = txt["video_transcript_retry_queued"], "success"
+
+    response = await _video_list_response_from_form(request, form)
+    response.headers.update(_video_transcript_request_toast_header(toast_message, toast_tone))
     return response
 
 

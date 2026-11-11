@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
 from app.repositories import transcripts as transcripts_repo
+from app.routers.template_context import build_llm_runtime_context
 from app.routers.video_detail_context import build_video_detail_context
 from app.routers.video_list_context import build_video_list_context
 
@@ -34,6 +35,9 @@ async def home(
         order=order,
         page=page,
         limit=limit,
+    )
+    result.context["llm_runtime_status"] = await build_llm_runtime_context(
+        request, result.context["txt"]
     )
     return request.app.state.templates.TemplateResponse(
         request=request, name="index.html", context=result.context

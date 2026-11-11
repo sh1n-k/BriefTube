@@ -353,3 +353,39 @@ def test_video_detail_article_toc_and_timestamp_links(e2e_page: Page, seeded_ser
     expect(modal).to_be_visible()
     modal.locator("[data-article-toc-index='3']").click()
     expect(modal.locator(".article-rendered h2").nth(3)).to_be_in_viewport()
+
+
+@pytest.mark.e2e
+def test_video_list_transcript_retry_button_requeues_no_subtitle(
+    e2e_page: Page, seeded_server: dict
+) -> None:
+    """자막 없음 행의 복사 칸 재수집 버튼이 재대기열 등록 후 목록을 갱신한다."""
+    page = e2e_page
+    page.goto(f"{seeded_server['base_url']}/?channel_id={UC_BETA}&limit=20")
+    page.wait_for_selector("#video-list-wrap")
+
+    target_href = "/videos/BETA_NS_01"
+    row = page.locator(f"#video-list-wrap tbody tr:has(a[href='{target_href}'])")
+    expect(row).to_have_count(1)
+    expect(row).to_contain_text("자막 없음")
+    retry_btn = row.locator("button[data-video-list-transcript-retry]")
+    expect(retry_btn).to_be_visible()
+    expect(retry_btn).to_have_attribute("title", "자막 재수집")
+
+    # 자막 완료(기사 있음) 행은 복사 버튼만 있고 재수집 버튼은 없다.
+    done_row = page.locator("#video-list-wrap tbody tr:has(a[href='/videos/BETA_DONE_01'])")
+    expect(done_row.locator("button[data-video-transcript-copy]")).to_have_count(1)
+    expect(done_row.locator("button[data-video-list-transcript-retry]")).to_have_count(0)
+
+    with page.expect_response("**/views/videos/BETA_NS_01/transcript-retry") as resp_info:
+        retry_btn.click()
+    assert resp_info.value.ok
+
+    expect(
+        page.locator("#ui-toast-stack div", has_text="자막 재수집을 요청했습니다")
+    ).to_be_visible()
+    row = page.locator(f"#video-list-wrap tbody tr:has(a[href='{target_href}'])")
+    expect(row).to_contain_text("자막 수집 대기")
+    expect(row.locator("button[data-video-list-transcript-retry]")).to_have_count(0)
+    # 채널 필터가 유지된다.
+    expect(page.locator("#video-list-wrap tbody a[href='/videos/ALPHA_DONE_01']")).to_have_count(0)

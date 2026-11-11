@@ -160,3 +160,53 @@ def test_alert_acknowledge_marks_single_alert_via_legacy_endpoint(client: TestCl
     after = client.get("/")
     assert after.status_code == 200
     assert "RSS 404로 채널이 자동 비활성화되었습니다" not in after.text
+
+
+def _set_llm_auth_issue(db_path: str, *, pending: bool) -> None:
+    with sqlite3.connect(db_path) as conn:
+        if pending:
+            conn.execute(
+                """
+                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+                VALUES (?, ?, ?, 1)
+                """,
+                (
+                    "UCllmblock01",
+                    "LLM 차단 채널",
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCllmblock01",
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
+                VALUES (?, ?, ?, ?, 'llm_pending')
+                """,
+                ("vid-llm-block-01", "UCllmblock01", "blocked", "2026-10-25T00:00:00+00:00"),
+            )
+        conn.executemany(
+            "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?, ?)",
+            [
+                ("llm_runtime_last_code", "llm_provider_auth_required"),
+                ("llm_runtime_last_message", "LLM provider command failed (auth); exit_code=1"),
+            ],
+        )
+        conn.commit()
+
+
+def test_home_renders_llm_runtime_blocked_toast_when_queue_waits(client: TestClient) -> None:
+    _set_llm_auth_issue(os.environ["DB_PATH"], pending=True)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "data-llm-runtime-blocked-toast=" in response.text
+    assert "대기 1건이 처리되지 않고 있습니다" in response.text
+
+
+def test_home_omits_llm_runtime_blocked_toast_without_queue(client: TestClient) -> None:
+    _set_llm_auth_issue(os.environ["DB_PATH"], pending=False)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "data-llm-runtime-blocked-toast" not in response.text

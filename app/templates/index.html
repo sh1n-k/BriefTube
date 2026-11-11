@@ -2,6 +2,12 @@
 {% block title %}BriefTube - {{ txt.nav_videos }}{% endblock %}
 {% block content %}
 <section class="min-w-0 space-y-4">
+    {% if llm_runtime_status and not llm_runtime_status.ready and llm_runtime_status.pending_count > 0 %}
+      <div
+        hidden
+        data-llm-runtime-blocked-toast="{{ txt.index_llm_runtime_blocked_toast.format(reason=llm_runtime_status.reason_text, count=llm_runtime_status.pending_count) }}"
+      ></div>
+    {% endif %}
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="hidden sm:block">
         <h1 class="text-xl font-semibold text-slate-900">{{ txt.index_videos }}</h1>
