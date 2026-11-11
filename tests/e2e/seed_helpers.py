@@ -72,6 +72,23 @@ def seed_channel(
     conn.close()
 
 
+# Seed state → the video_jobs row that produces it in video_pipeline_v.
+# "transcript_ready"/"article_ready" come from seed_transcript/seed_article rows;
+# "paused" has no job at all.
+_STATUS_JOBS: dict[str, tuple[str, str, str | None]] = {
+    "transcript_pending": ("transcript", "queued", None),
+    "transcript_running": ("transcript", "running", None),
+    "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
+    "no_subtitle": ("transcript", "failed", "no_subtitle"),
+    "article_pending": ("article", "queued", None),
+    "article_running": ("article", "running", None),
+    "article_retry_wait": ("article", "queued", "llm_provider_timeout"),
+    "article_failed": ("article", "failed", "retry_exhausted"),
+}
+
+_TARGET_STAGE_BY_SNAPSHOT = {"off": "none", "transcript_only": "transcript", "full": "article"}
+
+
 def seed_video(
     db_path: str,
     video_id: str,
@@ -86,20 +103,26 @@ def seed_video(
     if upload_time is None:
         upload_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = get_db_connection(db_path)
-    conn.execute(
+    cursor = conn.execute(
         "INSERT OR IGNORE INTO videos "
-        "(video_id, channel_id, title, upload_time, pipeline_status, thumbnail_path, processing_stage_snapshot) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "(video_id, channel_id, title, upload_time, thumbnail_path, target_stage) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
         (
             video_id,
             channel_id,
             title,
             upload_time,
-            pipeline_status,
             thumbnail_path,
-            processing_stage_snapshot,
+            _TARGET_STAGE_BY_SNAPSHOT.get(processing_stage_snapshot, "article"),
         ),
     )
+    if cursor.rowcount and pipeline_status in _STATUS_JOBS:
+        kind, status, error_code = _STATUS_JOBS[pipeline_status]
+        conn.execute(
+            "INSERT INTO video_jobs (video_id, kind, status, error_code, error_at) "
+            "VALUES (?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END)",
+            (video_id, kind, status, error_code, error_code),
+        )
     conn.commit()
     conn.close()
 

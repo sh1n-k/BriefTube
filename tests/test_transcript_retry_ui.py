@@ -5,6 +5,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from tests.helpers.db_seed import seed_video_job_sync
+
 
 def _seed_video(video_id: str, pipeline_status: str) -> None:
     db_path = os.environ["DB_PATH"]
@@ -22,16 +24,14 @@ def _seed_video(video_id: str, pipeline_status: str) -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
-            (
-                video_id,
-                "UCretryui001",
-                "Retry UI Video",
-                "2026-02-20T00:00:00+00:00",
-                pipeline_status,
-            ),
+            (video_id, "UCretryui001", "Retry UI Video", "2026-02-20T00:00:00+00:00"),
+        )
+        assert pipeline_status == "transcript_failed"
+        seed_video_job_sync(
+            conn, video_id, "transcript", status="failed", error_code="non_retryable_failure"
         )
         conn.commit()
 
@@ -43,6 +43,8 @@ def test_video_detail_shows_transcript_retry_button_for_failed_video(client: Tes
     detail = client.get(f"/videos/{video_id}")
     assert detail.status_code == 200
     assert "자막 재시도" in detail.text
+    assert 'data-pipeline-status="transcript_failed"' in detail.text
+    assert 'data-pipeline-error="transcript"' in detail.text
     assert f'action="/videos/{video_id}/transcript/retry"' in detail.text
 
     submit = client.post(f"/videos/{video_id}/transcript/retry", follow_redirects=False)
@@ -52,3 +54,5 @@ def test_video_detail_shows_transcript_retry_button_for_failed_video(client: Tes
     after = client.get(submit.headers["location"])
     assert after.status_code == 200
     assert "자막 재시도가 요청되었습니다." in after.text
+    assert 'data-pipeline-status="transcript_pending"' in after.text
+    assert "data-pipeline-error" not in after.text

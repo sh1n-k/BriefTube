@@ -1,15 +1,28 @@
+{#- Inputs: status (pipeline_status), optional activity (pipeline_activity), activity_kind. -#}
+{% set badge_activity = activity if activity is defined and activity else 'idle' %}
+{% set badge_kind = activity_kind if activity_kind is defined and activity_kind else '' %}
 {% set class_map = {
-  'auto_paused': 'status-badge--no-subtitle',
+  'paused': 'status-badge--no-subtitle',
   'transcript_pending': 'status-badge--transcript-pending',
-  'transcript_processing': 'status-badge--transcript-processing',
-  'transcript_done': 'status-badge--done',
   'transcript_failed': 'status-badge--transcript-failed',
-  'llm_pending': 'status-badge--llm-pending',
-  'llm_processing': 'status-badge--llm-processing',
-  'llm_failed': 'status-badge--llm-failed',
-  'done': 'status-badge--done',
-  'manual_review': 'status-badge--manual-review',
-  'no_subtitle': 'status-badge--no-subtitle'
+  'no_subtitle': 'status-badge--no-subtitle',
+  'transcript_ready': 'status-badge--done',
+  'article_pending': 'status-badge--llm-pending',
+  'article_failed': 'status-badge--llm-failed',
+  'article_ready': 'status-badge--done'
 } %}
+{% set badge_class = class_map.get(status, 'status-badge--unknown') %}
 {% set text_key = 'pipeline_status_' ~ status %}
-<span class="status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ class_map.get(status, 'status-badge--unknown') }}">{{ txt.get(text_key, status | replace('_', ' ')) }}</span>
+{% if status in ['transcript_pending', 'article_pending'] and badge_activity in ['running', 'retry_wait'] %}
+  {% set stage = 'transcript' if status == 'transcript_pending' else 'article' %}
+  {% set text_key = 'pipeline_activity_' ~ stage ~ '_' ~ badge_activity %}
+  {% if badge_activity == 'running' %}
+    {% set badge_class = 'status-badge--transcript-processing' if stage == 'transcript' else 'status-badge--llm-processing' %}
+  {% elif stage == 'article' %}
+    {% set badge_class = 'status-badge--manual-review' %}
+  {% endif %}
+{% endif %}
+<span class="status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ badge_class }}" data-pipeline-status="{{ status }}" data-pipeline-activity="{{ badge_activity }}">{{ txt.get(text_key, status | replace('_', ' ')) }}</span>
+{%- if status == 'article_ready' and badge_activity != 'idle' and badge_kind == 'article' %}
+<span class="status-badge inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium status-badge--llm-processing" data-pipeline-regenerating>{{ txt.pipeline_activity_regenerating }}</span>
+{%- endif %}

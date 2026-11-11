@@ -18,8 +18,6 @@ from app.domains.downloads import recover_stuck_running_jobs
 from app.logging_setup import configure_logging
 from app.repositories import channels as channels_repo
 from app.repositories import llm as llm_repo
-from app.repositories import manual_articles as manual_articles_repo
-from app.repositories import manual_transcripts as manual_transcripts_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers import api, files, pages, system, views
@@ -156,12 +154,7 @@ async def lifespan(app: FastAPI):
     db = await open_database(config.db_path)
     await init_database(db)
     recovered = await recover_stuck_jobs(db)
-    orphan_repaired = await llm_repo.repair_orphan_llm_candidates(db)
     recovered_download_jobs = await recover_stuck_running_jobs(db)
-    recovered_manual_article_jobs = await manual_articles_repo.recover_stuck_manual_article_jobs(db)
-    recovered_manual_transcript_jobs = (
-        await manual_transcripts_repo.recover_stuck_manual_transcript_jobs(db)
-    )
     enabled_worker_names = _enabled_worker_names()
     metadata_worker_enabled = "channel_metadata" in enabled_worker_names
     recovered_metadata_running = 0
@@ -170,12 +163,9 @@ async def lifespan(app: FastAPI):
         recovered_metadata_running = await channels_repo.recover_stuck_channel_metadata_running(db)
         scheduled_metadata_targets = await channels_repo.schedule_channel_metadata_backfill(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered=%s orphan_repaired=%s recovered_download_jobs=%s recovered_manual_article_jobs=%s recovered_manual_transcript_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
+        "event=app.recovered_stuck_jobs recovered_pipeline_jobs=%s recovered_download_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
         recovered,
-        orphan_repaired,
         recovered_download_jobs,
-        recovered_manual_article_jobs,
-        recovered_manual_transcript_jobs,
         recovered_metadata_running,
         scheduled_metadata_targets,
         metadata_worker_enabled,

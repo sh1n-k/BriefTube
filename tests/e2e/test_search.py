@@ -77,7 +77,7 @@ def _seed_search_data(db_path: str) -> None:
             CHANNEL_ID,
             v["title"],
             upload_time=make_past_time(v["days_ago"]),
-            pipeline_status="done",
+            pipeline_status="article_ready",
         )
         seed_transcript(db_path, v["video_id"], v["transcript"])
         seed_article(

@@ -9,10 +9,22 @@ import logging
 
 import aiosqlite
 
-from app.pipeline_status import PIPELINE_STATUSES
-
 logger = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
+# videos.pipeline_status values from schema v1-v3. Only the legacy migrations use them.
+_LEGACY_PIPELINE_STATUSES: tuple[str, ...] = (
+    "auto_paused",
+    "transcript_pending",
+    "transcript_processing",
+    "transcript_done",
+    "transcript_failed",
+    "no_subtitle",
+    "llm_pending",
+    "llm_processing",
+    "llm_failed",
+    "manual_review",
+    "done",
+)
 DEFAULT_CATEGORY_UID = "default"
 UPDATED_AT_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')"
 
@@ -71,7 +83,7 @@ def _pipeline_status_expr(columns: set[str]) -> str:
 
 
 async def _normalize_pipeline_status_values(db: aiosqlite.Connection) -> int:
-    canonical = ",".join([f"'{value}'" for value in PIPELINE_STATUSES])
+    canonical = ",".join([f"'{value}'" for value in _LEGACY_PIPELINE_STATUSES])
     cursor = await db.execute(
         f"""
         UPDATE videos
@@ -260,6 +272,9 @@ async def _ensure_updated_at_column(
 
 async def _ensure_video_columns(db: aiosqlite.Connection) -> None:
     columns = await _table_columns(db, "videos")
+    if "target_stage" in columns:
+        # Created from the current schema.sql; the v1 pipeline_status shape does not apply.
+        return
     needs_rebuild = (
         "pipeline_status" not in columns
         or "transcript_status" in columns
@@ -342,6 +357,8 @@ async def _ensure_video_indexes(db: aiosqlite.Connection) -> None:
     await db.execute("DROP INDEX IF EXISTS idx_videos_restructure")
     await db.execute("DROP INDEX IF EXISTS idx_videos_transcript_queue")
     await db.execute("DROP INDEX IF EXISTS idx_videos_pipeline")
+    if not await _column_exists(db, "videos", "pipeline_status"):
+        return
     await db.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_videos_transcript_queue
@@ -822,7 +839,398 @@ async def _migrate_to_v3(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE transcripts ADD COLUMN timed_text TEXT")
 
 
-MIGRATIONS = ((1, _migrate_to_v1), (2, _migrate_to_v2), (3, _migrate_to_v3))
+async def _table_exists(db: aiosqlite.Connection, table: str) -> bool:
+    cursor = await db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    )
+    return await cursor.fetchone() is not None
+
+
+async def _drop_manual_job_tables(db: aiosqlite.Connection) -> None:
+    await db.execute("DROP TABLE IF EXISTS manual_article_jobs")
+    await db.execute("DROP TABLE IF EXISTS manual_transcript_jobs")
+
+
+_V4_VIDEOS_TABLE_SQL = """
+    CREATE TABLE videos_new (
+        video_id            TEXT PRIMARY KEY,
+        channel_id          TEXT NOT NULL REFERENCES channels(channel_id),
+        title               TEXT NOT NULL,
+        upload_time         TEXT NOT NULL,
+        thumbnail_path      TEXT,
+        target_stage        TEXT NOT NULL DEFAULT 'article'
+                            CHECK (target_stage IN ('none', 'transcript', 'article')),
+        transcript_target_language TEXT,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        viewed_at           TEXT,
+        updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )
+"""
+
+_V4_LEGACY_VIDEO_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("thumbnail_path", "TEXT"),
+    ("pipeline_status", "TEXT"),
+    ("processing_stage_snapshot", "TEXT"),
+    ("transcript_retry_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcript_next_attempt_at", "TEXT"),
+    ("transcript_target_language", "TEXT"),
+    ("transcript_last_error", "TEXT"),
+    ("transcript_last_error_at", "TEXT"),
+    ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("created_at", "TEXT"),
+    ("viewed_at", "TEXT"),
+    ("updated_at", "TEXT"),
+)
+
+_V4_HAS_TRANSCRIPT = "EXISTS (SELECT 1 FROM transcripts t WHERE t.video_id = v.video_id)"
+_V4_HAS_ARTICLE = "EXISTS (SELECT 1 FROM articles a WHERE a.video_id = v.video_id)"
+_V4_STATUS = "lower(trim(coalesce(v.pipeline_status, '')))"
+
+
+def _v4_no_job(kind: str) -> str:
+    return (
+        "NOT EXISTS (SELECT 1 FROM video_jobs j "
+        f"WHERE j.video_id = v.video_id AND j.kind = '{kind}')"
+    )
+
+
+async def _v4_backfill_jobs(
+    db: aiosqlite.Connection,
+    *,
+    has_manual_transcript_jobs: bool,
+    has_manual_article_jobs: bool,
+) -> None:
+    """Translate v3 pipeline_status and active manual jobs into video_jobs rows.
+
+    Runs before the old videos table is dropped. ``videos_new`` already holds the
+    target stage. Active manual requests are newer intent than the auto queue, so
+    they are inserted first and the legacy status only fills kinds without a job.
+    """
+    target = "(SELECT n.target_stage FROM videos_new n WHERE n.video_id = v.video_id)"
+    if has_manual_transcript_jobs:
+        await db.execute(
+            f"""
+            INSERT OR IGNORE INTO video_jobs(
+                video_id, kind, origin, status, attempt_count, next_attempt_at, requested_at
+            )
+            SELECT m.video_id, 'transcript', 'manual', 'queued', m.retry_count,
+                   m.next_attempt_at, m.requested_at
+            FROM manual_transcript_jobs m
+            JOIN videos v ON v.video_id = m.video_id
+            WHERE m.status IN ('pending', 'running')
+              AND NOT {_V4_HAS_TRANSCRIPT}
+            ORDER BY m.id
+            """
+        )
+    if has_manual_article_jobs:
+        await db.execute(
+            f"""
+            INSERT OR IGNORE INTO video_jobs(video_id, kind, origin, status, requested_at)
+            SELECT m.video_id,
+                   CASE WHEN {_V4_HAS_TRANSCRIPT} THEN 'article' ELSE 'transcript' END,
+                   'manual', 'queued', m.requested_at
+            FROM manual_article_jobs m
+            JOIN videos v ON v.video_id = m.video_id
+            WHERE m.status IN ('pending', 'running')
+              AND NOT {_V4_HAS_ARTICLE}
+            ORDER BY m.id
+            """
+        )
+
+    await db.execute(
+        f"""
+        INSERT INTO video_jobs(
+            video_id, kind, origin, status, attempt_count, next_attempt_at,
+            error_code, error_message, error_at, finished_at
+        )
+        SELECT
+            v.video_id,
+            'transcript',
+            'auto',
+            CASE WHEN {_V4_STATUS} IN ('transcript_failed', 'no_subtitle') THEN 'failed'
+                 ELSE 'queued' END,
+            coalesce(v.transcript_retry_count, 0),
+            CASE WHEN {_V4_STATUS} IN ('transcript_failed', 'no_subtitle') THEN NULL
+                 ELSE v.transcript_next_attempt_at END,
+            CASE
+                WHEN {_V4_STATUS} = 'no_subtitle' THEN 'no_subtitle'
+                WHEN {_V4_STATUS} = 'transcript_failed' THEN 'legacy_error'
+                WHEN trim(coalesce(v.transcript_last_error, '')) != '' THEN 'legacy_error'
+                ELSE NULL
+            END,
+            CASE WHEN {_V4_STATUS} = 'no_subtitle' THEN NULL ELSE v.transcript_last_error END,
+            CASE WHEN {_V4_STATUS} = 'no_subtitle' THEN NULL ELSE v.transcript_last_error_at END,
+            CASE WHEN {_V4_STATUS} IN ('transcript_failed', 'no_subtitle')
+                 THEN coalesce(v.transcript_last_error_at, datetime('now')) END
+        FROM videos v
+        WHERE {_V4_STATUS} IN (
+                'transcript_pending', 'transcript_processing', 'transcript_failed', 'no_subtitle'
+            )
+          AND {_v4_no_job("transcript")}
+        """
+    )
+    await db.execute(
+        f"""
+        INSERT INTO video_jobs(
+            video_id, kind, origin, status, attempt_count, error_code, finished_at
+        )
+        SELECT
+            v.video_id,
+            'article',
+            'auto',
+            CASE WHEN {_V4_STATUS} = 'manual_review' THEN 'failed' ELSE 'queued' END,
+            coalesce(v.retry_count, 0),
+            CASE
+                WHEN {_V4_STATUS} = 'llm_failed' THEN 'legacy_error'
+                WHEN {_V4_STATUS} = 'manual_review' AND {_V4_HAS_TRANSCRIPT}
+                    THEN 'retry_exhausted'
+                WHEN {_V4_STATUS} = 'manual_review' THEN 'transcript_missing'
+                ELSE NULL
+            END,
+            CASE WHEN {_V4_STATUS} = 'manual_review' THEN datetime('now') END
+        FROM videos v
+        WHERE {_V4_STATUS} IN ('llm_pending', 'llm_processing', 'llm_failed', 'manual_review')
+          AND {_v4_no_job("article")}
+        """
+    )
+    # A cleared queue left auto_paused/transcript_done behind. Record it as a cancelled
+    # job so the video reads as stopped short of its target instead of never queued.
+    await db.execute(
+        f"""
+        INSERT INTO video_jobs(video_id, kind, origin, status, finished_at)
+        SELECT v.video_id, 'transcript', 'auto', 'cancelled', datetime('now')
+        FROM videos v
+        WHERE {_V4_STATUS} IN ('auto_paused', 'transcript_done')
+          AND {target} IN ('transcript', 'article')
+          AND NOT {_V4_HAS_TRANSCRIPT}
+          AND {_v4_no_job("transcript")}
+        """
+    )
+    await db.execute(
+        f"""
+        INSERT INTO video_jobs(video_id, kind, origin, status, finished_at)
+        SELECT v.video_id, 'article', 'auto', 'cancelled', datetime('now')
+        FROM videos v
+        WHERE {_V4_STATUS} IN ('auto_paused', 'transcript_done')
+          AND {target} = 'article'
+          AND {_V4_HAS_TRANSCRIPT}
+          AND NOT {_V4_HAS_ARTICLE}
+          AND {_v4_no_job("article")}
+        """
+    )
+
+
+async def _migrate_to_v4(db: aiosqlite.Connection) -> None:
+    """Split videos.pipeline_status into videos.target_stage and video_jobs."""
+    video_columns = await _table_columns(db, "videos")
+    if "target_stage" in video_columns:
+        await _drop_manual_job_tables(db)
+        return
+
+    # Very old or hand-built legacy tables can miss optional columns the backfill reads.
+    for column, ddl in _V4_LEGACY_VIDEO_COLUMNS:
+        if column not in video_columns:
+            await db.execute(f"ALTER TABLE videos ADD COLUMN {column} {ddl}")
+    video_columns = await _table_columns(db, "videos")
+
+    has_manual_transcript_jobs = await _table_exists(db, "manual_transcript_jobs")
+    has_manual_article_jobs = await _table_exists(db, "manual_article_jobs")
+    manual_article_target = (
+        """
+            WHEN EXISTS (
+                SELECT 1 FROM manual_article_jobs m
+                WHERE m.video_id = v.video_id AND m.status IN ('pending', 'running')
+            ) THEN 'article'
+        """
+        if has_manual_article_jobs
+        else ""
+    )
+    language_expr = _source_column_expr(video_columns, "transcript_target_language", "NULL")
+    viewed_at_expr = _source_column_expr(video_columns, "viewed_at", "NULL")
+
+    pragma_cursor = await db.execute("PRAGMA foreign_keys")
+    pragma_row = await pragma_cursor.fetchone()
+    foreign_keys_enabled = bool(int(pragma_row[0] if pragma_row is not None else 1))
+    if foreign_keys_enabled:
+        await db.execute("PRAGMA foreign_keys = OFF")
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS video_jobs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id        TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+                kind            TEXT NOT NULL CHECK (kind IN ('transcript', 'article')),
+                origin          TEXT NOT NULL DEFAULT 'auto' CHECK (origin IN ('auto', 'manual')),
+                status          TEXT NOT NULL DEFAULT 'queued'
+                                CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+                attempt_count   INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT,
+                error_code      TEXT,
+                error_message   TEXT,
+                error_at        TEXT,
+                requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                started_at      TEXT,
+                finished_at     TEXT,
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_video_jobs_active
+            ON video_jobs(video_id, kind)
+            WHERE status IN ('queued', 'running')
+            """
+        )
+        await db.execute(_V4_VIDEOS_TABLE_SQL)
+        await db.execute(
+            f"""
+            INSERT INTO videos_new (
+                video_id, channel_id, title, upload_time, thumbnail_path, target_stage,
+                transcript_target_language, created_at, viewed_at, updated_at
+            )
+            SELECT
+                v.video_id,
+                v.channel_id,
+                v.title,
+                v.upload_time,
+                v.thumbnail_path,
+                CASE
+                    WHEN {_V4_HAS_ARTICLE} THEN 'article'
+                    WHEN {_V4_STATUS} IN (
+                        'llm_pending', 'llm_processing', 'llm_failed', 'manual_review'
+                    ) THEN 'article'
+                    {manual_article_target}
+                    ELSE CASE lower(trim(coalesce(v.processing_stage_snapshot, '')))
+                        WHEN 'off' THEN 'none'
+                        WHEN 'transcript_only' THEN 'transcript'
+                        ELSE 'article'
+                    END
+                END,
+                {language_expr},
+                coalesce(v.created_at, datetime('now')),
+                {viewed_at_expr},
+                coalesce(NULLIF(trim(v.updated_at), ''), v.created_at, {UPDATED_AT_SQL})
+            FROM videos v
+            """
+        )
+        await _v4_backfill_jobs(
+            db,
+            has_manual_transcript_jobs=has_manual_transcript_jobs,
+            has_manual_article_jobs=has_manual_article_jobs,
+        )
+        source_cursor = await db.execute("SELECT COUNT(1) AS cnt FROM videos")
+        source_row = await source_cursor.fetchone()
+        source_count = int(source_row["cnt"] if source_row is not None else 0)
+        await db.execute("DROP TABLE videos")
+        await db.execute("ALTER TABLE videos_new RENAME TO videos")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_videos_upload ON videos(upload_time DESC)")
+        await _drop_manual_job_tables(db)
+        target_cursor = await db.execute("SELECT COUNT(1) AS cnt FROM videos")
+        target_row = await target_cursor.fetchone()
+        target_count = int(target_row["cnt"] if target_row is not None else 0)
+        if target_count != source_count:
+            raise RuntimeError(
+                f"videos row count changed during v4 migration: {source_count} -> {target_count}"
+            )
+        await db.commit()
+        logger.info(
+            "event=db.video_jobs_migration_completed videos=%s",
+            target_count,
+            extra={"event": "db.video_jobs_migration_completed"},
+        )
+    except Exception:
+        await db.rollback()
+        logger.exception(
+            "event=db.video_jobs_migration_failed",
+            extra={"event": "db.video_jobs_migration_failed"},
+        )
+        raise
+    finally:
+        if foreign_keys_enabled:
+            await db.execute("PRAGMA foreign_keys = ON")
+
+
+MIGRATIONS = (
+    (1, _migrate_to_v1),
+    (2, _migrate_to_v2),
+    (3, _migrate_to_v3),
+    (4, _migrate_to_v4),
+)
+
+PIPELINE_VIEW_NAME = "video_pipeline_v"
+
+# Derived pipeline state per video. Facts come from transcripts/articles, work from the
+# newest video_jobs row per kind. Recreated on every start so it always matches the code.
+_PIPELINE_VIEW_SQL = f"""
+CREATE VIEW {PIPELINE_VIEW_NAME} AS
+SELECT
+    v.video_id,
+    v.target_stage,
+    t.video_id IS NOT NULL AS has_transcript,
+    a.video_id IS NOT NULL AS has_article,
+    tj.id AS transcript_job_id,
+    tj.status AS transcript_job_status,
+    tj.origin AS transcript_job_origin,
+    coalesce(tj.attempt_count, 0) AS transcript_attempt_count,
+    tj.next_attempt_at AS transcript_next_attempt_at,
+    tj.error_code AS transcript_error_code,
+    tj.error_message AS transcript_error_message,
+    tj.error_at AS transcript_error_at,
+    tj.requested_at AS transcript_requested_at,
+    tj.started_at AS transcript_started_at,
+    tj.finished_at AS transcript_finished_at,
+    aj.id AS article_job_id,
+    aj.status AS article_job_status,
+    aj.origin AS article_job_origin,
+    coalesce(aj.attempt_count, 0) AS article_attempt_count,
+    aj.error_code AS article_error_code,
+    aj.error_message AS article_error_message,
+    aj.error_at AS article_error_at,
+    CASE
+        WHEN a.video_id IS NOT NULL THEN 'article_ready'
+        WHEN aj.status IN ('queued', 'running') THEN 'article_pending'
+        WHEN t.video_id IS NOT NULL AND aj.status = 'failed' THEN 'article_failed'
+        WHEN t.video_id IS NOT NULL AND v.target_stage = 'article' THEN 'paused'
+        WHEN t.video_id IS NOT NULL THEN 'transcript_ready'
+        WHEN tj.status IN ('queued', 'running') THEN 'transcript_pending'
+        WHEN tj.status = 'failed' AND tj.error_code = 'no_subtitle' THEN 'no_subtitle'
+        WHEN tj.status = 'failed' THEN 'transcript_failed'
+        WHEN aj.status = 'failed' THEN 'article_failed'
+        ELSE 'paused'
+    END AS pipeline_status,
+    CASE
+        WHEN aj.status = 'running' THEN 'running'
+        WHEN aj.status = 'queued' AND aj.error_code IS NOT NULL THEN 'retry_wait'
+        WHEN aj.status = 'queued' THEN 'queued'
+        WHEN tj.status = 'running' THEN 'running'
+        WHEN tj.status = 'queued' AND tj.error_code IS NOT NULL THEN 'retry_wait'
+        WHEN tj.status = 'queued' THEN 'queued'
+        ELSE 'idle'
+    END AS pipeline_activity,
+    CASE
+        WHEN aj.status IN ('queued', 'running') THEN 'article'
+        WHEN tj.status IN ('queued', 'running') THEN 'transcript'
+    END AS activity_kind
+FROM videos v
+LEFT JOIN transcripts t ON t.video_id = v.video_id
+LEFT JOIN articles a ON a.video_id = v.video_id
+LEFT JOIN video_jobs tj ON tj.id = (
+    SELECT max(j.id) FROM video_jobs j WHERE j.video_id = v.video_id AND j.kind = 'transcript'
+)
+LEFT JOIN video_jobs aj ON aj.id = (
+    SELECT max(j.id) FROM video_jobs j WHERE j.video_id = v.video_id AND j.kind = 'article'
+)
+"""
+
+
+async def _ensure_pipeline_view(db: aiosqlite.Connection) -> None:
+    await db.execute(f"DROP VIEW IF EXISTS {PIPELINE_VIEW_NAME}")
+    await db.execute(_PIPELINE_VIEW_SQL)
+    await db.commit()
 
 
 async def run_database_migrations(db: aiosqlite.Connection) -> None:
@@ -832,6 +1240,9 @@ async def run_database_migrations(db: aiosqlite.Connection) -> None:
             f"database schema version {current_version} is newer than supported version "
             f"{CURRENT_SCHEMA_VERSION}"
         )
+    # Table rebuilds rename videos; a view over the old table would block the rename.
+    await db.execute(f"DROP VIEW IF EXISTS {PIPELINE_VIEW_NAME}")
+    await db.commit()
     for target_version, migration in MIGRATIONS:
         if current_version >= target_version:
             continue
@@ -839,3 +1250,4 @@ async def run_database_migrations(db: aiosqlite.Connection) -> None:
         await db.execute(f"PRAGMA user_version = {target_version}")
         await db.commit()
         current_version = target_version
+    await _ensure_pipeline_view(db)

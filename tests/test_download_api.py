@@ -30,8 +30,8 @@ def _seed_video(db_path: str, *, video_id: str = "vid-download-001") -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             (video_id, "UCdownload001", "Download Video", "2026-02-26T00:00:00+00:00"),
         )

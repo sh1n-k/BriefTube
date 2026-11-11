@@ -1,21 +1,7 @@
-"""Transcript pipeline repository accessors."""
+"""Transcript guard and request-header repository accessors."""
 
 import app.repositories._transcripts as repository
 import app.repositories._transcripts_guard as guard_repository
-
-list_queue_items = repository.list_queue_items
-queue_status = repository.queue_status
-clear_transcript_queue_items = repository.clear_transcript_queue_items
-pop_pending_transcript_videos = repository.pop_pending_transcript_videos
-mark_transcript_processing = repository.mark_transcript_processing
-recover_stuck_transcript_jobs = repository.recover_stuck_transcript_jobs
-save_transcript = repository.save_transcript
-mark_no_subtitle = repository.mark_no_subtitle
-schedule_transcript_retry = repository.schedule_transcript_retry
-defer_channel_transcript_retries = repository.defer_channel_transcript_retries
-mark_transcript_failed = repository.mark_transcript_failed
-reset_transcript_for_retry = repository.reset_transcript_for_retry
-reset_failed_transcripts_for_retry = repository.reset_failed_transcripts_for_retry
 
 get_transcript_guard_state = guard_repository.get_transcript_guard_state
 save_transcript_guard_state = guard_repository.save_transcript_guard_state

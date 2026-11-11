@@ -6,6 +6,7 @@ import time
 
 from app.llm_policy import llm_min_call_interval_seconds
 from app.repositories import llm as llm_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
 from app.services.llm_errors import LLM_PROVIDER_RATE_LIMITED_CODE
 from app.services.llm_runtime import resolve_llm_runtime_status
@@ -123,6 +124,7 @@ async def _run_single_llm_job(
     *,
     runtime_issue_code_at_start: str,
 ) -> _JobResult:
+    job_id = int(candidate["job_id"])
     video_id = str(candidate["video_id"])
     job_provider = str(llm_settings.get("provider_primary") or "")
     try:
@@ -133,6 +135,7 @@ async def _run_single_llm_job(
         )
         saved = await llm_repo.save_article(
             state.db,
+            job_id=job_id,
             video_id=video_id,
             title=article["title"],
             lead=article["lead"],
@@ -171,10 +174,7 @@ async def _run_single_llm_job(
     except Exception as exc:
         error_code = str(getattr(exc, "code", "unknown") or "unknown")
         if error_code == LLM_PROVIDER_RATE_LIMITED_CODE:
-            requeued = await llm_repo.requeue_llm_pending_without_retry(
-                state.db,
-                video_id=video_id,
-            )
+            requeued = await pipeline_repo.requeue_article_job(state.db, job_id)
             logger.warning(
                 "event=llm.rate_limited worker=llm video_id=%s provider=%s requeued=%s sleep_seconds=%s",
                 video_id,
@@ -185,10 +185,7 @@ async def _run_single_llm_job(
             )
             return (LLM_RATE_LIMITED_SLEEP_SECONDS, job_provider)
         if _is_runtime_unavailable_issue(error_code):
-            requeued = await llm_repo.requeue_llm_pending_without_retry(
-                state.db,
-                video_id=video_id,
-            )
+            requeued = await pipeline_repo.requeue_article_job(state.db, job_id)
             # The runtime issue has no provider. A job that started before a provider
             # switch must not block the new provider with its own failure.
             current_settings = await settings_repo.get_llm_settings(state.db)
@@ -237,11 +234,13 @@ async def _run_single_llm_job(
         exit_code_label = "-" if exit_code is None else str(exit_code)
 
         if getattr(exc, "retryable", True) is False:
-            next_status, affected = await llm_repo.mark_restructure_failed(
+            # Only the error code is stored: exception text may carry provider output.
+            next_status, affected = await pipeline_repo.record_article_job_failure(
                 state.db,
-                video_id=video_id,
-                retry_count=max(0, int(state.config.max_retry_count) - 1),
-                max_retry_count=state.config.max_retry_count,
+                job_id,
+                max_attempts=state.config.max_retry_count,
+                error_code=error_code,
+                retryable=False,
             )
             logger.warning(
                 "event=llm.restructure_non_retryable worker=llm video_id=%s next_status=%s affected=%s error_type=%s error_code=%s provider=%s exit_code=%s stderr_summary=%s stdout_summary=%s",
@@ -264,11 +263,11 @@ async def _run_single_llm_job(
             )
             return (0.0, job_provider)
 
-        next_status, affected = await llm_repo.mark_restructure_failed(
+        next_status, affected = await pipeline_repo.record_article_job_failure(
             state.db,
-            video_id=video_id,
-            retry_count=int(candidate["retry_count"]),
-            max_retry_count=state.config.max_retry_count,
+            job_id,
+            max_attempts=state.config.max_retry_count,
+            error_code=error_code,
         )
         if affected == 0:
             logger.warning(
@@ -297,7 +296,7 @@ async def _run_single_llm_job(
                     "stdout_summary": stdout_summary,
                 },
             )
-            if next_status == "llm_failed":
+            if next_status == pipeline_repo.JOB_STATUS_QUEUED:
                 await _sleep_with_wake(state, LLM_RETRYABLE_FAILURE_DELAY_SECONDS)
         return (0.0, job_provider)
 
@@ -334,7 +333,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
             max_concurrent = _llm_max_concurrent(llm_settings)
             runtime_issue = await llm_repo.get_llm_runtime_issue(state.db)
             runtime_issue_code = str(runtime_issue.get("code") if runtime_issue else "").strip()
-            pending_count = await llm_repo.count_llm_pending_videos(state.db)
+            pending_count = await pipeline_repo.count_queued_article_jobs(state.db)
             runtime_status = resolve_llm_runtime_status(
                 llm_client=state.llm_client,
                 llm_settings=llm_settings,
@@ -421,7 +420,7 @@ async def run_llm_queue_worker(state: AppState) -> None:
                     next_call_at = last_call_started_at + call_interval
                     if time.monotonic() < next_call_at:
                         break
-                candidate = await llm_repo.claim_next_llm_candidate(
+                candidate = await pipeline_repo.claim_next_article_job(
                     state.db,
                     state.config.max_retry_count,
                 )

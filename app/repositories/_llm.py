@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 import aiosqlite
 
 import app.repositories._alerts_retention as alerts_repository
+import app.repositories._pipeline as pipeline_repository
 import app.repositories._settings as settings_repository
 import app.repositories._settings_llm as llm_settings_repository
 from app.repositories._common import UPDATED_AT_SQL
-from app.repositories._common import row_to_dict as _row_to_dict
 
 LLM_ARTICLE_PROVIDER_UNKNOWN = "unknown"
 LLM_ARTICLE_PROVIDER_VALUES = {"codex", "grok", "cursor", "claude", "gemini"}
@@ -39,89 +38,9 @@ def _normalize_article_text_meta(value: str | None, *, max_length: int = 200) ->
     return normalized[:max_length]
 
 
-async def clear_llm_queue_items(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'transcript_done'
-        WHERE pipeline_status IN ('llm_pending', 'llm_failed', 'manual_review')
-        """
-    )
-    await db.commit()
-    return int(cursor.rowcount or 0)
-
-
-async def repair_orphan_llm_candidates(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'manual_review'
-        WHERE pipeline_status IN ('llm_pending', 'llm_failed', 'llm_processing')
-          AND NOT EXISTS (
-              SELECT 1
-              FROM transcripts t
-              WHERE t.video_id = videos.video_id
-          )
-        """
-    )
-    await db.commit()
-    return int(cursor.rowcount or 0)
-
-
-async def pop_llm_candidate(
-    db: aiosqlite.Connection, max_retry_count: int
-) -> dict[str, Any] | None:
-    safe_max_retry_count = max(1, int(max_retry_count))
-    cursor = await db.execute(
-        """
-        SELECT
-            v.video_id,
-            v.title,
-            v.retry_count,
-            t.raw_text,
-            t.timed_text
-        FROM videos v
-        JOIN transcripts t ON t.video_id = v.video_id
-        WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
-          AND v.retry_count < ?
-        ORDER BY v.created_at ASC
-        LIMIT 1
-        """,
-        (safe_max_retry_count,),
-    )
-    row = await cursor.fetchone()
-    return _row_to_dict(row)
-
-
-async def claim_next_llm_candidate(
-    db: aiosqlite.Connection, max_retry_count: int
-) -> dict[str, Any] | None:
-    candidate = await pop_llm_candidate(db, max_retry_count)
-    if candidate is None:
-        return None
-
-    marked = await mark_restructure_processing(db, str(candidate["video_id"]))
-    if int(marked or 0) == 0:
-        return None
-    return candidate
-
-
-async def mark_restructure_processing(db: aiosqlite.Connection, video_id: str) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'llm_processing'
-        WHERE video_id = ?
-          AND pipeline_status IN ('llm_pending', 'llm_failed')
-        """,
-        (video_id,),
-    )
-    await db.commit()
-    return cursor.rowcount
-
-
 async def save_article(
     db: aiosqlite.Connection,
+    job_id: int,
     video_id: str,
     title: str,
     lead: str,
@@ -138,16 +57,7 @@ async def save_article(
     safe_reasoning_effort = _normalize_article_text_meta(llm_reasoning_effort, max_length=32)
     safe_generated_at = str(llm_generated_at or "").strip() or None
 
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'done'
-        WHERE video_id = ?
-          AND pipeline_status = 'llm_processing'
-        """,
-        (video_id,),
-    )
-    affected = int(cursor.rowcount or 0)
+    affected = await pipeline_repository.close_article_job_succeeded(db, job_id)
     if affected == 0:
         await db.commit()
         return 0
@@ -200,48 +110,12 @@ async def save_article(
     return affected
 
 
-async def mark_restructure_failed(
-    db: aiosqlite.Connection,
-    video_id: str,
-    retry_count: int,
-    max_retry_count: int,
-) -> tuple[str, int]:
-    safe_max_retry_count = max(1, int(max_retry_count))
-    next_retry = retry_count + 1
-    next_status = "llm_failed" if next_retry < safe_max_retry_count else "manual_review"
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET retry_count = ?, pipeline_status = ?
-        WHERE video_id = ?
-          AND pipeline_status = 'llm_processing'
-        """,
-        (next_retry, next_status, video_id),
-    )
-    await db.commit()
-    return next_status, int(cursor.rowcount or 0)
-
-
-async def requeue_llm_pending_without_retry(db: aiosqlite.Connection, video_id: str) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'llm_pending'
-        WHERE video_id = ?
-          AND pipeline_status = 'llm_processing'
-        """,
-        (video_id,),
-    )
-    await db.commit()
-    return int(cursor.rowcount or 0)
-
-
 async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
     cursor = await db.execute(
         """
         SELECT COUNT(1) AS cnt
-        FROM videos
-        WHERE pipeline_status IN ('llm_pending', 'llm_failed')
+        FROM video_jobs
+        WHERE kind = 'article' AND status = 'queued'
         """
     )
     row = await cursor.fetchone()
@@ -267,7 +141,7 @@ async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
     await alerts_repository.create_system_alert(
         db,
         alert_type=alerts_repository.ALERT_TYPE_LLM_CONFIG_MISSING,
-        message="LLM runtime is not ready. llm_pending items are waiting.",
+        message="LLM runtime is not ready. article_pending items are waiting.",
     )
     await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="1")
     return True
@@ -288,8 +162,8 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
     cursor = await db.execute(
         """
         SELECT COUNT(1) AS cnt
-        FROM videos
-        WHERE pipeline_status IN ('llm_pending', 'llm_failed')
+        FROM video_jobs
+        WHERE kind = 'article' AND status = 'queued'
         """
     )
     row = await cursor.fetchone()
@@ -330,7 +204,7 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
     await alerts_repository.create_system_alert(
         db,
         alert_type=alerts_repository.ALERT_TYPE_LLM_SCHEMA_INVALID,
-        message="LLM output schema is incompatible. llm_pending items are waiting.",
+        message="LLM output schema is incompatible. article_pending items are waiting.",
     )
     await set_setting(db, key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY, value="1")
     return True
@@ -379,15 +253,3 @@ async def get_llm_runtime_issue(db: aiosqlite.Connection) -> dict[str, str]:
         "message": message,
         "seen_at": seen_at,
     }
-
-
-async def count_llm_pending_videos(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
-        """
-        SELECT COUNT(1) AS cnt
-        FROM videos v
-        WHERE v.pipeline_status IN ('llm_pending', 'llm_failed')
-        """
-    )
-    row = await cursor.fetchone()
-    return int((row["cnt"] if row is not None else 0) or 0)

@@ -9,14 +9,7 @@ LLM_CONFIG_MISSING_ALERT_SENT_KEY = settings_repository.LLM_CONFIG_MISSING_ALERT
 ALERT_TYPE_LLM_SCHEMA_INVALID = alerts_repository.ALERT_TYPE_LLM_SCHEMA_INVALID
 LLM_SCHEMA_INVALID_ALERT_SENT_KEY = settings_repository.LLM_SCHEMA_INVALID_ALERT_SENT_KEY
 
-repair_orphan_llm_candidates = repository.repair_orphan_llm_candidates
-clear_llm_queue_items = repository.clear_llm_queue_items
-pop_llm_candidate = repository.pop_llm_candidate
-claim_next_llm_candidate = repository.claim_next_llm_candidate
-mark_restructure_processing = repository.mark_restructure_processing
 save_article = repository.save_article
-mark_restructure_failed = repository.mark_restructure_failed
-requeue_llm_pending_without_retry = repository.requeue_llm_pending_without_retry
 
 ensure_llm_config_missing_alert = repository.ensure_llm_config_missing_alert
 clear_llm_config_missing_alert_flag = repository.clear_llm_config_missing_alert_flag
@@ -25,5 +18,4 @@ clear_llm_schema_invalid_alert_flag = repository.clear_llm_schema_invalid_alert_
 set_llm_runtime_issue = repository.set_llm_runtime_issue
 clear_llm_runtime_issue = repository.clear_llm_runtime_issue
 get_llm_runtime_issue = repository.get_llm_runtime_issue
-count_llm_pending_videos = repository.count_llm_pending_videos
 get_llm_settings = settings_repository.get_llm_settings

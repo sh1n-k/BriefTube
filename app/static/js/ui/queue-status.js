@@ -122,11 +122,7 @@
       const payload = await resp.json().catch(() => null);
       if (!payload || typeof payload !== "object") return;
 
-      const badgeCount = (
-        (payload.badge_count ?? 0)
-        || ((payload.transcript_pending || 0) + (payload.transcript_processing || 0)
-          + (payload.llm_pending || 0) + (payload.llm_processing || 0))
-      );
+      const badgeCount = payload.badge_count ?? 0;
       updateQueueNavBadge(badgeCount);
 
       if (!isQueuePage) return;

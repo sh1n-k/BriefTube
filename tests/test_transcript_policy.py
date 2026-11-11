@@ -10,91 +10,103 @@ from requests import Response, Session
 
 from app.database import init_database, open_database, recover_stuck_jobs
 from app.repositories import llm as llm_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
-from app.repositories import transcripts as transcripts_repo
 from app.services import transcript as transcript_service_module
 from app.services.transcript import TranscriptFetchResult
 from app.workers.transcript_worker import run_transcript_fetcher
-
-repository = SimpleNamespace(
-    ALERT_TYPE_LLM_CONFIG_MISSING=llm_repo.ALERT_TYPE_LLM_CONFIG_MISSING,
-    LLM_CONFIG_MISSING_ALERT_SENT_KEY=llm_repo.LLM_CONFIG_MISSING_ALERT_SENT_KEY,
-    pop_pending_transcript_videos=transcripts_repo.pop_pending_transcript_videos,
-    schedule_transcript_retry=transcripts_repo.schedule_transcript_retry,
-    recover_stuck_transcript_jobs=transcripts_repo.recover_stuck_transcript_jobs,
-    save_transcript=transcripts_repo.save_transcript,
-    defer_channel_transcript_retries=transcripts_repo.defer_channel_transcript_retries,
-    pop_llm_candidate=llm_repo.pop_llm_candidate,
-    mark_restructure_processing=llm_repo.mark_restructure_processing,
-    mark_restructure_failed=llm_repo.mark_restructure_failed,
-    requeue_llm_pending_without_retry=llm_repo.requeue_llm_pending_without_retry,
-    repair_orphan_llm_candidates=llm_repo.repair_orphan_llm_candidates,
-    ensure_llm_config_missing_alert=llm_repo.ensure_llm_config_missing_alert,
-    get_setting=settings_repo.get_setting,
-)
+from tests.helpers.db_seed import seed_video_job, seed_video_job_sync
 
 
-def test_pop_pending_transcript_videos_prioritizes_recent_and_due(client) -> None:
+def _seed_channel_sync(conn: sqlite3.Connection, channel_id: str, name: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+        VALUES (?, ?, ?, 1)
+        """,
+        (channel_id, name, f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"),
+    )
+
+
+def _seed_video_sync(
+    conn: sqlite3.Connection,
+    video_id: str,
+    channel_id: str,
+    upload_time: str,
+    *,
+    target_stage: str = "article",
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO videos(video_id, channel_id, title, upload_time, target_stage)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (video_id, channel_id, video_id, upload_time, target_stage),
+    )
+
+
+async def _seed_channel(db, channel_id: str, name: str) -> None:
+    await db.execute(
+        """
+        INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
+        VALUES (?, ?, ?, 1)
+        """,
+        (channel_id, name, f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"),
+    )
+
+
+async def _seed_video(db, video_id: str, channel_id: str, *, target_stage: str = "article") -> None:
+    await db.execute(
+        """
+        INSERT INTO videos(video_id, channel_id, title, upload_time, target_stage)
+        VALUES (?, ?, ?, '2026-02-10T00:00:00+00:00', ?)
+        """,
+        (video_id, channel_id, video_id, target_stage),
+    )
+
+
+async def _status(db, video_id: str) -> str:
+    cursor = await db.execute(
+        "SELECT pipeline_status FROM video_pipeline_v WHERE video_id = ?", (video_id,)
+    )
+    row = await cursor.fetchone()
+    return str(row["pipeline_status"])
+
+
+async def _activity(db, video_id: str) -> str:
+    cursor = await db.execute(
+        "SELECT pipeline_activity FROM video_pipeline_v WHERE video_id = ?", (video_id,)
+    )
+    row = await cursor.fetchone()
+    return str(row["pipeline_activity"])
+
+
+async def _job(db, job_id: int) -> dict:
+    cursor = await db.execute("SELECT * FROM video_jobs WHERE id = ?", (job_id,))
+    row = await cursor.fetchone()
+    return dict(row)
+
+
+def test_list_claimable_transcript_jobs_prioritizes_recent_and_due(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM system_alerts WHERE alert_type = ?",
-            (repository.ALERT_TYPE_LLM_CONFIG_MISSING,),
+        _seed_channel_sync(conn, "UCpolicy001", "Policy Channel")
+        _seed_video_sync(conn, "vid-policy-old", "UCpolicy001", "2026-01-01T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-policy-new", "UCpolicy001", "2026-02-01T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-policy-future", "UCpolicy001", "2026-03-01T00:00:00+00:00")
+        seed_video_job_sync(conn, "vid-policy-old", "transcript")
+        seed_video_job_sync(
+            conn, "vid-policy-new", "transcript", next_attempt_at="2000-01-01 00:00:00"
         )
-        conn.execute(
-            "DELETE FROM app_settings WHERE key = ?",
-            (repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY,),
-        )
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCpolicy001",
-                "Policy Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCpolicy001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, transcript_next_attempt_at)
-            VALUES (?, ?, ?, ?, 'transcript_pending', ?)
-            """,
-            ("vid-policy-old", "UCpolicy001", "old", "2026-01-01T00:00:00+00:00", None),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, transcript_next_attempt_at)
-            VALUES (?, ?, ?, ?, 'transcript_pending', ?)
-            """,
-            (
-                "vid-policy-new",
-                "UCpolicy001",
-                "new",
-                "2026-02-01T00:00:00+00:00",
-                "2000-01-01 00:00:00",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, transcript_next_attempt_at)
-            VALUES (?, ?, ?, ?, 'transcript_pending', ?)
-            """,
-            (
-                "vid-policy-future",
-                "UCpolicy001",
-                "future",
-                "2026-03-01T00:00:00+00:00",
-                "2999-01-01 00:00:00",
-            ),
+        seed_video_job_sync(
+            conn, "vid-policy-future", "transcript", next_attempt_at="2999-01-01 00:00:00"
         )
         conn.commit()
 
     async def _load_ids() -> list[str]:
         db = await open_database(db_path)
         try:
-            rows = await repository.pop_pending_transcript_videos(db, limit=10)
+            rows = await pipeline_repo.list_claimable_transcript_jobs(db, limit=10)
             return [row["video_id"] for row in rows]
         finally:
             await db.close()
@@ -103,148 +115,132 @@ def test_pop_pending_transcript_videos_prioritizes_recent_and_due(client) -> Non
     assert ids == ["vid-policy-new", "vid-policy-old"]
 
 
-def test_schedule_transcript_retry_updates_retry_count_and_next_attempt(client) -> None:
+def test_list_claimable_transcript_jobs_puts_manual_requests_first(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCretry001",
-                "Retry Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'transcript_pending')
-            """,
-            ("vid-retry-001", "UCretry001", "retry", "2026-02-10T00:00:00+00:00"),
-        )
+        _seed_channel_sync(conn, "UCpolicy002", "Policy Channel 2")
+        _seed_video_sync(conn, "vid-prio-auto-new", "UCpolicy002", "2026-05-01T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-prio-manual-old", "UCpolicy002", "2026-01-01T00:00:00+00:00")
+        seed_video_job_sync(conn, "vid-prio-auto-new", "transcript")
+        seed_video_job_sync(conn, "vid-prio-manual-old", "transcript", origin="manual")
         conn.commit()
 
-    async def _run() -> tuple[int, str | None]:
+    async def _load_ids() -> list[str]:
         db = await open_database(db_path)
         try:
-            await repository.schedule_transcript_retry(db, "vid-retry-001", delay_seconds=120)
-            cursor = await db.execute(
-                "SELECT transcript_retry_count, transcript_next_attempt_at FROM videos WHERE video_id = ?",
-                ("vid-retry-001",),
-            )
-            row = await cursor.fetchone()
-            return int(row["transcript_retry_count"]), row["transcript_next_attempt_at"]
+            rows = await pipeline_repo.list_claimable_transcript_jobs(db, limit=10)
+            return [row["video_id"] for row in rows]
         finally:
             await db.close()
 
-    retry_count, next_attempt_at = asyncio.run(_run())
-    assert retry_count == 1
-    assert next_attempt_at is not None
+    ids = asyncio.run(_load_ids())
+    assert ids[:2] == ["vid-prio-manual-old", "vid-prio-auto-new"]
 
 
-def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> None:
+def test_schedule_transcript_job_retry_updates_attempt_and_next_attempt(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCretry001", "Retry Channel")
+        _seed_video_sync(conn, "vid-retry-001", "UCretry001", "2026-02-10T00:00:00+00:00")
+        job_id = seed_video_job_sync(conn, "vid-retry-001", "transcript")
+        conn.commit()
+
+    async def _run() -> tuple[dict, str]:
+        db = await open_database(db_path)
+        try:
+            await pipeline_repo.schedule_transcript_job_retry(
+                db,
+                job_id,
+                delay_seconds=120,
+                error_code="retryable_transient",
+                error_message="network timeout",
+            )
+            return await _job(db, job_id), await _status(db, "vid-retry-001")
+        finally:
+            await db.close()
+
+    job, status = asyncio.run(_run())
+    assert job["status"] == "queued"
+    assert job["attempt_count"] == 1
+    assert job["next_attempt_at"] is not None
+    assert job["error_code"] == "retryable_transient"
+    assert job["error_message"] == "network timeout"
+    assert status == "transcript_pending"
+
+
+def test_recover_stuck_jobs_requeues_running_jobs_of_both_kinds(tmp_path) -> None:
     db_path = tmp_path / "recover-stuck-jobs.db"
 
-    async def _run() -> tuple[int, str, str]:
+    async def _run() -> tuple[int, str, str, str, str]:
         db = await open_database(str(db_path))
         try:
             await init_database(db)
-            await db.execute(
-                """
-                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-                VALUES (?, ?, ?, 1)
-                """,
-                (
-                    "UCrecover001",
-                    "Recover Channel",
-                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover001",
-                ),
-            )
-            await db.execute(
-                """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-                VALUES
-                  (?, ?, ?, ?, 'llm_processing'),
-                  (?, ?, ?, ?, 'transcript_processing')
-                """,
-                (
-                    "vid-recover-llm",
-                    "UCrecover001",
-                    "recover llm",
-                    "2026-02-10T00:00:00+00:00",
-                    "vid-recover-transcript",
-                    "UCrecover001",
-                    "recover transcript",
-                    "2026-02-10T00:00:00+00:00",
-                ),
-            )
-            await db.commit()
+            await _seed_channel(db, "UCrecover001", "Recover Channel")
+            await _seed_video(db, "vid-recover-llm", "UCrecover001")
+            await _seed_video(db, "vid-recover-transcript", "UCrecover001")
+            await seed_video_job(db, "vid-recover-llm", "article", status="running")
+            await seed_video_job(db, "vid-recover-transcript", "transcript", status="running")
             recovered = await recover_stuck_jobs(db)
-            cursor = await db.execute(
-                """
-                SELECT video_id, pipeline_status
-                FROM videos
-                WHERE video_id IN ('vid-recover-llm', 'vid-recover-transcript')
-                ORDER BY video_id
-                """
+            return (
+                recovered,
+                await _status(db, "vid-recover-llm"),
+                await _status(db, "vid-recover-transcript"),
+                await _activity(db, "vid-recover-llm"),
+                await _activity(db, "vid-recover-transcript"),
             )
-            rows = await cursor.fetchall()
-            return recovered, str(rows[0]["pipeline_status"]), str(rows[1]["pipeline_status"])
         finally:
             await db.close()
 
-    recovered, llm_status, transcript_status = asyncio.run(_run())
-    assert recovered == 1
-    assert llm_status == "llm_pending"
-    assert transcript_status == "transcript_processing"
+    recovered, llm_status, transcript_status, llm_activity, transcript_activity = asyncio.run(
+        _run()
+    )
+    assert recovered == 2
+    assert (llm_status, llm_activity) == ("article_pending", "queued")
+    assert (transcript_status, transcript_activity) == ("transcript_pending", "queued")
 
 
-def test_recover_stuck_transcript_jobs_requeues_processing_rows(tmp_path) -> None:
+def test_recover_running_transcript_jobs_requeues_processing_rows(tmp_path) -> None:
     db_path = tmp_path / "recover-stuck-transcript-jobs.db"
 
     async def _run() -> tuple[int, str]:
         db = await open_database(str(db_path))
         try:
             await init_database(db)
-            await db.execute(
-                """
-                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-                VALUES (?, ?, ?, 1)
-                """,
-                (
-                    "UCrecover002",
-                    "Recover Channel 2",
-                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover002",
-                ),
-            )
-            await db.execute(
-                """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-                VALUES (?, ?, ?, ?, 'transcript_processing')
-                """,
-                (
-                    "vid-recover-transcript-only",
-                    "UCrecover002",
-                    "recover transcript only",
-                    "2026-02-10T00:00:00+00:00",
-                ),
-            )
-            await db.commit()
-            recovered = await repository.recover_stuck_transcript_jobs(db)
-            cursor = await db.execute(
-                "SELECT pipeline_status FROM videos WHERE video_id = ?",
-                ("vid-recover-transcript-only",),
-            )
-            row = await cursor.fetchone()
-            return recovered, str(row["pipeline_status"])
+            await _seed_channel(db, "UCrecover002", "Recover Channel 2")
+            await _seed_video(db, "vid-recover-transcript-only", "UCrecover002")
+            await seed_video_job(db, "vid-recover-transcript-only", "transcript", status="running")
+            recovered = await pipeline_repo.recover_running_transcript_jobs(db)
+            return recovered, await _status(db, "vid-recover-transcript-only")
         finally:
             await db.close()
 
     recovered, transcript_status = asyncio.run(_run())
     assert recovered == 1
     assert transcript_status == "transcript_pending"
+
+
+def _fetcher_config(db_path: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        db_path=db_path,
+        transcript_fetch_batch_size=1,
+        transcript_request_interval_seconds=1,
+        transcript_idle_sleep_seconds=1,
+        transcript_retry_base_delay_seconds=1,
+        transcript_retry_max_delay_seconds=4,
+        transcript_retry_max_attempts=2,
+        transcript_fetch_timeout_seconds=3,
+        transcript_jitter_ratio=0,
+        transcript_adaptive_enabled=False,
+        transcript_adaptive_max_factor=8.0,
+        transcript_hard_cooldown_base_seconds=5,
+        transcript_hard_cooldown_max_seconds=10,
+        transcript_recovery_success_window=1,
+        transcript_general_error_slowdown_multiplier=1.25,
+        transcript_channel_min_interval_seconds=0,
+        transcript_channel_pick_lookahead=1,
+        transcript_channel_hard_cooldown_seconds=5,
+        transcript_breaker_half_open_probe_count=1,
+    )
 
 
 def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
@@ -263,59 +259,13 @@ def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
         fake_service = _FakeTranscriptService()
         try:
             await init_database(db)
-            await db.execute(
-                """
-                INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-                VALUES (?, ?, ?, 1)
-                """,
-                (
-                    "UCrecover003",
-                    "Recover Channel 3",
-                    "https://www.youtube.com/feeds/videos.xml?channel_id=UCrecover003",
-                ),
+            await _seed_channel(db, "UCrecover003", "Recover Channel 3")
+            await _seed_video(
+                db, "vid-recover-processing", "UCrecover003", target_stage="transcript"
             )
-            await db.execute(
-                """
-                INSERT INTO videos(
-                    video_id,
-                    channel_id,
-                    title,
-                    upload_time,
-                    pipeline_status,
-                    processing_stage_snapshot
-                )
-                VALUES (?, ?, ?, ?, 'transcript_processing', 'transcript_only')
-                """,
-                (
-                    "vid-recover-processing",
-                    "UCrecover003",
-                    "recover processing",
-                    "2026-02-10T00:00:00+00:00",
-                ),
-            )
-            await db.commit()
+            await seed_video_job(db, "vid-recover-processing", "transcript", status="running")
             state = SimpleNamespace(
-                config=SimpleNamespace(
-                    db_path=str(db_path),
-                    transcript_fetch_batch_size=1,
-                    transcript_request_interval_seconds=1,
-                    transcript_idle_sleep_seconds=1,
-                    transcript_retry_base_delay_seconds=1,
-                    transcript_retry_max_delay_seconds=4,
-                    transcript_retry_max_attempts=2,
-                    transcript_fetch_timeout_seconds=3,
-                    transcript_jitter_ratio=0,
-                    transcript_adaptive_enabled=False,
-                    transcript_adaptive_max_factor=8.0,
-                    transcript_hard_cooldown_base_seconds=5,
-                    transcript_hard_cooldown_max_seconds=10,
-                    transcript_recovery_success_window=1,
-                    transcript_general_error_slowdown_multiplier=1.25,
-                    transcript_channel_min_interval_seconds=0,
-                    transcript_channel_pick_lookahead=1,
-                    transcript_channel_hard_cooldown_seconds=5,
-                    transcript_breaker_half_open_probe_count=1,
-                ),
+                config=_fetcher_config(str(db_path)),
                 db=db,
                 transcript_service=fake_service,
                 transcript_worker_lock=asyncio.Lock(),
@@ -326,10 +276,10 @@ def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
                 for _ in range(80):
                     cursor = await db.execute(
                         """
-                        SELECT v.pipeline_status, t.raw_text
-                        FROM videos v
-                        LEFT JOIN transcripts t ON t.video_id = v.video_id
-                        WHERE v.video_id = ?
+                        SELECT p.pipeline_status, t.raw_text
+                        FROM video_pipeline_v p
+                        LEFT JOIN transcripts t ON t.video_id = p.video_id
+                        WHERE p.video_id = ?
                         """,
                         ("vid-recover-processing",),
                     )
@@ -345,55 +295,9 @@ def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
             await db.close()
 
     status, raw_text, calls = asyncio.run(_run())
-    assert status == "transcript_done"
+    assert status == "transcript_ready"
     assert raw_text == "recovered transcript"
     assert calls == ["vid-recover-processing"]
-
-
-def test_schedule_transcript_retry_persists_last_error(client) -> None:
-    db_path = os.environ["DB_PATH"]
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCretry002",
-                "Retry Channel 2",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCretry002",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'transcript_pending')
-            """,
-            ("vid-retry-002", "UCretry002", "retry2", "2026-02-11T00:00:00+00:00"),
-        )
-        conn.commit()
-
-    async def _run() -> tuple[int, str | None]:
-        db = await open_database(db_path)
-        try:
-            await repository.schedule_transcript_retry(
-                db,
-                "vid-retry-002",
-                delay_seconds=120,
-                error_message="network timeout",
-            )
-            cursor = await db.execute(
-                "SELECT transcript_retry_count, transcript_last_error FROM videos WHERE video_id = ?",
-                ("vid-retry-002",),
-            )
-            row = await cursor.fetchone()
-            return int(row["transcript_retry_count"]), row["transcript_last_error"]
-        finally:
-            await db.close()
-
-    retry_count, last_error = asyncio.run(_run())
-    assert retry_count == 1
-    assert last_error == "network timeout"
 
 
 def test_transcript_service_applies_requests_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -464,121 +368,117 @@ def test_transcript_service_reapplies_configured_headers_after_api_init(
     assert observed_headers["Accept-Language"] == "ko-KR,ko;q=0.9"
 
 
-def test_save_transcript_sets_target_language_and_clears_last_error(client) -> None:
+def test_complete_transcript_job_sets_language_and_queues_article(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCsave001",
-                "Save Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCsave001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(
-                video_id,
-                channel_id,
-                title,
-                upload_time,
-                pipeline_status,
-                transcript_last_error,
-                transcript_last_error_at
-            ) VALUES (?, ?, ?, ?, 'transcript_pending', ?, ?)
-            """,
-            (
-                "vid-save-001",
-                "UCsave001",
-                "save",
-                "2026-02-12T00:00:00+00:00",
-                "old error",
-                "2026-02-12T00:00:00+00:00",
-            ),
+        _seed_channel_sync(conn, "UCsave001", "Save Channel")
+        _seed_video_sync(conn, "vid-save-001", "UCsave001", "2026-02-12T00:00:00+00:00")
+        job_id = seed_video_job_sync(
+            conn,
+            "vid-save-001",
+            "transcript",
+            status="running",
+            origin="manual",
+            error_code="retryable_transient",
+            error_message="old error",
         )
         conn.commit()
 
-    async def _run() -> tuple[str, str | None, str | None, str | None]:
+    async def _run() -> tuple[str, str | None, dict, dict]:
         db = await open_database(db_path)
         try:
-            await repository.save_transcript(
+            await pipeline_repo.complete_transcript_job(
                 db,
+                job_id=job_id,
                 video_id="vid-save-001",
                 raw_text="hello",
                 language="ko",
                 source_type="manual",
-                thumbnail_path=None,
             )
             cursor = await db.execute(
-                """
-                SELECT pipeline_status, transcript_target_language, transcript_last_error, transcript_last_error_at
-                FROM videos
-                WHERE video_id = ?
-                """,
+                "SELECT transcript_target_language FROM videos WHERE video_id = ?",
                 ("vid-save-001",),
             )
             row = await cursor.fetchone()
+            article_cursor = await db.execute(
+                "SELECT * FROM video_jobs WHERE video_id = ? AND kind = 'article'",
+                ("vid-save-001",),
+            )
+            article_job = dict(await article_cursor.fetchone())
             return (
-                str(row["pipeline_status"]),
+                await _status(db, "vid-save-001"),
                 row["transcript_target_language"],
-                row["transcript_last_error"],
-                row["transcript_last_error_at"],
+                await _job(db, job_id),
+                article_job,
             )
         finally:
             await db.close()
 
-    status, target_language, last_error, last_error_at = asyncio.run(_run())
-    assert status == "llm_pending"
+    status, target_language, transcript_job, article_job = asyncio.run(_run())
+    assert status == "article_pending"
     assert target_language == "ko"
-    assert last_error is None
-    assert last_error_at is None
+    assert transcript_job["status"] == "succeeded"
+    assert transcript_job["error_code"] is None
+    assert transcript_job["error_message"] is None
+    assert article_job["status"] == "queued"
+    assert article_job["origin"] == "manual"
 
 
-def test_pop_pending_transcript_videos_can_avoid_last_channel(client) -> None:
+def test_complete_transcript_job_stops_at_transcript_target(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1), (?, ?, ?, 1)
-            """,
-            (
-                "UCfair001",
-                "Fair Channel A",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCfair001",
-                "UCfair002",
-                "Fair Channel B",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCfair002",
-            ),
+        _seed_channel_sync(conn, "UCsave002", "Save Channel 2")
+        _seed_video_sync(
+            conn,
+            "vid-save-002",
+            "UCsave002",
+            "2026-02-12T00:00:00+00:00",
+            target_stage="transcript",
         )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES
-              (?, ?, ?, ?, 'transcript_pending'),
-              (?, ?, ?, ?, 'transcript_pending')
-            """,
-            (
-                "vid-fair-a",
-                "UCfair001",
-                "newest",
-                "2026-02-28T00:00:00+00:00",
-                "vid-fair-b",
-                "UCfair002",
-                "older",
-                "2026-02-27T00:00:00+00:00",
-            ),
-        )
+        job_id = seed_video_job_sync(conn, "vid-save-002", "transcript", status="running")
+        conn.commit()
+
+    async def _run() -> tuple[str, int]:
+        db = await open_database(db_path)
+        try:
+            await pipeline_repo.complete_transcript_job(
+                db,
+                job_id=job_id,
+                video_id="vid-save-002",
+                raw_text="hello",
+                language="ko",
+                source_type="manual",
+            )
+            cursor = await db.execute(
+                "SELECT COUNT(1) FROM video_jobs WHERE video_id = ? AND kind = 'article'",
+                ("vid-save-002",),
+            )
+            row = await cursor.fetchone()
+            return await _status(db, "vid-save-002"), int(row[0])
+        finally:
+            await db.close()
+
+    status, article_jobs = asyncio.run(_run())
+    assert status == "transcript_ready"
+    assert article_jobs == 0
+
+
+def test_list_claimable_transcript_jobs_can_avoid_last_channel(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCfair001", "Fair Channel A")
+        _seed_channel_sync(conn, "UCfair002", "Fair Channel B")
+        _seed_video_sync(conn, "vid-fair-a", "UCfair001", "2026-02-28T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-fair-b", "UCfair002", "2026-02-27T00:00:00+00:00")
+        seed_video_job_sync(conn, "vid-fair-a", "transcript")
+        seed_video_job_sync(conn, "vid-fair-b", "transcript")
         conn.commit()
 
     async def _run() -> tuple[str, str]:
         db = await open_database(db_path)
         try:
-            normal = await repository.pop_pending_transcript_videos(db, limit=1, lookahead=10)
-            avoided = await repository.pop_pending_transcript_videos(
+            normal = await pipeline_repo.list_claimable_transcript_jobs(db, limit=1, lookahead=10)
+            avoided = await pipeline_repo.list_claimable_transcript_jobs(
                 db,
                 limit=1,
                 lookahead=10,
@@ -593,59 +493,28 @@ def test_pop_pending_transcript_videos_can_avoid_last_channel(client) -> None:
     assert avoided_id == "vid-fair-b"
 
 
-def test_defer_channel_transcript_retries_defers_same_channel_except_excluded(client) -> None:
+def test_defer_channel_transcript_jobs_defers_same_channel_except_excluded(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCdefer001",
-                "Defer Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCdefer001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES
-              (?, ?, ?, ?, 'transcript_pending'),
-              (?, ?, ?, ?, 'transcript_pending')
-            """,
-            (
-                "vid-defer-keep",
-                "UCdefer001",
-                "keep",
-                "2026-02-25T00:00:00+00:00",
-                "vid-defer-move",
-                "UCdefer001",
-                "move",
-                "2026-02-24T00:00:00+00:00",
-            ),
-        )
+        _seed_channel_sync(conn, "UCdefer001", "Defer Channel")
+        _seed_video_sync(conn, "vid-defer-keep", "UCdefer001", "2026-02-25T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-defer-move", "UCdefer001", "2026-02-24T00:00:00+00:00")
+        keep_job = seed_video_job_sync(conn, "vid-defer-keep", "transcript")
+        move_job = seed_video_job_sync(conn, "vid-defer-move", "transcript")
         conn.commit()
 
     async def _run() -> tuple[str | None, str | None]:
         db = await open_database(db_path)
         try:
-            await repository.defer_channel_transcript_retries(
+            await pipeline_repo.defer_channel_transcript_jobs(
                 db,
                 channel_id="UCdefer001",
                 delay_seconds=600,
                 exclude_video_id="vid-defer-keep",
             )
-            cursor = await db.execute(
-                """
-                SELECT video_id, transcript_next_attempt_at
-                FROM videos
-                WHERE video_id IN ('vid-defer-keep', 'vid-defer-move')
-                ORDER BY video_id ASC
-                """
-            )
-            rows = await cursor.fetchall()
-            return rows[0]["transcript_next_attempt_at"], rows[1]["transcript_next_attempt_at"]
+            keep = await _job(db, keep_job)
+            move = await _job(db, move_job)
+            return keep["next_attempt_at"], move["next_attempt_at"]
         finally:
             await db.close()
 
@@ -654,75 +523,36 @@ def test_defer_channel_transcript_retries_defers_same_channel_except_excluded(cl
     assert move_next_attempt_at is not None
 
 
-def test_mark_restructure_failed_skips_when_video_is_not_llm_processing(client) -> None:
+def test_record_article_job_failure_skips_when_job_is_not_running(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCllm001",
-                "LLM Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCllm001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'done', 0)
-            """,
-            ("vid-llm-001", "UCllm001", "done-video", "2026-02-21T00:00:00+00:00"),
-        )
+        _seed_channel_sync(conn, "UCllm001", "LLM Channel")
+        _seed_video_sync(conn, "vid-llm-001", "UCllm001", "2026-02-21T00:00:00+00:00")
+        job_id = seed_video_job_sync(conn, "vid-llm-001", "article", status="succeeded")
         conn.commit()
 
-    async def _run() -> tuple[str, int, str, int]:
+    async def _run() -> tuple[str, int, dict]:
         db = await open_database(db_path)
         try:
-            next_status, affected = await repository.mark_restructure_failed(
-                db,
-                video_id="vid-llm-001",
-                retry_count=0,
-                max_retry_count=3,
+            next_status, affected = await pipeline_repo.record_article_job_failure(
+                db, job_id, max_attempts=3, error_code="llm_provider_timeout"
             )
-            cursor = await db.execute(
-                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
-                ("vid-llm-001",),
-            )
-            row = await cursor.fetchone()
-            return next_status, affected, str(row["pipeline_status"]), int(row["retry_count"])
+            return next_status, affected, await _job(db, job_id)
         finally:
             await db.close()
 
-    next_status, affected, pipeline_status, retry_count = asyncio.run(_run())
-    assert next_status == "llm_failed"
+    next_status, affected, job = asyncio.run(_run())
+    assert next_status == "failed"
     assert affected == 0
-    assert pipeline_status == "done"
-    assert retry_count == 0
+    assert job["status"] == "succeeded"
+    assert job["attempt_count"] == 0
 
 
-def test_llm_retry_count_floor_allows_at_least_one_attempt(client) -> None:
+def test_article_attempt_floor_allows_at_least_one_attempt(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCllmfloor001",
-                "LLM Floor Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCllmfloor001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 0)
-            """,
-            ("vid-llm-floor-001", "UCllmfloor001", "floor-video", "2026-02-21T00:00:00+00:00"),
-        )
+        _seed_channel_sync(conn, "UCllmfloor001", "LLM Floor Channel")
+        _seed_video_sync(conn, "vid-llm-floor-001", "UCllmfloor001", "2026-02-21T00:00:00+00:00")
         conn.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -730,131 +560,95 @@ def test_llm_retry_count_floor_allows_at_least_one_attempt(client) -> None:
             """,
             ("vid-llm-floor-001", "hello", "ko", "manual"),
         )
+        job_id = seed_video_job_sync(conn, "vid-llm-floor-001", "article")
         conn.commit()
 
-    async def _run() -> tuple[str | None, int, str, int, str, int]:
+    async def _run() -> tuple[str | None, str, int, str, dict]:
         db = await open_database(db_path)
         try:
-            candidate = await repository.pop_llm_candidate(db, max_retry_count=0)
-            processing_affected = await repository.mark_restructure_processing(
-                db,
-                candidate["video_id"] if candidate else "",
+            candidate = await pipeline_repo.claim_next_article_job(db, max_attempts=0)
+            next_status, failed_affected = await pipeline_repo.record_article_job_failure(
+                db, job_id, max_attempts=0, error_code="llm_provider_timeout"
             )
-            next_status, failed_affected = await repository.mark_restructure_failed(
-                db,
-                video_id="vid-llm-floor-001",
-                retry_count=0,
-                max_retry_count=0,
-            )
-            cursor = await db.execute(
-                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
-                ("vid-llm-floor-001",),
-            )
-            row = await cursor.fetchone()
             return (
                 str(candidate["video_id"]) if candidate else None,
-                processing_affected,
                 next_status,
                 failed_affected,
-                str(row["pipeline_status"]),
-                int(row["retry_count"]),
+                await _status(db, "vid-llm-floor-001"),
+                await _job(db, job_id),
             )
         finally:
             await db.close()
 
-    candidate_id, processing_affected, next_status, affected, pipeline_status, retry_count = (
-        asyncio.run(_run())
-    )
+    candidate_id, next_status, affected, pipeline_status, job = asyncio.run(_run())
     assert candidate_id == "vid-llm-floor-001"
-    assert processing_affected == 1
-    assert next_status == "manual_review"
+    assert next_status == "failed"
     assert affected == 1
-    assert pipeline_status == "manual_review"
-    assert retry_count == 1
+    assert pipeline_status == "article_failed"
+    assert job["attempt_count"] == 1
+    assert job["error_code"] == "llm_provider_timeout"
 
 
-def test_requeue_llm_pending_without_retry_keeps_retry_count(client) -> None:
+def test_record_article_job_failure_requeues_until_attempts_run_out(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCrequeue001",
-                "Requeue Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCrequeue001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_processing', 2)
-            """,
-            ("vid-requeue-001", "UCrequeue001", "requeue-video", "2026-02-21T00:00:00+00:00"),
+        _seed_channel_sync(conn, "UCllmretry001", "LLM Retry Channel")
+        _seed_video_sync(conn, "vid-llm-retry-001", "UCllmretry001", "2026-02-21T00:00:00+00:00")
+        job_id = seed_video_job_sync(conn, "vid-llm-retry-001", "article", status="running")
+        conn.commit()
+
+    async def _run() -> tuple[str, str, str, dict]:
+        db = await open_database(db_path)
+        try:
+            next_status, _ = await pipeline_repo.record_article_job_failure(
+                db, job_id, max_attempts=3, error_code="llm_provider_timeout"
+            )
+            return (
+                next_status,
+                await _status(db, "vid-llm-retry-001"),
+                await _activity(db, "vid-llm-retry-001"),
+                await _job(db, job_id),
+            )
+        finally:
+            await db.close()
+
+    next_status, pipeline_status, activity, job = asyncio.run(_run())
+    assert next_status == "queued"
+    assert (pipeline_status, activity) == ("article_pending", "retry_wait")
+    assert job["attempt_count"] == 1
+    assert job["error_code"] == "llm_provider_timeout"
+
+
+def test_requeue_article_job_keeps_attempt_count(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCrequeue001", "Requeue Channel")
+        _seed_video_sync(conn, "vid-requeue-001", "UCrequeue001", "2026-02-21T00:00:00+00:00")
+        job_id = seed_video_job_sync(
+            conn, "vid-requeue-001", "article", status="running", attempt_count=2
         )
         conn.commit()
 
-    async def _run() -> tuple[int, str, int]:
+    async def _run() -> tuple[int, str, dict]:
         db = await open_database(db_path)
         try:
-            affected = await repository.requeue_llm_pending_without_retry(
-                db,
-                video_id="vid-requeue-001",
-            )
-            cursor = await db.execute(
-                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
-                ("vid-requeue-001",),
-            )
-            row = await cursor.fetchone()
-            return affected, str(row["pipeline_status"]), int(row["retry_count"])
+            affected = await pipeline_repo.requeue_article_job(db, job_id)
+            return affected, await _status(db, "vid-requeue-001"), await _job(db, job_id)
         finally:
             await db.close()
 
-    affected, pipeline_status, retry_count = asyncio.run(_run())
+    affected, pipeline_status, job = asyncio.run(_run())
     assert affected == 1
-    assert pipeline_status == "llm_pending"
-    assert retry_count == 2
+    assert pipeline_status == "article_pending"
+    assert job["attempt_count"] == 2
 
 
-def test_repair_orphan_llm_candidates_moves_only_orphans_to_manual_review(client) -> None:
+def test_claim_next_article_job_fails_jobs_without_transcript(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCorphan001",
-                "Orphan Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCorphan001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES
-              (?, ?, ?, ?, 'llm_pending'),
-              (?, ?, ?, ?, 'llm_failed'),
-              (?, ?, ?, ?, 'llm_pending')
-            """,
-            (
-                "vid-orphan-pending",
-                "UCorphan001",
-                "orphan pending",
-                "2026-02-22T00:00:00+00:00",
-                "vid-orphan-failed",
-                "UCorphan001",
-                "orphan failed",
-                "2026-02-22T00:00:00+00:00",
-                "vid-orphan-safe",
-                "UCorphan001",
-                "has transcript",
-                "2026-02-22T00:00:00+00:00",
-            ),
-        )
+        _seed_channel_sync(conn, "UCorphan001", "Orphan Channel")
+        _seed_video_sync(conn, "vid-orphan-pending", "UCorphan001", "2026-02-22T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-orphan-safe", "UCorphan001", "2026-02-22T00:00:01+00:00")
         conn.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -862,76 +656,61 @@ def test_repair_orphan_llm_candidates_moves_only_orphans_to_manual_review(client
             """,
             ("vid-orphan-safe", "hello", "ko", "manual"),
         )
+        orphan_job = seed_video_job_sync(conn, "vid-orphan-pending", "article")
+        seed_video_job_sync(conn, "vid-orphan-safe", "article")
         conn.commit()
 
-    async def _run() -> tuple[int, dict[str, str]]:
+    async def _run() -> tuple[str | None, dict, dict[str, str]]:
         db = await open_database(db_path)
         try:
-            repaired = await repository.repair_orphan_llm_candidates(db)
-            cursor = await db.execute(
-                """
-                SELECT video_id, pipeline_status
-                FROM videos
-                WHERE video_id IN ('vid-orphan-pending', 'vid-orphan-failed', 'vid-orphan-safe')
-                ORDER BY video_id
-                """
+            candidate = await pipeline_repo.claim_next_article_job(db, max_attempts=3)
+            return (
+                str(candidate["video_id"]) if candidate else None,
+                await _job(db, orphan_job),
+                {
+                    "vid-orphan-pending": await _status(db, "vid-orphan-pending"),
+                    "vid-orphan-safe": await _status(db, "vid-orphan-safe"),
+                    "vid-orphan-safe-activity": await _activity(db, "vid-orphan-safe"),
+                },
             )
-            rows = await cursor.fetchall()
-            statuses = {str(row["video_id"]): str(row["pipeline_status"]) for row in rows}
-            return repaired, statuses
         finally:
             await db.close()
 
-    repaired, statuses = asyncio.run(_run())
-    assert repaired == 2
-    assert statuses["vid-orphan-pending"] == "manual_review"
-    assert statuses["vid-orphan-failed"] == "manual_review"
-    assert statuses["vid-orphan-safe"] == "llm_pending"
+    candidate_id, orphan, statuses = asyncio.run(_run())
+    assert candidate_id == "vid-orphan-safe"
+    assert orphan["status"] == "failed"
+    assert orphan["error_code"] == "transcript_missing"
+    assert statuses["vid-orphan-pending"] == "article_failed"
+    assert statuses["vid-orphan-safe"] == "article_pending"
+    assert statuses["vid-orphan-safe-activity"] == "running"
 
 
 def test_ensure_llm_config_missing_alert_is_deduplicated_and_reset(client) -> None:
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (
-                "UCalert001",
-                "Alert Channel",
-                "https://www.youtube.com/feeds/videos.xml?channel_id=UCalert001",
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'llm_pending')
-            """,
-            ("vid-alert-001", "UCalert001", "alert-video", "2026-02-23T00:00:00+00:00"),
-        )
+        _seed_channel_sync(conn, "UCalert001", "Alert Channel")
+        _seed_video_sync(conn, "vid-alert-001", "UCalert001", "2026-02-23T00:00:00+00:00")
+        job_id = seed_video_job_sync(conn, "vid-alert-001", "article")
         conn.commit()
 
     async def _run() -> tuple[bool, bool, int, str | None]:
         db = await open_database(db_path)
         try:
-            created_first = await repository.ensure_llm_config_missing_alert(db)
-            created_second = await repository.ensure_llm_config_missing_alert(db)
-            await db.execute(
-                "UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-alert-001'"
-            )
+            created_first = await llm_repo.ensure_llm_config_missing_alert(db)
+            created_second = await llm_repo.ensure_llm_config_missing_alert(db)
+            await db.execute("UPDATE video_jobs SET status = 'succeeded' WHERE id = ?", (job_id,))
             await db.commit()
-            created_after_done = await repository.ensure_llm_config_missing_alert(db)
+            created_after_done = await llm_repo.ensure_llm_config_missing_alert(db)
             assert created_after_done is False
 
             cursor = await db.execute(
                 "SELECT COUNT(1) AS cnt FROM system_alerts WHERE alert_type = ?",
-                (repository.ALERT_TYPE_LLM_CONFIG_MISSING,),
+                (llm_repo.ALERT_TYPE_LLM_CONFIG_MISSING,),
             )
             count_row = await cursor.fetchone()
-            sent_key = await repository.get_setting(
+            sent_key = await settings_repo.get_setting(
                 db,
-                key=repository.LLM_CONFIG_MISSING_ALERT_SENT_KEY,
+                key=llm_repo.LLM_CONFIG_MISSING_ALERT_SENT_KEY,
                 default=None,
             )
             return created_first, created_second, int(count_row["cnt"] or 0), sent_key
@@ -958,3 +737,87 @@ def test_transcript_worker_skips_when_lock_already_held(tmp_path) -> None:
             lock.release()
 
     asyncio.run(_run())
+
+
+def test_queue_badge_counts_transcript_retry_wait_but_not_article_retry_wait(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCbadge001", "Badge Channel")
+        _seed_video_sync(conn, "vid-badge-tx", "UCbadge001", "2026-02-21T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-badge-llm", "UCbadge001", "2026-02-21T00:00:01+00:00")
+        conn.execute(
+            "INSERT INTO transcripts(video_id, raw_text, language, source_type) "
+            "VALUES ('vid-badge-llm', 'hello', 'ko', 'manual')"
+        )
+        seed_video_job_sync(
+            conn, "vid-badge-tx", "transcript", attempt_count=1, error_code="retryable_transient"
+        )
+        seed_video_job_sync(
+            conn, "vid-badge-llm", "article", attempt_count=1, error_code="llm_provider_timeout"
+        )
+        conn.commit()
+
+    async def _run() -> dict:
+        db = await open_database(db_path)
+        try:
+            return await pipeline_repo.queue_status(db)
+        finally:
+            await db.close()
+
+    counts = asyncio.run(_run())
+    assert counts["transcript_retry_wait"] == 1
+    assert counts["article_retry_wait"] == 1
+    assert counts["badge_count"] == 1
+
+
+def test_retry_article_for_video_marks_retry_wait_job_manual(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCretryorigin", "Retry Origin Channel")
+        _seed_video_sync(conn, "vid-retry-origin", "UCretryorigin", "2026-02-21T00:00:00+00:00")
+        job_id = seed_video_job_sync(
+            conn,
+            "vid-retry-origin",
+            "article",
+            attempt_count=2,
+            error_code="llm_provider_timeout",
+        )
+        conn.commit()
+
+    async def _run() -> tuple[int, dict]:
+        db = await open_database(db_path)
+        try:
+            retried = await pipeline_repo.retry_article_for_video(db, "vid-retry-origin")
+            return retried, await _job(db, job_id)
+        finally:
+            await db.close()
+
+    retried, job = asyncio.run(_run())
+    assert retried == 1
+    assert job["origin"] == "manual"
+    assert job["attempt_count"] == 0
+    assert job["error_code"] is None
+
+
+def test_article_retry_skips_failed_jobs_without_transcript(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCretryorphan", "Retry Orphan Channel")
+        _seed_video_sync(conn, "vid-retry-orphan", "UCretryorphan", "2026-02-21T00:00:00+00:00")
+        seed_video_job_sync(
+            conn, "vid-retry-orphan", "article", status="failed", error_code="transcript_missing"
+        )
+        conn.commit()
+
+    async def _run() -> tuple[int, int, str]:
+        db = await open_database(db_path)
+        try:
+            bulk = await pipeline_repo.retry_failed_jobs(db, pipeline_repo.JOB_KIND_ARTICLE)
+            single = await pipeline_repo.retry_article_for_video(db, "vid-retry-orphan")
+            return bulk, single, await _status(db, "vid-retry-orphan")
+        finally:
+            await db.close()
+
+    bulk, single, status = asyncio.run(_run())
+    assert (bulk, single) == (0, 0)
+    assert status == "article_failed"

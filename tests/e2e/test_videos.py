@@ -24,42 +24,48 @@ UC_ALPHA = "UC_ALPHA_CHANNEL_001"
 UC_BETA = "UC_BETA_CHANNEL_002"
 
 # 25 videos total: UC_ALPHA 15, UC_BETA 10
-# Pipeline status distribution:
-#   done            10  (ALPHA 1-7, BETA 1-3)
+# Seed state distribution (seed_video pipeline_status):
+#   paused              10  (ALPHA 1-7, BETA 1-3; 3 of them get an article → article_ready)
 #   transcript_pending   5  (ALPHA 8-12)
-#   llm_pending          3  (ALPHA 13-15)
+#   article_pending      3  (ALPHA 13-15)
 #   transcript_failed    2  (BETA 4-5)
 #   no_subtitle          2  (BETA 6-7)
-#   llm_failed           2  (BETA 8-9)
-#   manual_review        1  (BETA 10)
+#   article_retry_wait   2  (BETA 8-9; derived status article_pending, activity retry_wait)
+#   article_failed       1  (BETA 10)
 
 ALPHA_VIDEOS: list[tuple[str, str, str, int]] = (
     [
-        # (video_id, title, pipeline_status, days_ago)
-        (f"ALPHA_DONE_{i:02d}", f"Alpha Done Video {i}", "done", 30 - i)
+        # (video_id, title, seed state, days_ago)
+        (f"ALPHA_DONE_{i:02d}", f"Alpha Done Video {i}", "paused", 30 - i)
         for i in range(1, 8)
     ]
     + [
         (f"ALPHA_TP_{i:02d}", f"Alpha Transcript Pending {i}", "transcript_pending", 20 - i)
         for i in range(1, 6)
     ]
-    + [(f"ALPHA_LP_{i:02d}", f"Alpha LLM Pending {i}", "llm_pending", 10 - i) for i in range(1, 4)]
+    + [
+        (f"ALPHA_LP_{i:02d}", f"Alpha LLM Pending {i}", "article_pending", 10 - i)
+        for i in range(1, 4)
+    ]
 )
 
 BETA_VIDEOS: list[tuple[str, str, str, int]] = (
-    [(f"BETA_DONE_{i:02d}", f"Beta Done Video {i}", "done", 25 - i) for i in range(1, 4)]
+    [(f"BETA_DONE_{i:02d}", f"Beta Done Video {i}", "paused", 25 - i) for i in range(1, 4)]
     + [
         (f"BETA_TF_{i:02d}", f"Beta Transcript Failed {i}", "transcript_failed", 15 - i)
         for i in range(1, 3)
     ]
     + [(f"BETA_NS_{i:02d}", f"Beta No Subtitle {i}", "no_subtitle", 12 - i) for i in range(1, 3)]
-    + [(f"BETA_LF_{i:02d}", f"Beta LLM Failed {i}", "llm_failed", 8 - i) for i in range(1, 3)]
     + [
-        ("BETA_MR_01", "Beta Manual Review 1", "manual_review", 3),
+        (f"BETA_LF_{i:02d}", f"Beta LLM Failed {i}", "article_retry_wait", 8 - i)
+        for i in range(1, 3)
+    ]
+    + [
+        ("BETA_AF_01", "Beta Article Failed 1", "article_failed", 3),
     ]
 )
 
-# The 3 done videos that get transcript + article
+# The 3 paused videos that get transcript + article (→ article_ready)
 DONE_WITH_ARTICLE = ["ALPHA_DONE_01", "ALPHA_DONE_02", "BETA_DONE_01"]
 
 
@@ -114,7 +120,7 @@ def seeded_server(e2e_server: dict) -> dict:
             pipeline_status=status,
         )
 
-    # Transcripts + articles for 3 done videos
+    # Transcripts + articles for 3 videos
     for vid_id in DONE_WITH_ARTICLE:
         seed_transcript(
             db_path, vid_id, f"Transcript text for {vid_id}. This is sample subtitle content."
@@ -389,3 +395,49 @@ def test_video_list_transcript_retry_button_requeues_no_subtitle(
     expect(row.locator("button[data-video-list-transcript-retry]")).to_have_count(0)
     # 채널 필터가 유지된다.
     expect(page.locator("#video-list-wrap tbody a[href='/videos/ALPHA_DONE_01']")).to_have_count(0)
+
+
+@pytest.mark.e2e
+def test_video_list_status_filter_and_article_retry_affordance(
+    e2e_page: Page, seeded_server: dict
+) -> None:
+    """상태 필터는 status 키로 동작하고, 기사 실패·재시도 대기 행만 재시도 버튼을 노출한다."""
+    page = e2e_page
+    # 북마크된 구버전 ?pipeline_status=manual_review 는 article_failed 필터로 이어진다.
+    page.goto(f"{seeded_server['base_url']}/?pipeline_status=manual_review&limit=25")
+    page.wait_for_selector("#video-list-wrap")
+    rows = page.locator("#video-list-wrap tbody tr")
+    expect(rows).to_have_count(1)
+    failed_row = page.locator("#video-list-wrap tbody tr:has(a[href='/videos/BETA_AF_01'])")
+    expect(failed_row).to_contain_text("기사 생성 실패")
+    expect(failed_row.locator("button[hx-post='/api/videos/BETA_AF_01/retry']")).to_have_count(1)
+    expect(failed_row.locator("input[data-video-select-item]")).to_have_attribute(
+        "data-article-eligible", "1"
+    )
+
+    status_select = page.locator("#video-list-wrap select[name='status']")
+    if not status_select.is_visible():
+        page.locator("#video-list-wrap details summary").first.click()
+    expect(status_select).to_have_value("article_failed")
+    with page.expect_response(
+        lambda resp: "/views/video-list" in resp.url and "status=article_pending" in resp.url
+    ):
+        status_select.select_option("article_pending")
+    expect(page).to_have_url(re.compile(r"[?&]status=article_pending(&|$)"))
+    assert "pipeline_status" not in page.url
+
+    rows = page.locator("#video-list-wrap tbody tr")
+    expect(rows).to_have_count(5)
+    for video_id in ("BETA_LF_01", "BETA_LF_02"):
+        row = page.locator(f"#video-list-wrap tbody tr:has(a[href='/videos/{video_id}'])")
+        expect(row.locator("[data-pipeline-activity='retry_wait']")).to_have_count(1)
+        expect(row.locator(f"button[hx-post='/api/videos/{video_id}/retry']")).to_have_count(1)
+        expect(row.locator("input[data-video-select-item]")).to_have_attribute(
+            "data-article-eligible", "1"
+        )
+    queued_row = page.locator("#video-list-wrap tbody tr:has(a[href='/videos/ALPHA_LP_01'])")
+    expect(queued_row).to_contain_text("기사 생성 대기")
+    expect(queued_row.locator("button[hx-post='/api/videos/ALPHA_LP_01/retry']")).to_have_count(0)
+    expect(queued_row.locator("input[data-video-select-item]")).to_have_attribute(
+        "data-article-eligible", "0"
+    )

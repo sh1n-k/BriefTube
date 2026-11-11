@@ -10,6 +10,7 @@ from app.repositories import settings as settings_repo
 from app.repositories import videos as videos_repo
 from app.services.llm import LlmClientError, LlmRuntimePlan
 from app.workers.llm_worker import run_llm_queue_worker
+from tests.helpers.db_seed import seed_video_job
 
 repository = SimpleNamespace(
     get_video=videos_repo.get_video,
@@ -168,15 +169,22 @@ async def _wait_for_video_status(
     *,
     video_id: str,
     expected: str,
+    activity: str | None = None,
     timeout_seconds: float = 3.0,
 ) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while True:
         row = await repository.get_video(db, video_id)
-        if row and str(row.get("pipeline_status")) == expected:
+        if (
+            row
+            and str(row.get("pipeline_status")) == expected
+            and (activity is None or str(row.get("pipeline_activity")) == activity)
+        ):
             return row
         if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError(f"video {video_id} did not reach status={expected}")
+            raise AssertionError(
+                f"video {video_id} did not reach status={expected} activity={activity}"
+            )
         await asyncio.sleep(0.05)
 
 
@@ -199,10 +207,13 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 2)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-001", "UCworker001", "worker-video", "2026-02-24T00:00:00+00:00"),
+        )
+        await seed_video_job(
+            db, "vid-worker-001", "article", status="queued", attempt_count=2, commit=False
         )
         await db.execute(
             """
@@ -235,7 +246,7 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
                 await asyncio.sleep(0.05)
 
             cursor = await db.execute(
-                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+                "SELECT pipeline_status, article_attempt_count AS retry_count FROM video_pipeline_v WHERE video_id = ?",
                 ("vid-worker-001",),
             )
             video = await cursor.fetchone()
@@ -258,7 +269,7 @@ def test_llm_worker_requeues_pending_when_auth_is_required(tmp_path) -> None:
             await db.close()
 
     status, retry_count, alert_count, sent_key, runtime_issue = asyncio.run(_run())
-    assert status == "llm_pending"
+    assert status == "article_pending"
     assert retry_count == 2
     assert alert_count >= 1
     assert sent_key == "1"
@@ -284,10 +295,13 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 1)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-002", "UCworker002", "worker-video-2", "2026-02-24T00:00:00+00:00"),
+        )
+        await seed_video_job(
+            db, "vid-worker-002", "article", status="queued", attempt_count=1, commit=False
         )
         await db.execute(
             """
@@ -329,7 +343,7 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
             alert_count = int(row["cnt"] or 0)
 
             cursor = await db.execute(
-                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+                "SELECT pipeline_status, article_attempt_count AS retry_count FROM video_pipeline_v WHERE video_id = ?",
                 ("vid-worker-002",),
             )
             video = await cursor.fetchone()
@@ -353,7 +367,7 @@ def test_llm_worker_hard_stops_when_schema_is_invalid(tmp_path) -> None:
             await db.close()
 
     status, retry_count, alert_count, sent_key, runtime_issue, call_count = asyncio.run(_run())
-    assert status == "llm_pending"
+    assert status == "article_pending"
     assert retry_count == 1
     assert alert_count == 1
     assert sent_key == "1"
@@ -380,11 +394,12 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-003", "UCworker003", "worker-video-3", "2026-02-24T00:00:00+00:00"),
         )
+        await seed_video_job(db, "vid-worker-003", "article", status="queued", commit=False)
         await db.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -415,7 +430,8 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
             processing_row = await _wait_for_video_status(
                 db,
                 video_id="vid-worker-003",
-                expected="llm_processing",
+                expected="article_pending",
+                activity="running",
                 timeout_seconds=2,
             )
             assert int(processing_row["retry_count"]) == 0
@@ -424,7 +440,7 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
             done_row = await _wait_for_video_status(
                 db,
                 video_id="vid-worker-003",
-                expected="done",
+                expected="article_ready",
                 timeout_seconds=2,
             )
             cursor = await db.execute(
@@ -469,7 +485,7 @@ def test_llm_worker_state_transition_pending_to_processing_to_done(tmp_path) -> 
         llm_effort,
         llm_generated_at,
     ) = asyncio.run(_run())
-    assert status == "done"
+    assert status == "article_ready"
     assert retry_count == 0
     assert article_count == 1
     assert runtime_issue_code == ""
@@ -502,11 +518,12 @@ def test_llm_worker_processes_multiple_candidates_concurrently(tmp_path) -> None
         ):
             await db.execute(
                 """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-                VALUES (?, ?, ?, ?, 'llm_pending', 0)
+                INSERT INTO videos(video_id, channel_id, title, upload_time)
+                VALUES (?, ?, ?, ?)
                 """,
                 (video_id, "UCworker008", title, "2026-02-24T00:00:00+00:00"),
             )
+            await seed_video_job(db, video_id, "article", status="queued", commit=False)
             await db.execute(
                 """
                 INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -538,7 +555,8 @@ def test_llm_worker_processes_multiple_candidates_concurrently(tmp_path) -> None
                 row = await _wait_for_video_status(
                     db,
                     video_id=video_id,
-                    expected="llm_processing",
+                    expected="article_pending",
+                    activity="running",
                     timeout_seconds=2,
                 )
                 processing_ids.add(str(row["video_id"]))
@@ -548,7 +566,7 @@ def test_llm_worker_processes_multiple_candidates_concurrently(tmp_path) -> None
                 await _wait_for_video_status(
                     db,
                     video_id=video_id,
-                    expected="done",
+                    expected="article_ready",
                     timeout_seconds=2,
                 )
             cursor = await db.execute("SELECT COUNT(1) AS cnt FROM articles")
@@ -565,7 +583,7 @@ def test_llm_worker_processes_multiple_candidates_concurrently(tmp_path) -> None
     assert article_count == 2
 
 
-def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:
+def test_llm_worker_processes_retry_wait_article_job(tmp_path) -> None:
     db_path = tmp_path / "worker-runtime-retryable-failed.db"
 
     async def _run() -> tuple[str, int, int]:
@@ -584,10 +602,19 @@ def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_failed', 1)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-005", "UCworker005", "worker-video-5", "2026-02-24T00:00:00+00:00"),
+        )
+        await seed_video_job(
+            db,
+            "vid-worker-005",
+            "article",
+            status="queued",
+            attempt_count=1,
+            error_code="llm_provider_timeout",
+            commit=False,
         )
         await db.execute(
             """
@@ -613,14 +640,15 @@ def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:
             await _wait_for_video_status(
                 db,
                 video_id="vid-worker-005",
-                expected="llm_processing",
+                expected="article_pending",
+                activity="running",
                 timeout_seconds=2,
             )
             client.proceed.set()
             done_row = await _wait_for_video_status(
                 db,
                 video_id="vid-worker-005",
-                expected="done",
+                expected="article_ready",
                 timeout_seconds=2,
             )
             cursor = await db.execute(
@@ -639,7 +667,7 @@ def test_llm_worker_processes_retryable_llm_failed_candidate(tmp_path) -> None:
             await db.close()
 
     status, retry_count, article_count = asyncio.run(_run())
-    assert status == "done"
+    assert status == "article_ready"
     assert retry_count == 1
     assert article_count == 1
 
@@ -663,11 +691,12 @@ def test_llm_worker_stale_success_does_not_overwrite_changed_status(tmp_path) ->
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-006", "UCworker006", "worker-video-6", "2026-02-24T00:00:00+00:00"),
         )
+        await seed_video_job(db, "vid-worker-006", "article", status="queued", commit=False)
         await db.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -693,11 +722,16 @@ def test_llm_worker_stale_success_does_not_overwrite_changed_status(tmp_path) ->
             await _wait_for_video_status(
                 db,
                 video_id="vid-worker-006",
-                expected="llm_processing",
+                expected="article_pending",
+                activity="running",
                 timeout_seconds=2,
             )
+            # The job is settled elsewhere while the provider call is in flight.
             await db.execute(
-                "UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id = ?",
+                """
+                UPDATE video_jobs SET status = 'failed', finished_at = datetime('now')
+                WHERE video_id = ? AND kind = 'article' AND status = 'running'
+                """,
                 ("vid-worker-006",),
             )
             await db.commit()
@@ -705,7 +739,7 @@ def test_llm_worker_stale_success_does_not_overwrite_changed_status(tmp_path) ->
             client.proceed.set()
             await asyncio.sleep(0.2)
             cursor = await db.execute(
-                "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+                "SELECT pipeline_status, article_attempt_count AS retry_count FROM video_pipeline_v WHERE video_id = ?",
                 ("vid-worker-006",),
             )
             video = await cursor.fetchone()
@@ -726,13 +760,13 @@ def test_llm_worker_stale_success_does_not_overwrite_changed_status(tmp_path) ->
             await db.close()
 
     status, retry_count, article_count, queue_empty = asyncio.run(_run())
-    assert status == "manual_review"
+    assert status == "article_failed"
     assert retry_count == 0
     assert article_count == 0
     assert queue_empty is True
 
 
-def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> None:
+def test_llm_worker_non_retryable_refusal_fails_article_job(tmp_path) -> None:
     db_path = tmp_path / "worker-runtime-non-retryable.db"
 
     async def _run() -> tuple[str, int]:
@@ -751,11 +785,12 @@ def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> Non
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-007", "UCworker007", "worker-video-7", "2026-02-24T00:00:00+00:00"),
         )
+        await seed_video_job(db, "vid-worker-007", "article", status="queued", commit=False)
         await db.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -780,19 +815,20 @@ def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> Non
             await _wait_for_video_status(
                 db,
                 video_id="vid-worker-007",
-                expected="llm_processing",
+                expected="article_pending",
+                activity="running",
                 timeout_seconds=2,
             )
             client.proceed.set()
-            manual_review_row = await _wait_for_video_status(
+            failed_row = await _wait_for_video_status(
                 db,
                 video_id="vid-worker-007",
-                expected="manual_review",
+                expected="article_failed",
                 timeout_seconds=2,
             )
             return (
-                str(manual_review_row["pipeline_status"]),
-                int(manual_review_row["retry_count"]),
+                str(failed_row["pipeline_status"]),
+                int(failed_row["retry_count"]),
             )
         finally:
             task.cancel()
@@ -800,11 +836,12 @@ def test_llm_worker_non_retryable_refusal_goes_to_manual_review(tmp_path) -> Non
             await db.close()
 
     status, retry_count = asyncio.run(_run())
-    assert status == "manual_review"
-    assert retry_count == 3
+    assert status == "article_failed"
+    # A non-retryable failure ends the job after the one attempt it actually made.
+    assert retry_count == 1
 
 
-def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhausted(
+def test_llm_worker_state_transition_running_to_article_failed_on_retry_exhausted(
     tmp_path,
 ) -> None:
     db_path = tmp_path / "worker-runtime-transition-fail.db"
@@ -825,10 +862,13 @@ def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhaus
         )
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 2)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-worker-004", "UCworker004", "worker-video-4", "2026-02-24T00:00:00+00:00"),
+        )
+        await seed_video_job(
+            db, "vid-worker-004", "article", status="queued", attempt_count=2, commit=False
         )
         await db.execute(
             """
@@ -854,19 +894,20 @@ def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhaus
             await _wait_for_video_status(
                 db,
                 video_id="vid-worker-004",
-                expected="llm_processing",
+                expected="article_pending",
+                activity="running",
                 timeout_seconds=2,
             )
             client.proceed.set()
-            manual_review_row = await _wait_for_video_status(
+            failed_row = await _wait_for_video_status(
                 db,
                 video_id="vid-worker-004",
-                expected="manual_review",
+                expected="article_failed",
                 timeout_seconds=2,
             )
             return (
-                str(manual_review_row["pipeline_status"]),
-                int(manual_review_row["retry_count"]),
+                str(failed_row["pipeline_status"]),
+                int(failed_row["retry_count"]),
             )
         finally:
             task.cancel()
@@ -874,7 +915,7 @@ def test_llm_worker_state_transition_processing_to_manual_review_on_retry_exhaus
             await db.close()
 
     status, retry_count = asyncio.run(_run())
-    assert status == "manual_review"
+    assert status == "article_failed"
     assert retry_count == 3
 
 
@@ -898,15 +939,19 @@ def test_save_article_keeps_cursor_provider(tmp_path) -> None:
             )
             await db.execute(
                 """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-                VALUES (?, ?, ?, ?, 'llm_processing')
+                INSERT INTO videos(video_id, channel_id, title, upload_time)
+                VALUES (?, ?, ?, ?)
                 """,
                 ("vid-cursor-001", "UCcursor001", "cursor-video", "2026-09-28T00:00:00+00:00"),
+            )
+            job_id = await seed_video_job(
+                db, "vid-cursor-001", "article", status="running", commit=False
             )
             await db.commit()
 
             saved = await llm_repo.save_article(
                 db,
+                job_id,
                 "vid-cursor-001",
                 "Article title",
                 "Article lead",
@@ -974,11 +1019,12 @@ def test_llm_worker_sends_timed_transcript_when_available(tmp_path) -> None:
         for video_id, timed_text in (("vid-timed", "[00:00] hello"), ("vid-plain", None)):
             await db.execute(
                 """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-                VALUES (?, 'UCtimed', ?, '2026-02-24T00:00:00+00:00', 'llm_pending', 0)
+                INSERT INTO videos(video_id, channel_id, title, upload_time)
+                VALUES (?, 'UCtimed', ?, '2026-02-24T00:00:00+00:00')
                 """,
                 (video_id, video_id),
             )
+            await seed_video_job(db, video_id, "article", status="queued", commit=False)
             await db.execute(
                 """
                 INSERT INTO transcripts(video_id, raw_text, timed_text, language, source_type)
@@ -999,7 +1045,7 @@ def test_llm_worker_sends_timed_transcript_when_available(tmp_path) -> None:
         task = asyncio.create_task(run_llm_queue_worker(state))
         try:
             for video_id in ("vid-timed", "vid-plain"):
-                await _wait_for_video_status(db, video_id=video_id, expected="done")
+                await _wait_for_video_status(db, video_id=video_id, expected="article_ready")
             return sorted(client.transcripts)
         finally:
             task.cancel()
@@ -1052,7 +1098,7 @@ class RateLimitedThenSuccessClient(TimedSuccessClient):
         return await super().restructure(source_title, transcript_text, settings)
 
 
-async def _seed_llm_pending_videos(db, video_ids: tuple[str, ...]) -> None:
+async def _seed_article_pending_videos(db, video_ids: tuple[str, ...]) -> None:
     await db.execute(
         """
         INSERT INTO channels(channel_id, channel_name, rss_url, is_active)
@@ -1067,11 +1113,12 @@ async def _seed_llm_pending_videos(db, video_ids: tuple[str, ...]) -> None:
     for video_id in video_ids:
         await db.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, 'llm_pending', 0)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             (video_id, "UCworkerclaude", video_id, "2026-02-24T00:00:00+00:00"),
         )
+        await seed_video_job(db, video_id, "article", status="queued", commit=False)
         await db.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)
@@ -1095,7 +1142,7 @@ def test_llm_worker_spaces_claude_call_starts_even_with_free_slots(tmp_path, mon
     async def _run() -> list[float]:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-claude-a", "vid-claude-b"))
+        await _seed_article_pending_videos(db, ("vid-claude-a", "vid-claude-b"))
         await settings_repo.set_llm_settings(db, provider_primary="claude", max_concurrent=4)
         await db.commit()
 
@@ -1111,7 +1158,7 @@ def test_llm_worker_spaces_claude_call_starts_even_with_free_slots(tmp_path, mon
         try:
             for video_id in ("vid-claude-a", "vid-claude-b"):
                 await _wait_for_video_status(
-                    db, video_id=video_id, expected="done", timeout_seconds=5
+                    db, video_id=video_id, expected="article_ready", timeout_seconds=5
                 )
             return client.started_at
         finally:
@@ -1130,7 +1177,7 @@ def test_llm_worker_does_not_space_other_provider_calls(tmp_path) -> None:
     async def _run() -> list[float]:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-codex-a", "vid-codex-b"))
+        await _seed_article_pending_videos(db, ("vid-codex-a", "vid-codex-b"))
         await settings_repo.set_llm_settings(db, provider_primary="codex", max_concurrent=2)
         await db.commit()
 
@@ -1146,7 +1193,7 @@ def test_llm_worker_does_not_space_other_provider_calls(tmp_path) -> None:
         try:
             for video_id in ("vid-codex-a", "vid-codex-b"):
                 await _wait_for_video_status(
-                    db, video_id=video_id, expected="done", timeout_seconds=5
+                    db, video_id=video_id, expected="article_ready", timeout_seconds=5
                 )
             return client.started_at
         finally:
@@ -1169,7 +1216,7 @@ def test_llm_worker_requeues_rate_limited_job_without_spending_retry(tmp_path, m
     async def _run() -> tuple[int, dict]:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-claude-limit",))
+        await _seed_article_pending_videos(db, ("vid-claude-limit",))
         await settings_repo.set_llm_settings(db, provider_primary="claude")
         await db.commit()
 
@@ -1184,7 +1231,7 @@ def test_llm_worker_requeues_rate_limited_job_without_spending_retry(tmp_path, m
         task = asyncio.create_task(run_llm_queue_worker(state))
         try:
             row = await _wait_for_video_status(
-                db, video_id="vid-claude-limit", expected="done", timeout_seconds=5
+                db, video_id="vid-claude-limit", expected="article_ready", timeout_seconds=5
             )
             return client.calls, dict(row)
         finally:
@@ -1208,7 +1255,7 @@ def test_llm_worker_rate_limit_pauses_every_slot(tmp_path, monkeypatch) -> None:
     async def _run() -> list[float]:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-limit-a", "vid-limit-b"))
+        await _seed_article_pending_videos(db, ("vid-limit-a", "vid-limit-b"))
         await settings_repo.set_llm_settings(db, provider_primary="claude", max_concurrent=4)
         await db.commit()
 
@@ -1235,7 +1282,7 @@ def test_llm_worker_rate_limit_pauses_every_slot(tmp_path, monkeypatch) -> None:
             state.llm_wake_event.set()
             for video_id in ("vid-limit-a", "vid-limit-b"):
                 await _wait_for_video_status(
-                    db, video_id=video_id, expected="done", timeout_seconds=8
+                    db, video_id=video_id, expected="article_ready", timeout_seconds=8
                 )
             return calls_at
         finally:
@@ -1259,7 +1306,7 @@ def test_llm_worker_provider_switch_lifts_rate_limit_pause(tmp_path, monkeypatch
     async def _run() -> int:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-limit-switch",))
+        await _seed_article_pending_videos(db, ("vid-limit-switch",))
         await settings_repo.set_llm_settings(db, provider_primary="claude")
         await db.commit()
 
@@ -1279,7 +1326,7 @@ def test_llm_worker_provider_switch_lifts_rate_limit_pause(tmp_path, monkeypatch
                 await asyncio.sleep(0.05)
             await settings_repo.set_llm_settings(db, provider_primary="codex")
             await _wait_for_video_status(
-                db, video_id="vid-limit-switch", expected="done", timeout_seconds=10
+                db, video_id="vid-limit-switch", expected="article_ready", timeout_seconds=10
             )
             return client.calls
         finally:
@@ -1308,7 +1355,7 @@ def test_llm_worker_keeps_rate_limit_pause_for_last_pending_job(tmp_path, monkey
     async def _run() -> tuple[float, list[float]]:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-limit-last",))
+        await _seed_article_pending_videos(db, ("vid-limit-last",))
         await settings_repo.set_llm_settings(db, provider_primary="claude")
         await db.commit()
 
@@ -1324,7 +1371,7 @@ def test_llm_worker_keeps_rate_limit_pause_for_last_pending_job(tmp_path, monkey
         task = asyncio.create_task(run_llm_queue_worker(state))
         try:
             await _wait_for_video_status(
-                db, video_id="vid-limit-last", expected="done", timeout_seconds=8
+                db, video_id="vid-limit-last", expected="article_ready", timeout_seconds=8
             )
             return started, client.started_at
         finally:
@@ -1366,7 +1413,7 @@ def test_llm_worker_ignores_auth_failure_from_previous_provider_job(tmp_path, mo
     async def _run() -> tuple[int, dict]:
         db = await open_database(str(db_path))
         await init_database(db)
-        await _seed_llm_pending_videos(db, ("vid-stale-auth",))
+        await _seed_article_pending_videos(db, ("vid-stale-auth",))
         await settings_repo.set_llm_settings(db, provider_primary="cursor")
         await db.commit()
 
@@ -1381,7 +1428,7 @@ def test_llm_worker_ignores_auth_failure_from_previous_provider_job(tmp_path, mo
         task = asyncio.create_task(run_llm_queue_worker(state))
         try:
             await _wait_for_video_status(
-                db, video_id="vid-stale-auth", expected="done", timeout_seconds=8
+                db, video_id="vid-stale-auth", expected="article_ready", timeout_seconds=8
             )
             issue = await llm_repo.get_llm_runtime_issue(db)
             return client.calls, dict(issue)

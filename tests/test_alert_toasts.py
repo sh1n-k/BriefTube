@@ -5,6 +5,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from tests.helpers.db_seed import seed_video_job_sync
+
 
 def _insert_alert(
     db_path: str,
@@ -178,11 +180,16 @@ def _set_llm_auth_issue(db_path: str, *, pending: bool) -> None:
             )
             conn.execute(
                 """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-                VALUES (?, ?, ?, ?, 'llm_pending')
+                INSERT INTO videos(video_id, channel_id, title, upload_time)
+                VALUES (?, ?, ?, ?)
                 """,
                 ("vid-llm-block-01", "UCllmblock01", "blocked", "2026-10-25T00:00:00+00:00"),
             )
+            conn.execute(
+                "INSERT INTO transcripts(video_id, raw_text, language, source_type) "
+                "VALUES ('vid-llm-block-01', 'hello', 'ko', 'manual')"
+            )
+            seed_video_job_sync(conn, "vid-llm-block-01", "article")
         conn.executemany(
             "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?, ?)",
             [

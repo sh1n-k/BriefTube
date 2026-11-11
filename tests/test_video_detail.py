@@ -8,8 +8,37 @@ from fastapi.testclient import TestClient
 
 from app.repositories import videos as videos_repo
 from tests.helpers.app_repo import call_repo
+from tests.helpers.db_seed import seed_video_job_sync
 
 FRAGMENT_HEADERS = {"HX-Request": "true"}
+
+# Seed key → video_jobs rows that reproduce it in video_pipeline_v.
+# "<status>" or "<status>:<activity>" (the activity defaults to queued for pending statuses).
+_STATUS_JOBS: dict[str, list[dict[str, object]]] = {
+    "transcript_pending": [{"kind": "transcript"}],
+    "transcript_pending:running": [{"kind": "transcript", "status": "running"}],
+    "transcript_failed": [
+        {
+            "kind": "transcript",
+            "status": "failed",
+            "error_code": "non_retryable_failure",
+            "error_message": "video unavailable",
+        }
+    ],
+    "no_subtitle": [{"kind": "transcript", "status": "failed", "error_code": "no_subtitle"}],
+    "article_pending": [{"kind": "article"}],
+    "article_pending:running": [{"kind": "article", "status": "running"}],
+    "article_pending:retry_wait": [{"kind": "article", "error_code": "llm_provider_timeout"}],
+    "article_failed": [{"kind": "article", "status": "failed", "error_code": "retry_exhausted"}],
+    "article_ready:regenerating": [{"kind": "article", "origin": "manual"}],
+}
+
+
+def _seed_status_jobs(conn: sqlite3.Connection, video_id: str, pipeline_status: str) -> None:
+    for job in _STATUS_JOBS.get(pipeline_status, []):
+        params = dict(job)
+        kind = str(params.pop("kind"))
+        seed_video_job_sync(conn, video_id, kind, **params)  # type: ignore[arg-type]
 
 
 def _seed_video(
@@ -18,7 +47,7 @@ def _seed_video(
     channel_id: str = "UC_AAA",
     channel_name: str = "Channel A",
     title: str = "Test Video",
-    pipeline_status: str = "done",
+    pipeline_status: str = "article_ready",
     raw_text: str | None = "Hello world transcript",
     language: str | None = "ko",
     source_type: str | None = "auto",
@@ -47,13 +76,12 @@ def _seed_video(
         )
         conn.execute(
             """
-            INSERT INTO videos(
-                video_id, channel_id, title, upload_time,
-                pipeline_status, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
-            (video_id, channel_id, title, "2026-02-10T00:00:00+00:00", pipeline_status, 0),
+            (video_id, channel_id, title, "2026-02-10T00:00:00+00:00"),
         )
+        _seed_status_jobs(conn, video_id, pipeline_status)
         if raw_text is not None:
             conn.execute(
                 "INSERT INTO transcripts(video_id, raw_text, language, source_type) VALUES (?, ?, ?, ?)",
@@ -313,7 +341,7 @@ def test_detail_page_disables_auto_refresh_when_article_is_ready(client: TestCli
 def test_detail_fragment_enables_auto_refresh_for_incomplete_article(client: TestClient) -> None:
     _seed_video(
         video_id="vid-pending-001",
-        pipeline_status="llm_pending",
+        pipeline_status="article_pending",
         article_title=None,
         raw_text="Pending transcript",
     )
@@ -366,8 +394,8 @@ def test_detail_page_shows_llm_article_metadata(client: TestClient) -> None:
     assert "low" in html
 
 
-def test_detail_article_request_requeues_done_video_to_llm_pending(client: TestClient) -> None:
-    _seed_video(video_id="vid-requeue-001", pipeline_status="done")
+def test_detail_article_request_requeues_ready_video_as_regeneration(client: TestClient) -> None:
+    _seed_video(video_id="vid-requeue-001", pipeline_status="article_ready")
     response = client.post("/views/videos/vid-requeue-001/article-request")
     assert response.status_code == 200
 
@@ -380,12 +408,21 @@ def test_detail_article_request_requeues_done_video_to_llm_pending(client: TestC
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+            """
+            SELECT pipeline_status, article_attempt_count, pipeline_activity, activity_kind,
+                   article_job_origin
+            FROM video_pipeline_v
+            WHERE video_id = ?
+            """,
             ("vid-requeue-001",),
         ).fetchone()
         assert row is not None
-        assert row[0] == "llm_pending"
+        # The article is kept while it regenerates, so the status stays article_ready.
+        assert row[0] == "article_ready"
         assert row[1] == 0
+        assert row[2] == "queued"
+        assert row[3] == "article"
+        assert row[4] == "manual"
         article_row = conn.execute(
             "SELECT COUNT(1) FROM articles WHERE video_id = ?",
             ("vid-requeue-001",),
@@ -469,3 +506,121 @@ def test_detail_legacy_guessed_timestamps_hidden(client: TestClient) -> None:
     html = client.get("/videos/vid-001").text
     assert "data-detail-timestamps" not in html
     assert "data-article-timestamp-seconds" not in html
+
+
+def test_detail_shows_article_and_regenerating_badge_while_regenerating(
+    client: TestClient,
+) -> None:
+    _seed_video(video_id="vid-regen-001", pipeline_status="article_ready:regenerating")
+
+    response = client.get("/videos/vid-regen-001")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Test Article" in html
+    assert 'data-pipeline-status="article_ready"' in html
+    assert 'data-pipeline-activity="queued"' in html
+    assert "data-pipeline-regenerating" in html
+    assert 'data-video-detail-auto-refresh="1"' in html
+
+
+def test_detail_ready_article_without_job_has_no_regenerating_badge(client: TestClient) -> None:
+    _seed_video(video_id="vid-regen-002")
+
+    html = client.get("/videos/vid-regen-002").text
+
+    assert 'data-pipeline-status="article_ready"' in html
+    assert 'data-pipeline-activity="idle"' in html
+    assert "data-pipeline-regenerating" not in html
+
+
+def test_detail_article_request_skips_ready_video_already_regenerating(
+    client: TestClient,
+) -> None:
+    _seed_video(video_id="vid-regen-003", pipeline_status="article_ready:regenerating")
+
+    response = client.post("/views/videos/vid-regen-003/article-request")
+
+    assert response.status_code == 200
+    toast = json.loads(response.headers["HX-Trigger"])["video-article-request-toast"]
+    message = str(toast.get("message") or "")
+    assert "신규 0건, 재시도 0건, 건너뜀 1건, 실패 0건" in message
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        jobs = conn.execute(
+            "SELECT kind, status, attempt_count FROM video_jobs WHERE video_id = ?",
+            ("vid-regen-003",),
+        ).fetchall()
+    assert jobs == [("article", "queued", 0)]
+
+
+def test_detail_shows_transcript_failure_reason(client: TestClient) -> None:
+    _seed_video(
+        video_id="vid-err-tx",
+        pipeline_status="transcript_failed",
+        raw_text=None,
+        article_title=None,
+    )
+
+    html = client.get("/videos/vid-err-tx").text
+
+    assert 'data-pipeline-status="transcript_failed"' in html
+    assert 'data-pipeline-error="transcript"' in html
+    assert "실패 원인: video unavailable" in html
+    assert 'data-pipeline-error="article"' not in html
+
+
+def test_detail_transcript_failure_reason_falls_back_to_error_code(client: TestClient) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_video(
+        video_id="vid-err-tx-code", pipeline_status="paused", raw_text=None, article_title=None
+    )
+    with sqlite3.connect(db_path) as conn:
+        seed_video_job_sync(
+            conn,
+            "vid-err-tx-code",
+            "transcript",
+            status="failed",
+            error_code="non_retryable_failure",
+        )
+        conn.commit()
+
+    html = client.get("/videos/vid-err-tx-code").text
+
+    assert 'data-pipeline-error="transcript"' in html
+    assert "실패 원인: non_retryable_failure" in html
+
+
+def test_detail_shows_article_failure_reason(client: TestClient) -> None:
+    _seed_video(video_id="vid-err-article", pipeline_status="article_failed", article_title=None)
+
+    html = client.get("/videos/vid-err-article").text
+
+    assert 'data-pipeline-status="article_failed"' in html
+    assert 'data-pipeline-error="article"' in html
+    assert "retry_exhausted" in html
+    assert 'data-pipeline-error="transcript"' not in html
+
+
+def test_detail_shows_article_retry_wait_reason(client: TestClient) -> None:
+    _seed_video(
+        video_id="vid-err-retry",
+        pipeline_status="article_pending:retry_wait",
+        article_title=None,
+    )
+
+    html = client.get("/videos/vid-err-retry").text
+
+    assert 'data-pipeline-status="article_pending"' in html
+    assert 'data-pipeline-activity="retry_wait"' in html
+    assert 'data-pipeline-error="article"' in html
+    assert "llm_provider_timeout" in html
+    assert 'data-video-detail-auto-refresh="1"' in html
+
+
+def test_detail_hides_failure_reason_for_healthy_states(client: TestClient) -> None:
+    _seed_video(video_id="vid-ok-ready")
+    _seed_video(video_id="vid-ok-pending", pipeline_status="article_pending", article_title=None)
+
+    for video_id in ("vid-ok-ready", "vid-ok-pending"):
+        html = client.get(f"/videos/{video_id}").text
+        assert "data-pipeline-error" not in html

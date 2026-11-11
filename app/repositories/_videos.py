@@ -8,7 +8,12 @@ from typing import Any
 
 import aiosqlite
 
-from app.pipeline_status import VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES
+import app.repositories._pipeline as pipeline_repository
+from app.database_migrations import PIPELINE_VIEW_NAME
+from app.pipeline_status import (
+    LEGACY_PIPELINE_STATUS_FILTER_ALIASES,
+    VIDEO_LIST_FILTER_STATUSES,
+)
 from app.repositories._common import (
     row_to_dict as _row_to_dict,
 )
@@ -20,13 +25,19 @@ from app.repositories._common import (
 )
 
 
-def normalize_pipeline_status_filter(value: str | None) -> str | None:
+def normalize_status_filter(value: str | None) -> str | None:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return None
-    if normalized in VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES:
+    if normalized in VIDEO_LIST_FILTER_STATUSES:
         return normalized
     return None
+
+
+def normalize_legacy_status_filter(value: str | None) -> str | None:
+    """Map an old ``?pipeline_status=`` value to the current status filter."""
+    normalized = str(value or "").strip().lower()
+    return LEGACY_PIPELINE_STATUS_FILTER_ALIASES.get(normalized)
 
 
 def normalize_viewed_filter(value: str | None) -> str | None:
@@ -107,68 +118,25 @@ async def insert_video_if_absent(
     title: str,
     upload_time: str,
 ) -> bool:
-    cursor = await db.execute(
-        """
-        INSERT INTO videos (
-            video_id,
-            channel_id,
-            title,
-            upload_time,
-            pipeline_status,
-            processing_stage_snapshot
-        )
-        SELECT
-            ?,
-            ?,
-            ?,
-            ?,
-            CASE
-                WHEN lower(trim(coalesce(cat.processing_stage, ''))) = 'off'
-                THEN 'auto_paused'
-                ELSE 'transcript_pending'
-            END,
-            CASE lower(trim(coalesce(cat.processing_stage, '')))
-                WHEN 'off' THEN 'off'
-                WHEN 'transcript_only' THEN 'transcript_only'
-                WHEN 'full' THEN 'full'
-                ELSE 'full'
-            END
-        FROM channels ch
-        LEFT JOIN categories cat ON cat.id = ch.category_id
-        WHERE ch.channel_id = ?
-        ON CONFLICT(video_id) DO NOTHING
-        """,
-        (video_id, channel_id, title, upload_time, channel_id),
-    )
+    inserted = await _insert_video_with_initial_job(db, (video_id, channel_id, title, upload_time))
     await db.commit()
-    return cursor.rowcount > 0
+    return inserted
 
 
-_INSERT_VIDEO_BATCH_SQL = """
+_INSERT_VIDEO_SQL = f"""
     INSERT INTO videos (
         video_id,
         channel_id,
         title,
         upload_time,
-        pipeline_status,
-        processing_stage_snapshot
+        target_stage
     )
     SELECT
         ?,
         ?,
         ?,
         ?,
-        CASE
-            WHEN lower(trim(coalesce(cat.processing_stage, ''))) = 'off'
-            THEN 'auto_paused'
-            ELSE 'transcript_pending'
-        END,
-        CASE lower(trim(coalesce(cat.processing_stage, '')))
-            WHEN 'off' THEN 'off'
-            WHEN 'transcript_only' THEN 'transcript_only'
-            WHEN 'full' THEN 'full'
-            ELSE 'full'
-        END
+        {pipeline_repository.TARGET_STAGE_FROM_CATEGORY_SQL}
     FROM channels ch
     LEFT JOIN categories cat ON cat.id = ch.category_id
     WHERE ch.channel_id = ?
@@ -176,11 +144,26 @@ _INSERT_VIDEO_BATCH_SQL = """
 """
 
 
+async def _insert_video_with_initial_job(
+    db: aiosqlite.Connection,
+    row: tuple[str, str, str, str],
+) -> bool:
+    video_id, channel_id, title, upload_time = row
+    cursor = await db.execute(
+        _INSERT_VIDEO_SQL,
+        (video_id, channel_id, title, upload_time, channel_id),
+    )
+    if int(cursor.rowcount or 0) == 0:
+        return False
+    await pipeline_repository.enqueue_initial_transcript_job(db, video_id)
+    return True
+
+
 async def insert_videos_if_absent_batch(
     db: aiosqlite.Connection,
     rows: Iterable[tuple[str, str, str, str]],
 ) -> int:
-    """여러 RSS entry를 단일 ``executemany`` + 1 ``commit``으로 삽입한다.
+    """여러 RSS entry를 1 ``commit``으로 삽입하고 새 영상에 첫 자막 작업을 연다.
 
     반환값은 실제로 INSERT된 행 수(``ON CONFLICT DO NOTHING``로 무시된 행은
     제외)다. ``rows``는 ``(video_id, channel_id, title, upload_time)`` 튜플
@@ -193,13 +176,12 @@ async def insert_videos_if_absent_batch(
     ]
     if not rows_list:
         return 0
-    params = [
-        (video_id, channel_id, title, upload_time, channel_id)
-        for video_id, channel_id, title, upload_time in rows_list
-    ]
-    cursor = await db.executemany(_INSERT_VIDEO_BATCH_SQL, params)
+    inserted = 0
+    for row in rows_list:
+        if await _insert_video_with_initial_job(db, row):
+            inserted += 1
     await db.commit()
-    return int(cursor.rowcount or 0)
+    return inserted
 
 
 async def list_videos(
@@ -210,7 +192,7 @@ async def list_videos(
     page: int,
     limit: int,
     category_id: int | None = None,
-    pipeline_status: str | None = None,
+    status: str | None = None,
     viewed: str | None = None,
 ) -> list[dict[str, Any]]:
     sort_column = "upload_time" if sort not in {"upload_time", "created_at"} else sort
@@ -225,9 +207,9 @@ async def list_videos(
     if category_id is not None:
         conditions.append("c.category_id = ?")
         params.append(category_id)
-    if pipeline_status:
-        conditions.append("v.pipeline_status = ?")
-        params.append(pipeline_status)
+    if status:
+        conditions.append("p.pipeline_status = ?")
+        params.append(status)
     _append_viewed_filter(conditions, viewed)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.extend([limit, offset])
@@ -241,19 +223,18 @@ async def list_videos(
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.pipeline_status,
-            v.retry_count,
+            p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
+            p.article_attempt_count AS retry_count,
             v.created_at,
             v.viewed_at,
-            EXISTS(
-                SELECT 1
-                FROM transcripts t
-                WHERE t.video_id = v.video_id
-            ) AS has_transcript,
-            a.video_id IS NOT NULL AS has_article,
+            p.has_transcript,
+            p.has_article,
             a.title AS article_title,
             substr(a.lead, 1, 400) AS article_lead
         FROM videos v
+        JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         LEFT JOIN articles a ON a.video_id = v.video_id
         {where_clause}
@@ -271,7 +252,7 @@ async def count_videos(
     db: aiosqlite.Connection,
     channel_id: str | None = None,
     category_id: int | None = None,
-    pipeline_status: str | None = None,
+    status: str | None = None,
     viewed: str | None = None,
 ) -> int:
     conditions: list[str] = []
@@ -282,15 +263,18 @@ async def count_videos(
     if category_id is not None:
         conditions.append("c.category_id = ?")
         params.append(category_id)
-    if pipeline_status:
-        conditions.append("v.pipeline_status = ?")
-        params.append(pipeline_status)
+    status_join = ""
+    if status:
+        conditions.append("p.pipeline_status = ?")
+        params.append(status)
+        status_join = f"JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id"
     _append_viewed_filter(conditions, viewed)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = await db.execute(
         f"""
         SELECT COUNT(1) AS cnt
         FROM videos v
+        {status_join}
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         {where_clause}
         """,
@@ -304,7 +288,7 @@ async def count_videos(
 
 async def get_video(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:
     cursor = await db.execute(
-        """
+        f"""
         SELECT
             v.video_id,
             v.channel_id,
@@ -312,10 +296,13 @@ async def get_video(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] |
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.pipeline_status,
-            v.retry_count,
+            p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
+            p.article_attempt_count AS retry_count,
             v.created_at
         FROM videos v
+        JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE v.video_id = ?
         """,
@@ -344,10 +331,13 @@ async def list_videos_by_ids(
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.pipeline_status,
-            v.retry_count,
+            p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
+            p.article_attempt_count AS retry_count,
             v.created_at
         FROM videos v
+        JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE v.video_id IN ({placeholders})
         """,
@@ -368,7 +358,7 @@ async def mark_video_viewed(db: aiosqlite.Connection, video_id: str) -> bool:
 
 async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:
     cursor = await db.execute(
-        """
+        f"""
         SELECT
             v.video_id,
             v.channel_id,
@@ -376,8 +366,14 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.pipeline_status,
-            v.retry_count,
+            p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
+            p.article_attempt_count AS retry_count,
+            p.transcript_attempt_count AS transcript_retry_count,
+            p.transcript_error_code,
+            p.transcript_error_message,
+            p.article_error_code,
             v.created_at,
             t.raw_text,
             t.language,
@@ -391,36 +387,29 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             a.llm_model,
             a.llm_reasoning_effort,
             a.llm_generated_at,
-            mtj.id AS manual_transcript_job_id,
-            mtj.status AS manual_transcript_status,
-            mtj.error_message AS manual_transcript_error,
-            mtj.retry_count AS manual_transcript_retry_count,
-            mtj.requested_at AS manual_transcript_requested_at,
-            mtj.started_at AS manual_transcript_started_at,
-            mtj.finished_at AS manual_transcript_finished_at
+            CASE WHEN p.transcript_job_origin = 'manual' THEN p.transcript_job_id END
+                AS manual_transcript_job_id,
+            CASE
+                WHEN p.transcript_job_origin != 'manual' THEN NULL
+                WHEN p.transcript_job_status = 'queued' THEN 'pending'
+                WHEN p.transcript_job_status IN ('running', 'failed') THEN p.transcript_job_status
+            END AS manual_transcript_status,
+            CASE WHEN p.transcript_job_origin = 'manual' AND p.transcript_job_status = 'failed'
+                THEN coalesce(p.transcript_error_message, p.transcript_error_code)
+            END AS manual_transcript_error,
+            CASE WHEN p.transcript_job_origin = 'manual' THEN p.transcript_attempt_count END
+                AS manual_transcript_retry_count,
+            CASE WHEN p.transcript_job_origin = 'manual' THEN p.transcript_requested_at END
+                AS manual_transcript_requested_at,
+            CASE WHEN p.transcript_job_origin = 'manual' THEN p.transcript_started_at END
+                AS manual_transcript_started_at,
+            CASE WHEN p.transcript_job_origin = 'manual' THEN p.transcript_finished_at END
+                AS manual_transcript_finished_at
         FROM videos v
+        JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         LEFT JOIN transcripts t ON t.video_id = v.video_id
         LEFT JOIN articles a ON a.video_id = v.video_id
-        LEFT JOIN manual_transcript_jobs mtj ON mtj.id = (
-            SELECT id
-            FROM manual_transcript_jobs
-            WHERE video_id = v.video_id
-              AND (
-                  status IN ('pending', 'running')
-                  OR status = 'failed'
-              )
-            ORDER BY
-                CASE status
-                    WHEN 'running' THEN 0
-                    WHEN 'pending' THEN 1
-                    WHEN 'failed' THEN 2
-                    ELSE 3
-                END,
-                updated_at DESC,
-                id DESC
-            LIMIT 1
-        )
         WHERE v.video_id = ?
         """,
         (video_id,),
@@ -537,55 +526,6 @@ async def _search_documents(
     for item in items:
         item["snippet"] = formatter(item.get("snippet"))
     return items
-
-
-async def mark_video_retry(db: aiosqlite.Connection, video_id: str) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'llm_pending',
-            retry_count = 0
-        WHERE video_id = ? AND pipeline_status IN ('llm_failed', 'manual_review')
-        """,
-        (video_id,),
-    )
-    await db.commit()
-    return cursor.rowcount
-
-
-async def mark_failed_videos_for_retry(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'llm_pending',
-            retry_count = 0
-        WHERE pipeline_status IN ('llm_failed', 'manual_review')
-        """
-    )
-    await db.commit()
-    return int(cursor.rowcount or 0)
-
-
-async def requeue_done_video_for_manual_article_retry(
-    db: aiosqlite.Connection, video_id: str
-) -> int:
-    cursor = await db.execute(
-        """
-        UPDATE videos
-        SET pipeline_status = 'llm_pending',
-            retry_count = 0
-        WHERE video_id = ?
-          AND pipeline_status = 'done'
-          AND EXISTS (
-              SELECT 1
-              FROM transcripts t
-              WHERE t.video_id = videos.video_id
-          )
-        """,
-        (video_id,),
-    )
-    await db.commit()
-    return int(cursor.rowcount or 0)
 
 
 async def delete_videos_by_ids(

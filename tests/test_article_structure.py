@@ -6,8 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.database import init_database, open_database
-from app.repositories import llm as llm_repo
-from app.repositories import transcripts as transcripts_repo
+from app.repositories import pipeline as pipeline_repo
 from app.services import transcript as transcript_service_module
 from app.services.article_render import build_article_toc
 from app.services.article_timestamps import (
@@ -21,6 +20,7 @@ from app.services.llm import LlmClientError, UnifiedLlmClient
 from app.services.llm_invocation import CommandExecutionResult
 from app.services.llm_schema import ARTICLE_FIELD_KEYS, build_provider_schema
 from app.services.transcript import TranscriptService, build_timed_text
+from tests.helpers.db_seed import seed_video_job
 
 _BODY = (
     "## 배경\n\n원문은 이 사안의 경과와 핵심 주장을 차례로 설명했다. "
@@ -358,18 +358,19 @@ def test_build_article_toc_keeps_dom_index_when_heading_is_empty() -> None:
 # --- persistence ---------------------------------------------------------------
 
 
-async def _seed_video(db, video_id: str) -> None:
+async def _seed_video(db, video_id: str) -> int:
     await db.execute(
         "INSERT INTO channels(channel_id, channel_name, rss_url) VALUES ('UC1', 'C', 'u')"
     )
     await db.execute(
         """
-        INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-        VALUES (?, 'UC1', 'Title', '2026-10-01T00:00:00+00:00', 'transcript_processing')
+        INSERT INTO videos(video_id, channel_id, title, upload_time)
+        VALUES (?, 'UC1', 'Title', '2026-10-01T00:00:00+00:00')
         """,
         (video_id,),
     )
     await db.commit()
+    return await seed_video_job(db, video_id, "transcript", status="running")
 
 
 def test_save_transcript_persists_timed_text_and_llm_candidate_reads_it(tmp_path: Path) -> None:
@@ -377,24 +378,24 @@ def test_save_transcript_persists_timed_text_and_llm_candidate_reads_it(tmp_path
         db = await open_database(str(tmp_path / "timed.db"))
         try:
             await init_database(db)
-            await _seed_video(db, "vid-t")
-            await transcripts_repo.save_transcript(
+            job_id = await _seed_video(db, "vid-t")
+            await pipeline_repo.complete_transcript_job(
                 db,
+                job_id=job_id,
                 video_id="vid-t",
                 raw_text="hello",
                 timed_text="[00:00] hello",
                 language="en",
                 source_type="auto",
-                thumbnail_path=None,
             )
-            candidate = await llm_repo.pop_llm_candidate(db, 3)
-            await transcripts_repo.save_transcript(
+            candidate = await pipeline_repo.claim_next_article_job(db, 3)
+            await pipeline_repo.complete_transcript_job(
                 db,
+                job_id=job_id,
                 video_id="vid-t",
                 raw_text="hello again",
                 language="en",
                 source_type="manual",
-                thumbnail_path=None,
             )
             cursor = await db.execute(
                 "SELECT raw_text, timed_text FROM transcripts WHERE video_id = 'vid-t'"

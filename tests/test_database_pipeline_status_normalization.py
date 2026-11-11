@@ -89,22 +89,27 @@ def test_init_database_normalizes_legacy_pipeline_status_values(tmp_path: Path) 
             await init_database(db)
             cursor = await db.execute(
                 """
-                SELECT video_id, pipeline_status
-                FROM videos
+                SELECT video_id, pipeline_status, pipeline_activity
+                FROM video_pipeline_v
                 ORDER BY video_id ASC
                 """
             )
             rows = await cursor.fetchall()
-            return {str(row["video_id"]): str(row["pipeline_status"]) for row in rows}
+            return {
+                str(row["video_id"]): f"{row['pipeline_status']}/{row['pipeline_activity']}"
+                for row in rows
+            }
         finally:
             await db.close()
 
     statuses = asyncio.run(_run())
-    assert statuses["vid-norm-pending"] == "transcript_pending"
-    assert statuses["vid-norm-processing"] == "llm_processing"
-    assert statuses["vid-norm-failed"] == "llm_failed"
-    assert statuses["vid-norm-unknown"] == "manual_review"
-    assert statuses["vid-norm-done"] == "done"
+    assert statuses["vid-norm-pending"] == "transcript_pending/queued"
+    # v4 requeues work that was running when the old process stopped.
+    assert statuses["vid-norm-processing"] == "article_pending/queued"
+    assert statuses["vid-norm-failed"] == "article_pending/retry_wait"
+    assert statuses["vid-norm-unknown"] == "article_failed/idle"
+    # "done" without an article row is not a fact the derived status can claim.
+    assert statuses["vid-norm-done"] == "paused/idle"
 
 
 def test_init_database_migrates_legacy_split_status_columns_before_index_creation(
@@ -170,7 +175,7 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
         try:
             await init_database(db)
             status_cursor = await db.execute(
-                "SELECT pipeline_status FROM videos WHERE video_id = ?",
+                "SELECT pipeline_status FROM video_pipeline_v WHERE video_id = ?",
                 ("vid-legacy-001",),
             )
             status_row = await status_cursor.fetchone()
@@ -178,7 +183,7 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
                 """
                 SELECT 1
                 FROM sqlite_master
-                WHERE type = 'index' AND name = 'idx_videos_transcript_queue'
+                WHERE type = 'index' AND name = 'idx_video_jobs_claim'
                 """
             )
             return str(status_row["pipeline_status"]), (await index_cursor.fetchone()) is not None
@@ -186,5 +191,5 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
             await db.close()
 
     status, has_queue_index = asyncio.run(_run())
-    assert status == "llm_pending"
+    assert status == "article_pending"
     assert has_queue_index is True

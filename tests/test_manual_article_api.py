@@ -6,12 +6,24 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from tests.helpers.db_seed import seed_video_job_sync
+
+# Seed key ("<status>" or "<status>:<activity>") → video_jobs row reproducing it in
+# video_pipeline_v.
+_STATUS_JOBS: dict[str, tuple[str, str, str | None]] = {
+    "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
+    "no_subtitle": ("transcript", "failed", "no_subtitle"),
+    "article_pending": ("article", "queued", None),
+    "article_pending:retry_wait": ("article", "queued", "llm_provider_timeout"),
+    "article_failed": ("article", "failed", "retry_exhausted"),
+}
+
 
 def _seed_video(
     db_path: str,
     *,
     video_id: str,
-    pipeline_status: str = "done",
+    pipeline_status: str = "article_ready",
     with_transcript: bool = False,
     with_article: bool = False,
 ) -> None:
@@ -29,18 +41,19 @@ def _seed_video(
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, retry_count)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 video_id,
                 "UCmanualapi001",
                 f"Manual API {video_id}",
                 "2026-02-28T00:00:00+00:00",
-                pipeline_status,
-                0,
             ),
         )
+        if pipeline_status in _STATUS_JOBS:
+            kind, status, error_code = _STATUS_JOBS[pipeline_status]
+            seed_video_job_sync(conn, video_id, kind, status=status, error_code=error_code)
         if with_transcript:
             conn.execute(
                 """
@@ -78,21 +91,22 @@ def test_article_request_view_returns_new_retry_skip_failed_summary(client: Test
             self.called = True
 
     wake_probe = _EventProbe()
-    client.app.state.runtime.manual_article_wake_event = wake_probe
+    client.app.state.runtime.transcript_wake_event = wake_probe
 
+    # Transcript collected, article never attempted.
     _seed_video(
-        db_path, video_id="vid-manual-new", pipeline_status="archived", with_transcript=True
+        db_path, video_id="vid-manual-new", pipeline_status="transcript_ready", with_transcript=True
     )
     _seed_video(
         db_path,
         video_id="vid-manual-retry",
-        pipeline_status="transcript_failed",
+        pipeline_status="article_failed",
         with_transcript=True,
     )
     _seed_video(
         db_path,
         video_id="vid-manual-skip",
-        pipeline_status="done",
+        pipeline_status="article_ready",
         with_transcript=True,
         with_article=True,
     )
@@ -132,7 +146,7 @@ def test_article_request_view_allows_when_llm_worker_disabled_and_marks_waiting(
             self.called = True
 
     wake_probe = _EventProbe()
-    client.app.state.runtime.manual_article_wake_event = wake_probe
+    client.app.state.runtime.transcript_wake_event = wake_probe
 
     _seed_video(
         db_path,
@@ -163,13 +177,15 @@ def test_article_request_view_allows_when_llm_worker_disabled_and_marks_waiting(
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT status
-            FROM manual_article_jobs
-            WHERE video_id = ?
-            ORDER BY id DESC
+            SELECT j.kind, j.status, j.origin, v.target_stage
+            FROM video_jobs j
+            JOIN videos v ON v.video_id = j.video_id
+            WHERE j.video_id = ?
+            ORDER BY j.id DESC
             LIMIT 1
             """,
             ("vid-manual-disabled-001",),
         ).fetchone()
     assert row is not None
-    assert str(row[0]) == "pending"
+    # No transcript yet: the request queues a manual transcript job toward the article.
+    assert tuple(row) == ("transcript", "queued", "manual", "article")

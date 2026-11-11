@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.repositories import transcripts as transcripts_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import videos as videos_repo
 
 router = APIRouter(tags=["api"])
@@ -20,17 +20,19 @@ async def get_transcript(video_id: str, request: Request):
 
 @router.post("/videos/{video_id}/retry")
 async def retry_video(video_id: str, request: Request):
-    affected = await videos_repo.mark_video_retry(request.app.state.runtime.db, video_id)
+    affected = await pipeline_repo.retry_article_for_video(request.app.state.runtime.db, video_id)
     if affected == 0:
         raise HTTPException(status_code=404, detail="Retry target not found")
+    request.app.state.runtime.llm_wake_event.set()
     return {"ok": True, "video_id": video_id}
 
 
 @router.post("/videos/{video_id}/transcript/retry")
 async def retry_transcript(video_id: str, request: Request):
-    affected = await transcripts_repo.reset_transcript_for_retry(
+    affected = await pipeline_repo.retry_transcript_for_video(
         request.app.state.runtime.db, video_id
     )
     if affected == 0:
         raise HTTPException(status_code=404, detail="Transcript retry target not found")
+    request.app.state.runtime.transcript_wake_event.set()
     return {"ok": True, "video_id": video_id}

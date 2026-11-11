@@ -163,16 +163,14 @@ async def download_selected_videos(request: Request):
             order = str(form.get("_order") or "desc")
             channel_id = str(form.get("_channel_id") or "") or None
             category_id_early = parse_optional_int(form.get("_category_id"))
-            pipeline_status_early = videos_repo.normalize_pipeline_status_filter(
-                str(form.get("_pipeline_status") or "")
-            )
+            status_early = videos_repo.normalize_status_filter(str(form.get("_status") or ""))
             viewed_early = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
 
             total = await videos_repo.count_videos(
                 request.app.state.runtime.db,
                 channel_id=channel_id,
                 category_id=category_id_early,
-                pipeline_status=pipeline_status_early,
+                status=status_early,
                 viewed=viewed_early,
             )
             total_pages = max(1, (total + limit_val - 1) // limit_val)
@@ -185,7 +183,7 @@ async def download_selected_videos(request: Request):
                 page=current_page,
                 limit=limit_val,
                 category_id=category_id_early,
-                pipeline_status=pipeline_status_early,
+                status=status_early,
                 viewed=viewed_early,
             )
             all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
@@ -200,7 +198,7 @@ async def download_selected_videos(request: Request):
                 videos=videos,
                 channels=channels,
                 categories_for_filter=categories_early,
-                status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
+                status_filter_options=videos_repo.VIDEO_LIST_FILTER_STATUSES,
                 pagination={
                     "page": current_page,
                     "limit": limit_val,
@@ -208,7 +206,7 @@ async def download_selected_videos(request: Request):
                     "total_pages": total_pages,
                     "channel_id": channel_id or "",
                     "category_id": category_id_early if category_id_early is not None else "",
-                    "pipeline_status": pipeline_status_early or "",
+                    "status": status_early or "",
                     "viewed": viewed_early or "",
                     "sort": sort,
                     "order": order,
@@ -266,16 +264,14 @@ async def download_selected_videos(request: Request):
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
     category_id_final = parse_optional_int(form.get("_category_id"))
-    pipeline_status_final = videos_repo.normalize_pipeline_status_filter(
-        str(form.get("_pipeline_status") or "")
-    )
+    status_final = videos_repo.normalize_status_filter(str(form.get("_status") or ""))
     viewed_final = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
 
     total = await videos_repo.count_videos(
         request.app.state.runtime.db,
         channel_id=channel_id,
         category_id=category_id_final,
-        pipeline_status=pipeline_status_final,
+        status=status_final,
         viewed=viewed_final,
     )
     total_pages = max(1, (total + limit_val - 1) // limit_val)
@@ -288,7 +284,7 @@ async def download_selected_videos(request: Request):
         page=current_page,
         limit=limit_val,
         category_id=category_id_final,
-        pipeline_status=pipeline_status_final,
+        status=status_final,
         viewed=viewed_final,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
@@ -303,7 +299,7 @@ async def download_selected_videos(request: Request):
         videos=videos,
         channels=channels,
         categories_for_filter=categories_final,
-        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
+        status_filter_options=videos_repo.VIDEO_LIST_FILTER_STATUSES,
         pagination={
             "page": current_page,
             "limit": limit_val,
@@ -311,7 +307,7 @@ async def download_selected_videos(request: Request):
             "total_pages": total_pages,
             "channel_id": channel_id or "",
             "category_id": category_id_final if category_id_final is not None else "",
-            "pipeline_status": pipeline_status_final or "",
+            "status": status_final or "",
             "viewed": viewed_final or "",
             "sort": sort,
             "order": order,

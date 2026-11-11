@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 from app.config import YAML_CONFIG_KEYS
@@ -126,3 +127,26 @@ def test_repository_facades_only_re_export_private_modules() -> None:
                 continue
             violations.append(f"{path.name}:{node.lineno}")
     assert violations == []
+
+
+def test_video_jobs_and_target_stage_are_written_only_by_pipeline_repository() -> None:
+    root = Path(__file__).resolve().parents[1]
+    allowed = {
+        Path("app/repositories/_pipeline.py"),
+        # Schema migrations and startup recovery of running article jobs.
+        Path("app/database_migrations.py"),
+        Path("app/database.py"),
+    }
+    writes = re.compile(
+        r"(INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+video_jobs\b"
+        r"|\btarget_stage\s*=\s*(?!excluded)",
+        re.IGNORECASE,
+    )
+    offenders = []
+    for path in sorted((root / "app").rglob("*.py")):
+        relative = path.relative_to(root)
+        if relative in allowed:
+            continue
+        if writes.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(relative))
+    assert offenders == []

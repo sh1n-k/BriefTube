@@ -28,15 +28,15 @@ def _seed_retention_data(db_path: str) -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-ret-old-001", "UCret001", "old", old_time),
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-ret-new-001", "UCret001", "new", recent_time),
         )
@@ -62,8 +62,8 @@ def _seed_many_expired_videos(db_path: str, *, count: int) -> None:
         )
         conn.executemany(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             [
                 (f"vid-ret-bulk-{idx:03d}", "UCretbulk001", f"old {idx}", old_time)
@@ -72,8 +72,8 @@ def _seed_many_expired_videos(db_path: str, *, count: int) -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-ret-bulk-fresh", "UCretbulk001", "fresh", recent_time),
         )
@@ -315,8 +315,8 @@ def test_retention_delete_selected_htmx_updates_notice(client: TestClient) -> No
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-ret-old-002", "UCret001", "older", older),
         )

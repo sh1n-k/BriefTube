@@ -5,10 +5,8 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Query, Request
 from starlette.datastructures import FormData
 
-from app.repositories import manual_articles as manual_articles_repo
-from app.repositories import manual_transcripts as manual_transcripts_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
-from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import (
     full_page_redirect_for_non_fragment_request,
@@ -36,7 +34,7 @@ def _video_list_push_url(
     order: str,
     channel_id: str | None,
     category_id: int | None,
-    pipeline_status: str | None,
+    status: str | None,
     viewed: str | None,
 ) -> str:
     params: dict[str, str] = {
@@ -49,8 +47,8 @@ def _video_list_push_url(
         params["channel_id"] = channel_id
     if category_id is not None:
         params["category_id"] = str(category_id)
-    if pipeline_status:
-        params["pipeline_status"] = pipeline_status
+    if status:
+        params["status"] = status
     if viewed:
         params["viewed"] = viewed
     return "/?" + urlencode(params)
@@ -128,7 +126,7 @@ async def video_list(
     request: Request,
     channel_id: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
-    pipeline_status: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     viewed: str | None = Query(default=None),
     sort: str = Query(default="upload_time"),
     order: str = Query(default="desc"),
@@ -147,7 +145,7 @@ async def video_list(
         request,
         channel_id=channel_id,
         category_id=category_id,
-        pipeline_status=pipeline_status,
+        status=status,
         viewed=viewed,
         sort=sort,
         order=order,
@@ -166,7 +164,7 @@ async def video_list(
                 order=order,
                 channel_id=channel_id,
                 category_id=result.category_id,
-                pipeline_status=result.pipeline_status,
+                status=result.status,
                 viewed=result.viewed,
             )
         },
@@ -182,16 +180,14 @@ async def _video_list_response_from_form(request: Request, form: FormData):
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
     category_id = parse_optional_int(form.get("_category_id"))
-    pipeline_status = videos_repo.normalize_pipeline_status_filter(
-        str(form.get("_pipeline_status") or "")
-    )
+    status = videos_repo.normalize_status_filter(str(form.get("_status") or ""))
     viewed = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
 
     return await video_list(
         request=request,
         channel_id=channel_id,
         category_id=str(category_id) if category_id is not None else None,
-        pipeline_status=pipeline_status,
+        status=status,
         viewed=viewed,
         sort=sort,
         order=order,
@@ -228,7 +224,7 @@ async def delete_selected_videos(request: Request):
         request,
         channel_id=channel_id,
         category_id=form.get("_category_id"),
-        pipeline_status=str(form.get("_pipeline_status") or ""),
+        status=str(form.get("_status") or ""),
         viewed=str(form.get("_viewed") or ""),
         sort=sort,
         order=order,
@@ -265,7 +261,7 @@ async def article_request_selected_videos(request: Request):
         )
         toast_tone = "error"
     else:
-        bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
+        bulk_result = await pipeline_repo.enqueue_manual_article_jobs(
             request.app.state.runtime.db,
             video_ids=video_ids,
         )
@@ -283,7 +279,8 @@ async def article_request_selected_videos(request: Request):
         )
 
         if (new_count + retry_count) > 0:
-            request.app.state.runtime.manual_article_wake_event.set()
+            request.app.state.runtime.transcript_wake_event.set()
+            request.app.state.runtime.llm_wake_event.set()
 
         llm_worker_waiting = not await settings_repo.is_worker_enabled(
             request.app.state.runtime.db,
@@ -315,7 +312,9 @@ async def transcript_retry_list_video(video_id: str, request: Request):
     form = await request.form()
     txt = await request_texts(request)
     db = request.app.state.runtime.db
-    affected = await transcripts_repo.reset_transcript_for_retry(db, video_id)
+    affected = await pipeline_repo.retry_transcript_for_video(db, video_id)
+    if affected > 0:
+        request.app.state.runtime.transcript_wake_event.set()
     if affected <= 0:
         toast_message, toast_tone = txt["video_transcript_retry_skipped"], "info"
     elif not await settings_repo.is_worker_enabled(db, "transcript"):
@@ -342,12 +341,12 @@ async def transcript_request_single_video(video_id: str, request: Request):
         )
         return response
 
-    result = await manual_transcripts_repo.enqueue_manual_transcript_job(
+    result = await pipeline_repo.enqueue_manual_transcript_job(
         request.app.state.runtime.db,
         video_id=video_id,
     )
     if str(result.get("status") or "") == "queued":
-        request.app.state.runtime.manual_transcript_wake_event.set()
+        request.app.state.runtime.transcript_wake_event.set()
 
     toast_message, toast_tone = _manual_transcript_toast_from_result(txt, result)
     response = await _render_video_detail(video_id=video_id, request=request)
@@ -364,11 +363,15 @@ async def article_request_single_video(video_id: str, request: Request):
     failed_count = 0
     detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
     pipeline_status = str(detail.get("pipeline_status") or "").strip().lower() if detail else ""
+    pipeline_activity = str(detail.get("pipeline_activity") or "").strip() if detail else ""
     has_transcript = bool(str(detail.get("raw_text") or "").strip()) if detail else False
 
-    if detail and pipeline_status == "done":
-        if has_transcript:
-            retried = await videos_repo.requeue_done_video_for_manual_article_retry(
+    if detail and pipeline_status == "article_ready":
+        if pipeline_activity not in {"", "idle"}:
+            # A regeneration is already queued or running.
+            skip_count = 1
+        elif has_transcript:
+            retried = await pipeline_repo.requeue_article_for_done_video(
                 request.app.state.runtime.db,
                 video_id,
             )
@@ -380,7 +383,7 @@ async def article_request_single_video(video_id: str, request: Request):
         else:
             failed_count = 1
     else:
-        bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
+        bulk_result = await pipeline_repo.enqueue_manual_article_jobs(
             request.app.state.runtime.db,
             video_ids=[video_id],
         )
@@ -397,7 +400,8 @@ async def article_request_single_video(video_id: str, request: Request):
             int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
         )
         if (new_count + retry_count) > 0:
-            request.app.state.runtime.manual_article_wake_event.set()
+            request.app.state.runtime.transcript_wake_event.set()
+            request.app.state.runtime.llm_wake_event.set()
 
     llm_worker_waiting = not await settings_repo.is_worker_enabled(
         request.app.state.runtime.db,

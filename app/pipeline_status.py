@@ -1,57 +1,52 @@
+"""Derived video pipeline vocabulary.
+
+``video_pipeline_v`` (app/database_migrations.py) computes these per video from facts
+(transcripts/articles rows), the target stage and the newest video_jobs row per kind.
+"""
+
 from __future__ import annotations
 
+# Result-level status. *_ready: the artifact exists. *_pending: a job is queued/running.
+# *_failed / no_subtitle: the current job failed. paused: stopped short of the target.
 PIPELINE_STATUSES: tuple[str, ...] = (
-    "auto_paused",
+    "paused",
     "transcript_pending",
-    "transcript_processing",
-    "transcript_done",
     "transcript_failed",
     "no_subtitle",
-    "llm_pending",
-    "llm_processing",
-    "llm_failed",
-    "manual_review",
-    "done",
+    "transcript_ready",
+    "article_pending",
+    "article_failed",
+    "article_ready",
 )
 
-TRANSCRIPT_QUEUE_STATUSES: tuple[str, ...] = (
-    "transcript_pending",
-    "transcript_processing",
-    "transcript_failed",
-    "no_subtitle",
-)
-LLM_QUEUE_STATUSES: tuple[str, ...] = (
-    "llm_pending",
-    "llm_processing",
-    "llm_failed",
-    "manual_review",
-)
-VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES: tuple[str, ...] = (
-    "auto_paused",
-    "transcript_done",
-    "transcript_failed",
-    "no_subtitle",
-    "llm_pending",
-    "manual_review",
-    "done",
-)
-MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES: set[str] = {
-    "auto_paused",
-    "transcript_failed",
-    "no_subtitle",
+# Work happening right now, independent of the status (an article_ready video can be
+# regenerating). retry_wait: queued again after a failed attempt.
+PIPELINE_ACTIVITIES: tuple[str, ...] = ("idle", "queued", "retry_wait", "running")
+
+VIDEO_LIST_FILTER_STATUSES: tuple[str, ...] = PIPELINE_STATUSES
+
+# Old ?pipeline_status= filter values kept working for bookmarked URLs.
+LEGACY_PIPELINE_STATUS_FILTER_ALIASES: dict[str, str] = {
+    "auto_paused": "paused",
+    "transcript_pending": "transcript_pending",
+    "transcript_processing": "transcript_pending",
+    "transcript_done": "transcript_ready",
+    "transcript_failed": "transcript_failed",
+    "no_subtitle": "no_subtitle",
+    "llm_pending": "article_pending",
+    "llm_processing": "article_pending",
+    "llm_failed": "article_pending",
+    "manual_review": "article_failed",
+    "done": "article_ready",
 }
-MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES: set[str] = {
-    "auto_paused",
-    "transcript_done",
+
+MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES: set[str] = {
+    "paused",
     "transcript_failed",
     "no_subtitle",
-    "llm_failed",
-    "manual_review",
 }
 MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES: set[str] = {
     "transcript_pending",
-    "transcript_processing",
-    "llm_pending",
-    "llm_processing",
-    "done",
+    "article_pending",
+    "article_ready",
 }

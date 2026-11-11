@@ -33,7 +33,7 @@ def _seed_downloads(db_path: str, *, succeeded_output_path: str) -> dict[str, in
     """Seed channel, videos, and download jobs. Returns job IDs by status."""
     seed_channel(db_path, CHANNEL_ID, CHANNEL_NAME)
     for vid, title in zip(VIDEO_IDS, VIDEO_TITLES):
-        seed_video(db_path, vid, CHANNEL_ID, title, pipeline_status="done")
+        seed_video(db_path, vid, CHANNEL_ID, title, pipeline_status="paused")
 
     pending_id = seed_download_job(
         db_path,

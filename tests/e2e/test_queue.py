@@ -13,16 +13,16 @@ from tests.e2e.seed_helpers import (
 CHANNEL_ID = "UCqueue_test_ch"
 CHANNEL_NAME = "Queue Test Channel"
 
-# Video IDs by pipeline_status
+# Video IDs by seed state (tests/e2e/seed_helpers._STATUS_JOBS)
 VIDEOS = {
     "tp1": "transcript_pending",
     "tp2": "transcript_pending",
-    "tpr1": "transcript_processing",
+    "tpr1": "transcript_running",
     "tf1": "transcript_failed",
-    "lp1": "llm_pending",
-    "lp2": "llm_pending",
-    "lpr1": "llm_processing",
-    "lf1": "llm_failed",
+    "lp1": "article_pending",
+    "lp2": "article_pending",
+    "lpr1": "article_running",
+    "lf1": "article_retry_wait",
 }
 
 
