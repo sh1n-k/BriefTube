@@ -15,9 +15,7 @@ def test_worker_start_specs_include_enabled_workers_in_start_order() -> None:
             "rss",
             "channel_metadata",
             "download",
-            "manual_transcript",
             "transcript",
-            "manual_article",
             "llm",
             "notifier",
         }
@@ -27,9 +25,7 @@ def test_worker_start_specs_include_enabled_workers_in_start_order() -> None:
         "rss_poller",
         "channel_metadata_worker",
         "download_worker",
-        "manual_transcript_worker",
         "transcript_fetcher",
-        "manual_article_worker",
         "llm_queue_worker",
         "telegram_notifier",
     ]

@@ -35,8 +35,8 @@ def _seed_download_jobs(db_path: str) -> None:
         )
         conn.execute(
             """
-            INSERT OR IGNORE INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT OR IGNORE INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 "vid-download-view-1",

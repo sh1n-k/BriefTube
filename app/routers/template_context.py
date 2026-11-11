@@ -19,6 +19,7 @@ from app.llm_policy import (
 )
 from app.repositories import alerts_retention as alerts_repo
 from app.repositories import llm as llm_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
 from app.services.channel_handle import format_channel_handle_display
 from app.services.llm_capabilities import resolve_codex_capabilities
@@ -68,7 +69,7 @@ async def build_llm_runtime_context(
 ) -> dict[str, object]:
     llm_settings = await settings_repo.get_llm_settings(request.app.state.runtime.db)
     runtime_issue = await llm_repo.get_llm_runtime_issue(request.app.state.runtime.db)
-    pending_count = await llm_repo.count_llm_pending_videos(request.app.state.runtime.db)
+    pending_count = await pipeline_repo.count_queued_article_jobs(request.app.state.runtime.db)
     status = resolve_llm_runtime_status(
         llm_client=request.app.state.runtime.llm_client,
         llm_settings=llm_settings,

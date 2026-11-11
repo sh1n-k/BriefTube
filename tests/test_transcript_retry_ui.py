@@ -5,6 +5,8 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from tests.helpers.db_seed import seed_video_job_sync
+
 
 def _seed_video(video_id: str, pipeline_status: str) -> None:
     db_path = os.environ["DB_PATH"]
@@ -22,16 +24,14 @@ def _seed_video(video_id: str, pipeline_status: str) -> None:
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
-            (
-                video_id,
-                "UCretryui001",
-                "Retry UI Video",
-                "2026-02-20T00:00:00+00:00",
-                pipeline_status,
-            ),
+            (video_id, "UCretryui001", "Retry UI Video", "2026-02-20T00:00:00+00:00"),
+        )
+        assert pipeline_status == "transcript_failed"
+        seed_video_job_sync(
+            conn, video_id, "transcript", status="failed", error_code="non_retryable_failure"
         )
         conn.commit()
 

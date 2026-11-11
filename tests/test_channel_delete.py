@@ -22,8 +22,8 @@ def _seed_channel_with_video(db_path: str, channel_id: str, video_id: str) -> No
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             (video_id, channel_id, f"Video-{video_id}", "2026-02-25T00:00:00+00:00"),
         )

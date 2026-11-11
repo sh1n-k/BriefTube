@@ -1,0 +1,34 @@
+"""Video pipeline (target stage, video_jobs, derived status) repository accessors."""
+
+import app.repositories._pipeline as repository
+
+JOB_KIND_TRANSCRIPT = repository.JOB_KIND_TRANSCRIPT
+JOB_KIND_ARTICLE = repository.JOB_KIND_ARTICLE
+JOB_STATUS_QUEUED = repository.JOB_STATUS_QUEUED
+ERROR_CODE_NO_SUBTITLE = repository.ERROR_CODE_NO_SUBTITLE
+ERROR_CODE_EMPTY_TRANSCRIPT = repository.ERROR_CODE_EMPTY_TRANSCRIPT
+
+list_claimable_transcript_jobs = repository.list_claimable_transcript_jobs
+mark_transcript_job_running = repository.mark_transcript_job_running
+recover_running_transcript_jobs = repository.recover_running_transcript_jobs
+complete_transcript_job = repository.complete_transcript_job
+schedule_transcript_job_retry = repository.schedule_transcript_job_retry
+fail_transcript_job = repository.fail_transcript_job
+defer_channel_transcript_jobs = repository.defer_channel_transcript_jobs
+
+claim_next_article_job = repository.claim_next_article_job
+record_article_job_failure = repository.record_article_job_failure
+requeue_article_job = repository.requeue_article_job
+count_queued_article_jobs = repository.count_queued_article_jobs
+
+cancel_queue = repository.cancel_queue
+retry_failed_jobs = repository.retry_failed_jobs
+retry_article_for_video = repository.retry_article_for_video
+retry_transcript_for_video = repository.retry_transcript_for_video
+enqueue_manual_transcript_job = repository.enqueue_manual_transcript_job
+enqueue_manual_article_jobs = repository.enqueue_manual_article_jobs
+requeue_article_for_done_video = repository.requeue_article_for_done_video
+
+get_pipeline_state = repository.get_pipeline_state
+queue_status = repository.queue_status
+list_queue_items = repository.list_queue_items

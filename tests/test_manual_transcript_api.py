@@ -34,18 +34,25 @@ def _seed_video(
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status, processing_stage_snapshot)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time, target_stage)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 video_id,
                 "UCmanualtx001",
                 f"Manual Transcript {video_id}",
                 "2026-03-15T00:00:00+00:00",
-                pipeline_status,
-                "off" if pipeline_status == "auto_paused" else "full",
+                "none" if pipeline_status == "auto_paused" else "article",
             ),
         )
+        if pipeline_status == "done":
+            conn.execute(
+                """
+                INSERT INTO articles(video_id, title, lead, body)
+                VALUES (?, 'Done article', 'lead', 'body')
+                """,
+                (video_id,),
+            )
         if with_transcript:
             conn.execute(
                 """
@@ -60,24 +67,29 @@ def _seed_video(
 def test_manual_transcript_request_view_queues_auto_paused_video(client: TestClient) -> None:
     _seed_video(video_id="vid-manual-tx-api-001")
 
-    client.app.state.runtime.manual_transcript_wake_event.clear()
+    client.app.state.runtime.transcript_wake_event.clear()
     response = client.post("/views/videos/vid-manual-tx-api-001/transcript-request")
 
     assert response.status_code == 200
     toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
     assert toast.get("tone") == "success"
-    assert client.app.state.runtime.manual_transcript_wake_event.is_set() is True
+    assert client.app.state.runtime.transcript_wake_event.is_set() is True
 
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT video_id, status FROM manual_transcript_jobs WHERE video_id = ?",
+            """
+            SELECT video_id, status, origin
+            FROM video_jobs
+            WHERE video_id = ? AND kind = 'transcript'
+            """,
             ("vid-manual-tx-api-001",),
         ).fetchone()
 
     assert row is not None
     assert row[0] == "vid-manual-tx-api-001"
-    assert row[1] == "pending"
+    assert row[1] == "queued"
+    assert row[2] == "manual"
 
 
 def test_manual_transcript_request_view_rejects_invalid_status(client: TestClient) -> None:
@@ -92,7 +104,7 @@ def test_manual_transcript_request_view_rejects_invalid_status(client: TestClien
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         count = conn.execute(
-            "SELECT COUNT(1) FROM manual_transcript_jobs WHERE video_id = ?",
+            "SELECT COUNT(1) FROM video_jobs WHERE video_id = ? AND kind = 'transcript'",
             ("vid-manual-tx-api-002",),
         ).fetchone()
     assert count is not None
@@ -113,7 +125,7 @@ def test_manual_transcript_request_view_skips_duplicate_active_job(client: TestC
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         count = conn.execute(
-            "SELECT COUNT(1) FROM manual_transcript_jobs WHERE video_id = ?",
+            "SELECT COUNT(1) FROM video_jobs WHERE video_id = ? AND kind = 'transcript'",
             ("vid-manual-tx-api-003",),
         ).fetchone()
 

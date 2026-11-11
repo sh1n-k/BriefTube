@@ -47,8 +47,9 @@ def test_init_database_creates_hot_path_indexes_for_rss_and_transcript_queue(
     asyncio.run(_run())
     names = _index_names(str(db_path))
     for required in (
-        "idx_videos_transcript_queue",
-        "idx_videos_pipeline",
+        "idx_video_jobs_claim",
+        "idx_video_jobs_active",
+        "idx_video_jobs_video_kind",
         "idx_channels_rss_next_poll",
     ):
         assert required in names, f"missing required index: {required}"
@@ -235,9 +236,9 @@ def test_insert_videos_if_absent_batch_keeps_category_processing_stage(
     tmp_path: Path,
 ) -> None:
     """배치 insert는 단일 insert와 동일하게 채널의
-    ``category.processing_stage`` 규칙을 따른다. ``off`` → ``auto_paused``,
-    그 외 → ``transcript_pending``, 그리고 ``processing_stage_snapshot``이
-    ``off|transcript_only|full``로 매핑된다."""
+    ``category.processing_stage`` 규칙을 따른다. ``off`` → 작업 없음(``auto_paused``),
+    그 외 → 자막 작업 대기(``transcript_pending``), 그리고 ``target_stage``가
+    ``none|transcript|article``로 매핑된다. 이미 있던 영상에는 작업을 열지 않는다."""
     db_path = tmp_path / "batch-insert.db"
 
     async def _seed() -> None:
@@ -285,17 +286,15 @@ def test_insert_videos_if_absent_batch_keeps_category_processing_stage(
             )
             pipeline_cursor = await db.execute(
                 """
-                SELECT video_id, pipeline_status, processing_stage_snapshot
-                FROM videos
-                WHERE video_id LIKE 'vid-batch-%'
-                ORDER BY video_id
+                SELECT p.video_id, p.pipeline_status, p.target_stage
+                FROM video_pipeline_v p
+                WHERE p.video_id LIKE 'vid-batch-%'
+                ORDER BY p.video_id
                 """
             )
             pipeline_map: dict[str, str] = {}
             for row in await pipeline_cursor.fetchall():
-                pipeline_map[row["video_id"]] = (
-                    f"{row['pipeline_status']}|{row['processing_stage_snapshot']}"
-                )
+                pipeline_map[row["video_id"]] = f"{row['pipeline_status']}|{row['target_stage']}"
             inserted_second = await videos_repo.insert_videos_if_absent_batch(
                 db,
                 [
@@ -307,17 +306,25 @@ def test_insert_videos_if_absent_batch_keeps_category_processing_stage(
                 "SELECT COUNT(1) AS cnt FROM videos WHERE video_id LIKE 'vid-batch-%'"
             )
             count_row = await count_cursor.fetchone()
-            return inserted, pipeline_map, int(inserted_second), int(count_row["cnt"])
+            jobs_cursor = await db.execute(
+                """
+                SELECT video_id, COUNT(1) AS cnt FROM video_jobs
+                WHERE video_id LIKE 'vid-batch-%' GROUP BY video_id
+                """
+            )
+            job_counts = {row["video_id"]: int(row["cnt"]) for row in await jobs_cursor.fetchall()}
+            return inserted, pipeline_map, int(inserted_second), int(count_row["cnt"]), job_counts
         finally:
             await db.close()
 
-    inserted, pipeline_map, second_inserted, total = asyncio.run(_run())
+    inserted, pipeline_map, second_inserted, total, job_counts = asyncio.run(_run())
     assert inserted == 3
     assert second_inserted == 1
     assert total == 4
-    assert pipeline_map["vid-batch-auto-1"] == "auto_paused|off"
-    assert pipeline_map["vid-batch-auto-2"] == "auto_paused|off"
-    assert pipeline_map["vid-batch-full-1"] == "transcript_pending|full"
+    assert pipeline_map["vid-batch-auto-1"] == "auto_paused|none"
+    assert pipeline_map["vid-batch-auto-2"] == "auto_paused|none"
+    assert pipeline_map["vid-batch-full-1"] == "transcript_pending|article"
+    assert job_counts == {"vid-batch-full-1": 1, "vid-batch-new": 1}
 
 
 def test_poller_worker_disabled_is_observed_after_wait_loop(

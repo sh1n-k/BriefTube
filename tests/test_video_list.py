@@ -10,8 +10,76 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 
 from app.domains.downloads import service as downloads_service
+from tests.helpers.db_seed import seed_video_job_sync
 
 FRAGMENT_HEADERS = {"HX-Request": "true"}
+
+
+def _set_status(
+    conn: sqlite3.Connection,
+    video_id: str,
+    status: str,
+    *,
+    attempt_count: int = 0,
+    error_message: str | None = None,
+) -> None:
+    """Reproduce a legacy pipeline_status with facts and video_jobs rows."""
+    conn.execute("DELETE FROM video_jobs WHERE video_id = ?", (video_id,))
+    if status == "done":
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO articles(video_id, title, lead, body)
+            VALUES (?, ?, 'Lead paragraph', 'Body text')
+            """,
+            (video_id, f"Article for {video_id}"),
+        )
+        return
+    if status == "transcript_done":
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO transcripts(video_id, raw_text, language, source_type)
+            VALUES (?, ?, 'ko', 'auto')
+            """,
+            (video_id, f"Transcript for {video_id}"),
+        )
+        return
+    if status == "auto_paused":
+        return
+    jobs = {
+        "transcript_pending": ("transcript", "queued", None),
+        "transcript_processing": ("transcript", "running", None),
+        "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
+        "no_subtitle": ("transcript", "failed", "no_subtitle"),
+        "llm_pending": ("article", "queued", None),
+        "llm_processing": ("article", "running", None),
+        "llm_failed": ("article", "queued", "llm_provider_timeout"),
+        "manual_review": ("article", "failed", "retry_exhausted"),
+    }
+    kind, job_status, error_code = jobs[status]
+    seed_video_job_sync(
+        conn,
+        video_id,
+        kind,
+        status=job_status,
+        attempt_count=attempt_count,
+        error_code=error_code,
+        error_message=error_message if error_code else None,
+    )
+
+
+def _insert_video(
+    conn: sqlite3.Connection,
+    video_id: str,
+    channel_id: str,
+    title: str,
+    upload_time: str,
+    status: str,
+) -> None:
+    conn.execute(
+        "INSERT INTO videos(video_id, channel_id, title, upload_time) VALUES (?, ?, ?, ?)",
+        (video_id, channel_id, title, upload_time),
+    )
+    _set_status(conn, video_id, status)
 
 
 def _seed_channels_and_videos() -> None:
@@ -32,38 +100,22 @@ def _seed_channels_and_videos() -> None:
             ("UC_BBB", "Channel B", "https://www.youtube.com/feeds/videos.xml?channel_id=UC_BBB"),
         )
         for i in range(3):
-            conn.execute(
-                """
-                INSERT INTO videos(
-                    video_id, channel_id, title, upload_time,
-                    pipeline_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    f"vid-a-{i:03d}",
-                    "UC_AAA",
-                    f"Video A-{i}",
-                    f"2026-02-{10 + i:02d}T00:00:00+00:00",
-                    "transcript_pending",
-                    0,
-                ),
+            _insert_video(
+                conn,
+                f"vid-a-{i:03d}",
+                "UC_AAA",
+                f"Video A-{i}",
+                f"2026-02-{10 + i:02d}T00:00:00+00:00",
+                "transcript_pending",
             )
         for i in range(2):
-            conn.execute(
-                """
-                INSERT INTO videos(
-                    video_id, channel_id, title, upload_time,
-                    pipeline_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    f"vid-b-{i:03d}",
-                    "UC_BBB",
-                    f"Video B-{i}",
-                    f"2026-02-{20 + i:02d}T00:00:00+00:00",
-                    "transcript_pending",
-                    0,
-                ),
+            _insert_video(
+                conn,
+                f"vid-b-{i:03d}",
+                "UC_BBB",
+                f"Video B-{i}",
+                f"2026-02-{20 + i:02d}T00:00:00+00:00",
+                "transcript_pending",
             )
         conn.commit()
 
@@ -83,21 +135,13 @@ def _seed_paginated_videos(total: int) -> None:
             ),
         )
         for index in range(total):
-            conn.execute(
-                """
-                INSERT INTO videos(
-                    video_id, channel_id, title, upload_time,
-                    pipeline_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    f"vid-page-{index:03d}",
-                    "UCpage001",
-                    f"Pagination Video {index:03d}",
-                    f"2026-02-{(index % 28) + 1:02d}T00:00:00+00:00",
-                    "done",
-                    0,
-                ),
+            _insert_video(
+                conn,
+                f"vid-page-{index:03d}",
+                "UCpage001",
+                f"Pagination Video {index:03d}",
+                f"2026-02-{(index % 28) + 1:02d}T00:00:00+00:00",
+                "done",
             )
         conn.commit()
 
@@ -131,7 +175,7 @@ def _seed_video_outputs(video_id: str, *, transcript: bool = True, article: bool
         if transcript:
             conn.execute(
                 """
-                INSERT INTO transcripts(video_id, raw_text, language, source_type)
+                INSERT OR REPLACE INTO transcripts(video_id, raw_text, language, source_type)
                 VALUES (?, ?, ?, ?)
                 """,
                 (video_id, f"Transcript for {video_id}", "ko", "auto"),
@@ -139,7 +183,7 @@ def _seed_video_outputs(video_id: str, *, transcript: bool = True, article: bool
         if article:
             conn.execute(
                 """
-                INSERT INTO articles(
+                INSERT OR REPLACE INTO articles(
                     video_id,
                     title,
                     lead,
@@ -198,19 +242,11 @@ def test_video_delete_selected_invalidates_retention_notice_cache(client: TestCl
                 "https://www.youtube.com/feeds/videos.xml?channel_id=UC_RET_VIDEO",
             ),
         )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
-            """,
-            ("vid-ret-delete", "UC_RET_VIDEO", "old", "2000-01-01T00:00:00+00:00"),
+        _insert_video(
+            conn, "vid-ret-delete", "UC_RET_VIDEO", "old", "2000-01-01T00:00:00+00:00", "done"
         )
-        conn.execute(
-            """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'done')
-            """,
-            ("vid-ret-keep", "UC_RET_VIDEO", "new", "2999-01-01T00:00:00+00:00"),
+        _insert_video(
+            conn, "vid-ret-keep", "UC_RET_VIDEO", "new", "2999-01-01T00:00:00+00:00", "done"
         )
         conn.commit()
 
@@ -263,7 +299,7 @@ def test_video_list_channel_name_links_to_channel_filter(client: TestClient) -> 
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        _set_status(conn, "vid-b-000", "done")
         conn.commit()
 
     response = client.get(
@@ -287,10 +323,8 @@ def test_video_list_pipeline_status_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
-        conn.execute(
-            "UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id = 'vid-a-001'"
-        )
+        _set_status(conn, "vid-b-000", "done")
+        _set_status(conn, "vid-a-001", "manual_review")
         conn.commit()
 
     response = client.get(
@@ -318,10 +352,9 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
         conn.execute(
             "UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB")
         )
-        conn.execute(
-            "UPDATE videos SET pipeline_status = 'manual_review' WHERE video_id IN ('vid-a-000', 'vid-b-001')"
-        )
-        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        _set_status(conn, "vid-a-000", "manual_review")
+        _set_status(conn, "vid-b-001", "manual_review")
+        _set_status(conn, "vid-b-000", "done")
         conn.commit()
 
     response = client.get(
@@ -367,7 +400,7 @@ def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestC
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-000'")
+        _set_status(conn, "vid-b-000", "done")
         conn.commit()
 
     response = client.get(
@@ -484,7 +517,7 @@ def test_home_pipeline_status_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-b-001'")
+        _set_status(conn, "vid-b-001", "done")
         conn.commit()
 
     response = client.get("/", params={"pipeline_status": "done", "limit": "20"})
@@ -586,9 +619,7 @@ def test_video_download_selected_preserves_pipeline_status_filter(client: TestCl
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "UPDATE videos SET pipeline_status = 'no_subtitle' WHERE video_id = 'vid-b-001'"
-        )
+        _set_status(conn, "vid-b-001", "no_subtitle")
         conn.commit()
 
     response = client.post(
@@ -706,9 +737,7 @@ def test_video_list_marks_article_eligible_for_transcript_done(client: TestClien
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "UPDATE videos SET pipeline_status = 'transcript_done' WHERE video_id = 'vid-a-001'"
-        )
+        _set_status(conn, "vid-a-001", "transcript_done")
         conn.commit()
     _seed_video_outputs("vid-a-001", transcript=True, article=False)
 
@@ -760,7 +789,7 @@ def test_video_article_selected_preserves_pipeline_status_filter(client: TestCli
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE videos SET pipeline_status = 'done' WHERE video_id = 'vid-a-002'")
+        _set_status(conn, "vid-a-002", "done")
         conn.commit()
 
     response = client.post(
@@ -789,21 +818,13 @@ def test_video_article_selected_limit_exceeded_returns_bulk_toast(client: TestCl
             ),
         )
         for idx in range(11):
-            conn.execute(
-                """
-                INSERT INTO videos(
-                    video_id, channel_id, title, upload_time,
-                    pipeline_status, retry_count
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    f"vid-manual-limit-{idx:02d}",
-                    "UC_MANUAL_LIMIT",
-                    f"Manual Limit {idx}",
-                    f"2026-02-{10 + idx:02d}T00:00:00+00:00",
-                    "done",
-                    0,
-                ),
+            _insert_video(
+                conn,
+                f"vid-manual-limit-{idx:02d}",
+                "UC_MANUAL_LIMIT",
+                f"Manual Limit {idx}",
+                f"2026-02-{10 + idx:02d}T00:00:00+00:00",
+                "done",
             )
         conn.commit()
 
@@ -908,19 +929,15 @@ def test_video_list_shows_article_title_and_lead_summary(client: TestClient) -> 
 def _set_video_statuses(statuses: dict[str, str]) -> None:
     with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         for video_id, pipeline_status in statuses.items():
-            conn.execute(
-                "UPDATE videos SET pipeline_status = ?, transcript_retry_count = 3, "
-                "transcript_last_error = 'boom' WHERE video_id = ?",
-                (pipeline_status, video_id),
-            )
+            _set_status(conn, video_id, pipeline_status, attempt_count=3, error_message="boom")
         conn.commit()
 
 
 def _video_transcript_state(video_id: str) -> tuple[str, int, str | None]:
     with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         row = conn.execute(
-            "SELECT pipeline_status, transcript_retry_count, transcript_last_error "
-            "FROM videos WHERE video_id = ?",
+            "SELECT pipeline_status, transcript_attempt_count, transcript_error_message "
+            "FROM video_pipeline_v WHERE video_id = ?",
             (video_id,),
         ).fetchone()
     return str(row[0]), int(row[1]), row[2]
@@ -1055,24 +1072,22 @@ def test_video_list_transcript_retry_skips_active_manual_jobs_and_stored_transcr
         }
     )
     with sqlite3.connect(os.environ["DB_PATH"]) as conn:
-        conn.execute(
-            "INSERT INTO manual_article_jobs(video_id, status) VALUES ('vid-a-000', 'pending')"
-        )
-        conn.execute(
-            "INSERT INTO manual_transcript_jobs(video_id, status) VALUES ('vid-a-001', 'running')"
-        )
-        conn.execute(
-            "INSERT INTO manual_article_jobs(video_id, status) VALUES ('vid-b-000', 'failed')"
-        )
+        # Active manual article request without a transcript: an active article job.
+        seed_video_job_sync(conn, "vid-a-000", "article", origin="manual")
+        # Running manual transcript request: the current transcript job is running.
+        seed_video_job_sync(conn, "vid-a-001", "transcript", status="running", origin="manual")
+        # A finished (failed) manual article request does not block the retry.
+        seed_video_job_sync(conn, "vid-b-000", "article", status="failed", origin="manual")
         conn.commit()
     _seed_video_outputs("vid-a-002", transcript=True, article=False)
 
-    for video_id, expected_status in (
-        ("vid-a-000", "no_subtitle"),
-        ("vid-a-001", "no_subtitle"),
-        ("vid-a-002", "transcript_failed"),
-        ("vid-b-000", "transcript_pending"),
+    for video_id, requeued in (
+        ("vid-a-000", False),
+        ("vid-a-001", False),
+        ("vid-a-002", False),
+        ("vid-b-000", True),
     ):
+        before_status = _video_transcript_state(video_id)[0]
         response = client.post(
             f"/views/videos/{video_id}/transcript-retry",
             data={"_page": "1"},
@@ -1080,5 +1095,9 @@ def test_video_list_transcript_retry_skips_active_manual_jobs_and_stored_transcr
         )
         assert response.status_code == 200
         toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
-        assert toast["tone"] == ("success" if expected_status == "transcript_pending" else "info")
-        assert _video_transcript_state(video_id)[0] == expected_status
+        assert toast["tone"] == ("success" if requeued else "info")
+        after_status = _video_transcript_state(video_id)[0]
+        if requeued:
+            assert after_status == "transcript_pending"
+        else:
+            assert after_status == before_status

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
-from app.repositories import transcripts as transcripts_repo
+from app.repositories import pipeline as pipeline_repo
 from app.routers.template_context import build_llm_runtime_context
 from app.routers.video_detail_context import build_video_detail_context
 from app.routers.video_list_context import build_video_list_context
@@ -63,9 +63,11 @@ async def video_page(video_id: str, request: Request):
 
 @router.post("/videos/{video_id}/transcript/retry")
 async def retry_transcript(video_id: str, request: Request):
-    affected = await transcripts_repo.reset_transcript_for_retry(
+    affected = await pipeline_repo.retry_transcript_for_video(
         request.app.state.runtime.db, video_id
     )
+    if affected > 0:
+        request.app.state.runtime.transcript_wake_event.set()
     retry_flag = "1" if affected > 0 else "0"
     return RedirectResponse(
         url=f"/videos/{video_id}?transcript_retry={retry_flag}", status_code=303

@@ -6,8 +6,8 @@ import logging
 import time
 from datetime import UTC, datetime
 
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
-from app.repositories import transcripts as transcripts_repo
 from app.services.transcript_guard import (
     TranscriptBreakerState,
     TranscriptErrorCategory,
@@ -24,13 +24,14 @@ from app.services.transcript_guard import (
     transcript_guard_mutation,
 )
 from app.state import AppState
+from app.workers.wake_sleep import sleep_with_wake_event
 from app.workers.wake_sleep import wait_until_monotonic as _wait_until
 
 logger = logging.getLogger(__name__)
 
 
 async def _recover_runtime_stuck_transcript_jobs(db) -> int:
-    recovered = await transcripts_repo.recover_stuck_transcript_jobs(db)
+    recovered = await pipeline_repo.recover_running_transcript_jobs(db)
     if recovered > 0:
         logger.warning(
             "event=transcript.runtime_recover worker=transcript recovered=%s",
@@ -160,7 +161,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                     avoid_channel_id or "-",
                     extra={"event": "transcript.polling_pending", "worker": "transcript"},
                 )
-                pending = await transcripts_repo.pop_pending_transcript_videos(
+                pending = await pipeline_repo.list_claimable_transcript_jobs(
                     db,
                     limit=fetch_batch_size,
                     lookahead=channel_pick_lookahead,
@@ -182,10 +183,12 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         avoid_channel_id or "-",
                         extra={"event": "transcript.no_pending", "worker": "transcript"},
                     )
-                    await asyncio.sleep(sleep_seconds)
+                    # Manual requests set transcript_wake_event to skip the idle wait.
+                    await sleep_with_wake_event(state, "transcript_wake_event", sleep_seconds)
                     continue
 
                 for video in pending:
+                    job_id = int(video["job_id"])
                     video_id = video["video_id"]
                     channel_id = str(video.get("channel_id") or "").strip()
                     preferred_language = (
@@ -202,7 +205,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         )
                         if not permit:
                             break
-                        marked = await transcripts_repo.mark_transcript_processing(db, video_id)
+                        marked = await pipeline_repo.mark_transcript_job_running(db, job_id)
                         if marked == 0:
                             continue
                         async with state.transcript_fetch_lock:
@@ -223,8 +226,9 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         if not raw_text.strip():
                             raise ValueError("Transcript payload is empty")
 
-                        await transcripts_repo.save_transcript(
+                        await pipeline_repo.complete_transcript_job(
                             db,
+                            job_id=job_id,
                             video_id=video_id,
                             raw_text=raw_text,
                             timed_text=timed_text,
@@ -255,7 +259,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         error_message = str(exc).strip() or exc.__class__.__name__
                         error_category = _classify_transcript_error(exc)
 
-                        current_retry_count = int(video.get("transcript_retry_count") or 0)
+                        current_retry_count = int(video.get("attempt_count") or 0)
                         next_retry_count = current_retry_count + 1
 
                         interval_after_error = _compute_jittered_interval_seconds(
@@ -266,7 +270,12 @@ async def run_transcript_fetcher(state: AppState) -> None:
                         next_request_monotonic_at = time.monotonic() + interval_after_error
 
                         if error_category == TranscriptErrorCategory.NO_SUBTITLE:
-                            await transcripts_repo.mark_no_subtitle(db, video_id)
+                            await pipeline_repo.fail_transcript_job(
+                                db,
+                                job_id,
+                                attempt_count=current_retry_count,
+                                error_code=pipeline_repo.ERROR_CODE_NO_SUBTITLE,
+                            )
                             async with transcript_guard_mutation(state, db) as guard:
                                 record_transcript_guard_success(
                                     guard,
@@ -305,7 +314,7 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             )
 
                             if channel_id:
-                                await transcripts_repo.defer_channel_transcript_retries(
+                                await pipeline_repo.defer_channel_transcript_jobs(
                                     db,
                                     channel_id=channel_id,
                                     delay_seconds=channel_hard_cooldown_seconds,
@@ -313,10 +322,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 )
 
                             if next_retry_count > retry_max_attempts:
-                                await transcripts_repo.mark_transcript_failed(
+                                await pipeline_repo.fail_transcript_job(
                                     db,
-                                    video_id=video_id,
-                                    retry_count=next_retry_count,
+                                    job_id,
+                                    attempt_count=next_retry_count,
+                                    error_code=error_category.value,
                                     error_message=error_message,
                                 )
                                 logger.warning(
@@ -332,10 +342,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                     },
                                 )
                             else:
-                                await transcripts_repo.schedule_transcript_retry(
+                                await pipeline_repo.schedule_transcript_job_retry(
                                     db,
-                                    video_id=video_id,
+                                    job_id,
                                     delay_seconds=next_delay_seconds,
+                                    error_code=error_category.value,
                                     error_message=error_message,
                                 )
                                 logger.warning(
@@ -381,17 +392,19 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 probe_cooldown_seconds,
                             )
                             if next_retry_count > retry_max_attempts:
-                                await transcripts_repo.mark_transcript_failed(
+                                await pipeline_repo.fail_transcript_job(
                                     db,
-                                    video_id=video_id,
-                                    retry_count=next_retry_count,
+                                    job_id,
+                                    attempt_count=next_retry_count,
+                                    error_code=error_category.value,
                                     error_message=error_message,
                                 )
                             else:
-                                await transcripts_repo.schedule_transcript_retry(
+                                await pipeline_repo.schedule_transcript_job_retry(
                                     db,
-                                    video_id=video_id,
+                                    job_id,
                                     delay_seconds=next_delay_seconds,
+                                    error_code=error_category.value,
                                     error_message=error_message,
                                 )
                             logger.warning(
@@ -423,10 +436,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             post_general_factor = guard.adaptive_factor
 
                         if error_category == TranscriptErrorCategory.NON_RETRYABLE_FAILURE:
-                            await transcripts_repo.mark_transcript_failed(
+                            await pipeline_repo.fail_transcript_job(
                                 db,
-                                video_id=video_id,
-                                retry_count=next_retry_count,
+                                job_id,
+                                attempt_count=next_retry_count,
+                                error_code=error_category.value,
                                 error_message=error_message,
                             )
                             logger.warning(
@@ -444,10 +458,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                             current_retry_count,
                         )
                         if next_retry_count > retry_max_attempts:
-                            await transcripts_repo.mark_transcript_failed(
+                            await pipeline_repo.fail_transcript_job(
                                 db,
-                                video_id=video_id,
-                                retry_count=next_retry_count,
+                                job_id,
+                                attempt_count=next_retry_count,
+                                error_code=error_category.value,
                                 error_message=error_message,
                             )
                             logger.warning(
@@ -458,10 +473,11 @@ async def run_transcript_fetcher(state: AppState) -> None:
                                 error_message,
                             )
                         else:
-                            await transcripts_repo.schedule_transcript_retry(
+                            await pipeline_repo.schedule_transcript_job_retry(
                                 db,
-                                video_id=video_id,
+                                job_id,
                                 delay_seconds=next_delay_seconds,
+                                error_code=error_category.value,
                                 error_message=error_message,
                             )
                             logger.warning(

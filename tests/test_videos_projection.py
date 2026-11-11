@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.repositories import videos as videos_repo
 from tests.helpers.app_repo import call_repo
+from tests.helpers.db_seed import seed_video_job_sync
 
 
 def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> None:
@@ -27,9 +28,8 @@ def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> No
         conn.execute(
             """
             INSERT INTO videos(
-                video_id, channel_id, title, upload_time, thumbnail_path,
-                pipeline_status, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                video_id, channel_id, title, upload_time, thumbnail_path
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 "vid-proj-001",
@@ -37,10 +37,9 @@ def test_videos_include_channel_name_and_thumbnail_url(client: TestClient) -> No
                 "Projection Test Video",
                 "2026-02-25T00:00:00+00:00",
                 "./thumbnails-dev/vid-proj-001.jpg",
-                "transcript_pending",
-                0,
             ),
         )
+        seed_video_job_sync(conn, "vid-proj-001", "transcript")
         conn.commit()
 
     rows = call_repo(
@@ -77,9 +76,8 @@ def test_videos_fallback_to_cdn_thumbnail_when_local_path_missing(client: TestCl
         conn.execute(
             """
             INSERT INTO videos(
-                video_id, channel_id, title, upload_time, thumbnail_path,
-                pipeline_status, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                video_id, channel_id, title, upload_time, thumbnail_path
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 "vid-proj-002",
@@ -87,10 +85,9 @@ def test_videos_fallback_to_cdn_thumbnail_when_local_path_missing(client: TestCl
                 "Projection CDN Fallback",
                 "2026-02-25T00:00:00+00:00",
                 None,
-                "transcript_pending",
-                0,
             ),
         )
+        seed_video_job_sync(conn, "vid-proj-002", "transcript")
         conn.commit()
 
     rows = call_repo(

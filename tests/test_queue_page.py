@@ -5,7 +5,19 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
+from tests.helpers.db_seed import seed_video_job_sync
+
 CHANNEL_ID = "UCqueuepage001"
+
+# Legacy pipeline_status -> (job kind, job status, error_code) producing it in the view.
+_JOB_BY_LEGACY_STATUS: dict[str, tuple[str, str, str | None]] = {
+    "transcript_pending": ("transcript", "queued", None),
+    "transcript_processing": ("transcript", "running", None),
+    "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
+    "llm_pending": ("article", "queued", None),
+    "llm_processing": ("article", "running", None),
+    "llm_failed": ("article", "queued", "llm_provider_timeout"),
+}
 
 
 def _seed_queue_rows() -> None:
@@ -35,11 +47,13 @@ def _seed_queue_rows() -> None:
         for video_id, status in statuses:
             conn.execute(
                 """
-                INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-                VALUES (?, ?, ?, '2026-02-10T00:00:00+00:00', ?)
+                INSERT INTO videos(video_id, channel_id, title, upload_time)
+                VALUES (?, ?, ?, '2026-02-10T00:00:00+00:00')
                 """,
-                (video_id, CHANNEL_ID, f"Video {video_id}", status),
+                (video_id, CHANNEL_ID, f"Video {video_id}"),
             )
+            kind, job_status, error_code = _JOB_BY_LEGACY_STATUS[status]
+            seed_video_job_sync(conn, video_id, kind, status=job_status, error_code=error_code)
         conn.execute(
             "INSERT OR REPLACE INTO app_settings(key, value, updated_at) VALUES ('worker_transcript_enabled', 'true', datetime('now'))"
         )

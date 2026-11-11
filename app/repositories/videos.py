@@ -14,9 +14,6 @@ list_videos_by_ids = repository.list_videos_by_ids
 mark_video_viewed = repository.mark_video_viewed
 get_video_detail = repository.get_video_detail
 get_transcript = repository.get_transcript
-mark_video_retry = repository.mark_video_retry
-mark_failed_videos_for_retry = repository.mark_failed_videos_for_retry
-requeue_done_video_for_manual_article_retry = repository.requeue_done_video_for_manual_article_retry
 
 delete_videos_by_ids = repository.delete_videos_by_ids
 

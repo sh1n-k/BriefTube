@@ -48,12 +48,18 @@ async def init_database(db: aiosqlite.Connection) -> None:
 
 
 async def recover_stuck_jobs(db: aiosqlite.Connection) -> int:
-    llm_cursor = await db.execute(
+    """Requeue article jobs left running by a previous process.
+
+    Running transcript jobs are requeued by the transcript worker when it starts.
+    """
+    cursor = await db.execute(
         """
-        UPDATE videos
-        SET pipeline_status = 'llm_pending'
-        WHERE pipeline_status = 'llm_processing'
+        UPDATE video_jobs
+        SET status = 'queued',
+            updated_at = datetime('now')
+        WHERE kind = 'article'
+          AND status = 'running'
         """
     )
     await db.commit()
-    return int(llm_cursor.rowcount or 0)
+    return int(cursor.rowcount or 0)

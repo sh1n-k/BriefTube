@@ -8,8 +8,30 @@ from fastapi.testclient import TestClient
 
 from app.repositories import videos as videos_repo
 from tests.helpers.app_repo import call_repo
+from tests.helpers.db_seed import seed_video_job_sync
 
 FRAGMENT_HEADERS = {"HX-Request": "true"}
+
+# Legacy pipeline_status → video_jobs rows that reproduce it in video_pipeline_v.
+_STATUS_JOBS: dict[str, list[dict[str, object]]] = {
+    "transcript_pending": [{"kind": "transcript"}],
+    "transcript_processing": [{"kind": "transcript", "status": "running"}],
+    "transcript_failed": [
+        {"kind": "transcript", "status": "failed", "error_code": "non_retryable_failure"}
+    ],
+    "no_subtitle": [{"kind": "transcript", "status": "failed", "error_code": "no_subtitle"}],
+    "llm_pending": [{"kind": "article"}],
+    "llm_processing": [{"kind": "article", "status": "running"}],
+    "llm_failed": [{"kind": "article", "error_code": "llm_provider_timeout"}],
+    "manual_review": [{"kind": "article", "status": "failed", "error_code": "retry_exhausted"}],
+}
+
+
+def _seed_status_jobs(conn: sqlite3.Connection, video_id: str, pipeline_status: str) -> None:
+    for job in _STATUS_JOBS.get(pipeline_status, []):
+        params = dict(job)
+        kind = str(params.pop("kind"))
+        seed_video_job_sync(conn, video_id, kind, **params)  # type: ignore[arg-type]
 
 
 def _seed_video(
@@ -47,13 +69,12 @@ def _seed_video(
         )
         conn.execute(
             """
-            INSERT INTO videos(
-                video_id, channel_id, title, upload_time,
-                pipeline_status, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
-            (video_id, channel_id, title, "2026-02-10T00:00:00+00:00", pipeline_status, 0),
+            (video_id, channel_id, title, "2026-02-10T00:00:00+00:00"),
         )
+        _seed_status_jobs(conn, video_id, pipeline_status)
         if raw_text is not None:
             conn.execute(
                 "INSERT INTO transcripts(video_id, raw_text, language, source_type) VALUES (?, ?, ?, ?)",
@@ -380,7 +401,11 @@ def test_detail_article_request_requeues_done_video_to_llm_pending(client: TestC
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT pipeline_status, retry_count FROM videos WHERE video_id = ?",
+            """
+            SELECT pipeline_status, article_attempt_count
+            FROM video_pipeline_v
+            WHERE video_id = ?
+            """,
             ("vid-requeue-001",),
         ).fetchone()
         assert row is not None

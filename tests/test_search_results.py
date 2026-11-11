@@ -34,8 +34,8 @@ def _seed_search_video(
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, '2026-02-10T00:00:00+00:00', 'done')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, '2026-02-10T00:00:00+00:00')
             """,
             (video_id, channel_id, title),
         )

@@ -40,14 +40,6 @@ MANUAL_TRANSCRIPT_ALLOWED_PIPELINE_STATUSES: set[str] = {
     "transcript_failed",
     "no_subtitle",
 }
-MANUAL_ARTICLE_ENQUEUE_RETRY_PIPELINE_STATUSES: set[str] = {
-    "auto_paused",
-    "transcript_done",
-    "transcript_failed",
-    "no_subtitle",
-    "llm_failed",
-    "manual_review",
-}
 MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES: set[str] = {
     "transcript_pending",
     "transcript_processing",

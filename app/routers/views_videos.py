@@ -5,10 +5,8 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Query, Request
 from starlette.datastructures import FormData
 
-from app.repositories import manual_articles as manual_articles_repo
-from app.repositories import manual_transcripts as manual_transcripts_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
-from app.repositories import transcripts as transcripts_repo
 from app.repositories import videos as videos_repo
 from app.routers.helpers import (
     full_page_redirect_for_non_fragment_request,
@@ -265,7 +263,7 @@ async def article_request_selected_videos(request: Request):
         )
         toast_tone = "error"
     else:
-        bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
+        bulk_result = await pipeline_repo.enqueue_manual_article_jobs(
             request.app.state.runtime.db,
             video_ids=video_ids,
         )
@@ -283,7 +281,8 @@ async def article_request_selected_videos(request: Request):
         )
 
         if (new_count + retry_count) > 0:
-            request.app.state.runtime.manual_article_wake_event.set()
+            request.app.state.runtime.transcript_wake_event.set()
+            request.app.state.runtime.llm_wake_event.set()
 
         llm_worker_waiting = not await settings_repo.is_worker_enabled(
             request.app.state.runtime.db,
@@ -315,7 +314,9 @@ async def transcript_retry_list_video(video_id: str, request: Request):
     form = await request.form()
     txt = await request_texts(request)
     db = request.app.state.runtime.db
-    affected = await transcripts_repo.reset_transcript_for_retry(db, video_id)
+    affected = await pipeline_repo.retry_transcript_for_video(db, video_id)
+    if affected > 0:
+        request.app.state.runtime.transcript_wake_event.set()
     if affected <= 0:
         toast_message, toast_tone = txt["video_transcript_retry_skipped"], "info"
     elif not await settings_repo.is_worker_enabled(db, "transcript"):
@@ -342,12 +343,12 @@ async def transcript_request_single_video(video_id: str, request: Request):
         )
         return response
 
-    result = await manual_transcripts_repo.enqueue_manual_transcript_job(
+    result = await pipeline_repo.enqueue_manual_transcript_job(
         request.app.state.runtime.db,
         video_id=video_id,
     )
     if str(result.get("status") or "") == "queued":
-        request.app.state.runtime.manual_transcript_wake_event.set()
+        request.app.state.runtime.transcript_wake_event.set()
 
     toast_message, toast_tone = _manual_transcript_toast_from_result(txt, result)
     response = await _render_video_detail(video_id=video_id, request=request)
@@ -368,7 +369,7 @@ async def article_request_single_video(video_id: str, request: Request):
 
     if detail and pipeline_status == "done":
         if has_transcript:
-            retried = await videos_repo.requeue_done_video_for_manual_article_retry(
+            retried = await pipeline_repo.requeue_article_for_done_video(
                 request.app.state.runtime.db,
                 video_id,
             )
@@ -380,7 +381,7 @@ async def article_request_single_video(video_id: str, request: Request):
         else:
             failed_count = 1
     else:
-        bulk_result = await manual_articles_repo.enqueue_manual_article_jobs(
+        bulk_result = await pipeline_repo.enqueue_manual_article_jobs(
             request.app.state.runtime.db,
             video_ids=[video_id],
         )
@@ -397,7 +398,8 @@ async def article_request_single_video(video_id: str, request: Request):
             int(bulk_result.get("failed_count", 0) or 0) if isinstance(bulk_result, dict) else 0
         )
         if (new_count + retry_count) > 0:
-            request.app.state.runtime.manual_article_wake_event.set()
+            request.app.state.runtime.transcript_wake_event.set()
+            request.app.state.runtime.llm_wake_event.set()
 
     llm_worker_waiting = not await settings_repo.is_worker_enabled(
         request.app.state.runtime.db,

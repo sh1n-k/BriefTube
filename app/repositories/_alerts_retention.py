@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import aiosqlite
 
+from app.database_migrations import PIPELINE_VIEW_NAME
 from app.repositories._common import (
     rows_to_dicts as _rows_to_dicts,
 )
@@ -234,9 +235,10 @@ async def list_retention_expired_videos(
             v.title,
             v.upload_time,
             v.thumbnail_path,
-            v.pipeline_status,
+            p.pipeline_status,
             v.created_at
         FROM videos v
+        JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id
         LEFT JOIN channels c ON c.channel_id = v.channel_id
         WHERE datetime(v.upload_time) <= datetime('now', ?)
         ORDER BY datetime(v.upload_time) ASC, v.created_at ASC

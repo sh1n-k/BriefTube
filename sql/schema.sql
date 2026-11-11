@@ -65,18 +65,41 @@ CREATE TABLE IF NOT EXISTS videos (
     title               TEXT NOT NULL,
     upload_time         TEXT NOT NULL,
     thumbnail_path      TEXT,
-    pipeline_status     TEXT NOT NULL DEFAULT 'transcript_pending',
-    processing_stage_snapshot TEXT NOT NULL DEFAULT 'full',
-    transcript_retry_count INTEGER NOT NULL DEFAULT 0,
-    transcript_next_attempt_at TEXT,
+    target_stage        TEXT NOT NULL DEFAULT 'article'
+                        CHECK (target_stage IN ('none', 'transcript', 'article')),
     transcript_target_language TEXT,
-    transcript_last_error TEXT,
-    transcript_last_error_at TEXT,
-    retry_count         INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     viewed_at           TEXT,
     updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+
+-- Work for a video. videos/transcripts/articles hold facts; this table holds attempts.
+-- The newest row per (video_id, kind) is the current one; at most one is queued/running.
+CREATE TABLE IF NOT EXISTS video_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id        TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+    kind            TEXT NOT NULL CHECK (kind IN ('transcript', 'article')),
+    origin          TEXT NOT NULL DEFAULT 'auto' CHECK (origin IN ('auto', 'manual')),
+    status          TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    attempt_count   INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
+    error_code      TEXT,
+    error_message   TEXT,
+    error_at        TEXT,
+    requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at      TEXT,
+    finished_at     TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_video_jobs_active
+    ON video_jobs(video_id, kind)
+    WHERE status IN ('queued', 'running');
+CREATE INDEX IF NOT EXISTS idx_video_jobs_video_kind
+    ON video_jobs(video_id, kind, id DESC);
+CREATE INDEX IF NOT EXISTS idx_video_jobs_claim
+    ON video_jobs(kind, status, origin, next_attempt_at);
 
 CREATE TABLE IF NOT EXISTS transcripts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,46 +211,4 @@ CREATE INDEX IF NOT EXISTS idx_download_events_created
     ON download_events(created_at DESC, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_download_jobs_active_video
     ON download_jobs(video_id)
-    WHERE status IN ('pending', 'running');
-
-CREATE TABLE IF NOT EXISTS manual_article_jobs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_id        TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
-    status          TEXT NOT NULL DEFAULT 'pending',
-    error_message   TEXT,
-    requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    started_at      TEXT,
-    finished_at     TEXT,
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_manual_article_jobs_status_requested
-    ON manual_article_jobs(status, requested_at ASC, id ASC);
-CREATE INDEX IF NOT EXISTS idx_manual_article_jobs_video_requested
-    ON manual_article_jobs(video_id, requested_at DESC, id DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_article_jobs_active_video
-    ON manual_article_jobs(video_id)
-    WHERE status IN ('pending', 'running');
-
-CREATE TABLE IF NOT EXISTS manual_transcript_jobs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_id        TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
-    status          TEXT NOT NULL DEFAULT 'pending',
-    retry_count     INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TEXT,
-    error_message   TEXT,
-    language        TEXT,
-    source_type     TEXT,
-    requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    started_at      TEXT,
-    finished_at     TEXT,
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_manual_transcript_jobs_status_requested
-    ON manual_transcript_jobs(status, next_attempt_at, requested_at ASC, id ASC);
-CREATE INDEX IF NOT EXISTS idx_manual_transcript_jobs_video_requested
-    ON manual_transcript_jobs(video_id, requested_at DESC, id DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_transcript_jobs_active_video
-    ON manual_transcript_jobs(video_id)
     WHERE status IN ('pending', 'running');

@@ -9,19 +9,18 @@ import pytest
 from app.database import init_database, open_database
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
-from app.repositories import llm as llm_repo
-from app.repositories import transcripts as transcripts_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import videos as videos_repo
 
 repository = SimpleNamespace(
     add_channel=channels_repo.add_channel,
     insert_video_if_absent=videos_repo.insert_video_if_absent,
-    save_transcript=transcripts_repo.save_transcript,
+    complete_transcript_job=pipeline_repo.complete_transcript_job,
     create_category=categories_repo.create_category,
     move_channels_to_category=categories_repo.move_channels_to_category,
     update_category_processing_stage=categories_repo.update_category_processing_stage,
-    pop_llm_candidate=llm_repo.pop_llm_candidate,
-    count_llm_pending_videos=llm_repo.count_llm_pending_videos,
+    claim_next_article_job=pipeline_repo.claim_next_article_job,
+    count_queued_article_jobs=pipeline_repo.count_queued_article_jobs,
 )
 
 
@@ -66,10 +65,23 @@ def _insert_video(db, *, video_id: str, channel_id: str) -> None:
     assert inserted is True
 
 
+def _transcript_job_ids(db, video_id: str) -> list[int]:
+    cursor = db.run(
+        db.conn.execute(
+            "SELECT id FROM video_jobs WHERE video_id = ? AND kind = 'transcript' ORDER BY id",
+            (video_id,),
+        )
+    )
+    return [int(row["id"]) for row in db.run(cursor.fetchall())]
+
+
 def _save_transcript(db, *, video_id: str) -> None:
+    job_ids = _transcript_job_ids(db, video_id)
+    assert len(job_ids) == 1
     db.run(
-        repository.save_transcript(
+        repository.complete_transcript_job(
             db.conn,
+            job_id=job_ids[0],
             video_id=video_id,
             raw_text=f"Transcript for {video_id}",
             language="ko",
@@ -82,13 +94,18 @@ def _save_transcript(db, *, video_id: str) -> None:
 def _video_state(db, video_id: str) -> tuple[str, str]:
     cursor = db.run(
         db.conn.execute(
-            "SELECT pipeline_status, processing_stage_snapshot FROM videos WHERE video_id = ?",
+            """
+            SELECT p.pipeline_status, v.target_stage
+            FROM videos v
+            JOIN video_pipeline_v p ON p.video_id = v.video_id
+            WHERE v.video_id = ?
+            """,
             (video_id,),
         )
     )
     row = db.run(cursor.fetchone())
     assert row is not None
-    return str(row["pipeline_status"]), str(row["processing_stage_snapshot"])
+    return str(row["pipeline_status"]), str(row["target_stage"])
 
 
 def test_processing_stage_off_inserts_auto_paused(db) -> None:
@@ -97,9 +114,10 @@ def test_processing_stage_off_inserts_auto_paused(db) -> None:
     db.run(repository.move_channels_to_category(db.conn, ["UC_stage_off"], cat["id"]))
     _insert_video(db, video_id="vid_stage_off", channel_id="UC_stage_off")
 
-    status, snapshot = _video_state(db, "vid_stage_off")
+    status, target_stage = _video_state(db, "vid_stage_off")
     assert status == "auto_paused"
-    assert snapshot == "off"
+    assert target_stage == "none"
+    assert _transcript_job_ids(db, "vid_stage_off") == []
 
 
 def test_processing_stage_transcript_only_stops_at_transcript_done(db) -> None:
@@ -110,10 +128,10 @@ def test_processing_stage_transcript_only_stops_at_transcript_done(db) -> None:
     _insert_video(db, video_id="vid_stage_tx", channel_id="UC_stage_tx")
     _save_transcript(db, video_id="vid_stage_tx")
 
-    status, snapshot = _video_state(db, "vid_stage_tx")
+    status, target_stage = _video_state(db, "vid_stage_tx")
     assert status == "transcript_done"
-    assert snapshot == "transcript_only"
-    candidate = db.run(repository.pop_llm_candidate(db.conn, max_retry_count=3))
+    assert target_stage == "transcript"
+    candidate = db.run(repository.claim_next_article_job(db.conn, max_attempts=3))
     assert candidate is None
 
 
@@ -125,10 +143,10 @@ def test_processing_stage_full_queues_llm_candidate(db) -> None:
     _insert_video(db, video_id="vid_stage_full", channel_id="UC_stage_full")
     _save_transcript(db, video_id="vid_stage_full")
 
-    status, snapshot = _video_state(db, "vid_stage_full")
+    status, target_stage = _video_state(db, "vid_stage_full")
     assert status == "llm_pending"
-    assert snapshot == "full"
-    candidate = db.run(repository.pop_llm_candidate(db.conn, max_retry_count=3))
+    assert target_stage == "article"
+    candidate = db.run(repository.claim_next_article_job(db.conn, max_attempts=3))
     assert candidate is not None
     assert candidate["video_id"] == "vid_stage_full"
 
@@ -148,5 +166,5 @@ def test_count_llm_pending_counts_only_full_stage(db) -> None:
     _insert_video(db, video_id="vid_cnt_tx", channel_id="UC_cnt_tx")
     _save_transcript(db, video_id="vid_cnt_tx")
 
-    count = db.run(repository.count_llm_pending_videos(db.conn))
+    count = db.run(repository.count_queued_article_jobs(db.conn))
     assert count == 1

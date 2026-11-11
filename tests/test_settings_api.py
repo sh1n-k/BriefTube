@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.i18n import get_texts
 from app.repositories import llm as llm_repo
+from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
 from app.routers.api_settings_transcript_headers import build_transcript_header_payload
@@ -23,6 +24,7 @@ from app.services.transcript_headers import (
 )
 from app.timezone_policy import DEFAULT_TIMEZONE
 from tests.helpers.app_repo import call_repo
+from tests.helpers.db_seed import seed_video_job_sync
 
 
 def _telegram_settings_payload(client: TestClient) -> dict[str, object]:
@@ -788,7 +790,7 @@ def _enable_codex_runtime(
         async def fake_pending(_db):
             return pending
 
-        monkeypatch.setattr(llm_repo, "count_llm_pending_videos", fake_pending)
+        monkeypatch.setattr(pipeline_repo, "count_queued_article_jobs", fake_pending)
 
 
 def _runtime_toast(response) -> dict[str, str]:
@@ -973,11 +975,12 @@ def test_settings_llm_resume_clears_auth_issue_for_worker_retry(
         )
         conn.execute(
             """
-            INSERT INTO videos(video_id, channel_id, title, upload_time, pipeline_status)
-            VALUES (?, ?, ?, ?, 'llm_pending')
+            INSERT INTO videos(video_id, channel_id, title, upload_time)
+            VALUES (?, ?, ?, ?)
             """,
             ("vid-resume-001", "UCresume001", "resume video", "2026-02-24T00:00:00+00:00"),
         )
+        seed_video_job_sync(conn, "vid-resume-001", "article")
         conn.execute(
             """
             INSERT INTO transcripts(video_id, raw_text, language, source_type)

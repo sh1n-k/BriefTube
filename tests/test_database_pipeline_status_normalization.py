@@ -90,7 +90,7 @@ def test_init_database_normalizes_legacy_pipeline_status_values(tmp_path: Path) 
             cursor = await db.execute(
                 """
                 SELECT video_id, pipeline_status
-                FROM videos
+                FROM video_pipeline_v
                 ORDER BY video_id ASC
                 """
             )
@@ -101,10 +101,12 @@ def test_init_database_normalizes_legacy_pipeline_status_values(tmp_path: Path) 
 
     statuses = asyncio.run(_run())
     assert statuses["vid-norm-pending"] == "transcript_pending"
-    assert statuses["vid-norm-processing"] == "llm_processing"
+    # v4 requeues work that was running when the old process stopped.
+    assert statuses["vid-norm-processing"] == "llm_pending"
     assert statuses["vid-norm-failed"] == "llm_failed"
     assert statuses["vid-norm-unknown"] == "manual_review"
-    assert statuses["vid-norm-done"] == "done"
+    # "done" without an article row is not a fact the derived status can claim.
+    assert statuses["vid-norm-done"] == "auto_paused"
 
 
 def test_init_database_migrates_legacy_split_status_columns_before_index_creation(
@@ -170,7 +172,7 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
         try:
             await init_database(db)
             status_cursor = await db.execute(
-                "SELECT pipeline_status FROM videos WHERE video_id = ?",
+                "SELECT pipeline_status FROM video_pipeline_v WHERE video_id = ?",
                 ("vid-legacy-001",),
             )
             status_row = await status_cursor.fetchone()
@@ -178,7 +180,7 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
                 """
                 SELECT 1
                 FROM sqlite_master
-                WHERE type = 'index' AND name = 'idx_videos_transcript_queue'
+                WHERE type = 'index' AND name = 'idx_video_jobs_claim'
                 """
             )
             return str(status_row["pipeline_status"]), (await index_cursor.fetchone()) is not None
