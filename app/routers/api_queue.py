@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app.i18n import DEFAULT_LANGUAGE, get_texts, normalize_language
-from app.pipeline_status import LLM_QUEUE_STATUSES, TRANSCRIPT_QUEUE_STATUSES
 from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
 from app.repositories import transcripts as transcripts_repo
@@ -22,14 +21,8 @@ async def trigger_poll(request: Request):
 @router.get("/queue/poll")
 async def queue_poll(request: Request):
     db = request.app.state.runtime.db
-    transcript_items = await pipeline_repo.list_queue_items(
-        db,
-        TRANSCRIPT_QUEUE_STATUSES,
-    )
-    llm_items = await pipeline_repo.list_queue_items(
-        db,
-        LLM_QUEUE_STATUSES,
-    )
+    transcript_items = await pipeline_repo.list_queue_items(db, pipeline_repo.JOB_KIND_TRANSCRIPT)
+    llm_items = await pipeline_repo.list_queue_items(db, pipeline_repo.JOB_KIND_ARTICLE)
     counts = await pipeline_repo.queue_status(db)
     workers = await settings_repo.get_worker_settings(db)
     guard = await transcripts_repo.get_transcript_guard_state(db)
@@ -42,12 +35,7 @@ async def queue_poll(request: Request):
             "queue_counts": counts,
         }
     )
-    badge_count = (
-        counts.get("transcript_pending", 0)
-        + counts.get("transcript_processing", 0)
-        + counts.get("llm_pending", 0)
-        + counts.get("llm_processing", 0)
-    )
+    badge_count = counts["badge_count"]
     return {
         "transcript_items": transcript_items,
         "llm_items": llm_items,

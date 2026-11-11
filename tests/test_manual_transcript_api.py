@@ -16,7 +16,7 @@ FRAGMENT_HEADERS = {"HX-Request": "true"}
 def _seed_video(
     *,
     video_id: str = "vid-manual-transcript-001",
-    pipeline_status: str = "auto_paused",
+    pipeline_status: str = "paused",
     with_transcript: bool = False,
 ) -> None:
     db_path = os.environ["DB_PATH"]
@@ -42,10 +42,10 @@ def _seed_video(
                 "UCmanualtx001",
                 f"Manual Transcript {video_id}",
                 "2026-03-15T00:00:00+00:00",
-                "none" if pipeline_status == "auto_paused" else "article",
+                "none" if pipeline_status == "paused" else "article",
             ),
         )
-        if pipeline_status == "done":
+        if pipeline_status == "article_ready":
             conn.execute(
                 """
                 INSERT INTO articles(video_id, title, lead, body)
@@ -64,7 +64,7 @@ def _seed_video(
         conn.commit()
 
 
-def test_manual_transcript_request_view_queues_auto_paused_video(client: TestClient) -> None:
+def test_manual_transcript_request_view_queues_paused_video(client: TestClient) -> None:
     _seed_video(video_id="vid-manual-tx-api-001")
 
     client.app.state.runtime.transcript_wake_event.clear()
@@ -93,7 +93,7 @@ def test_manual_transcript_request_view_queues_auto_paused_video(client: TestCli
 
 
 def test_manual_transcript_request_view_rejects_invalid_status(client: TestClient) -> None:
-    _seed_video(video_id="vid-manual-tx-api-002", pipeline_status="done")
+    _seed_video(video_id="vid-manual-tx-api-002", pipeline_status="article_ready")
 
     response = client.post("/views/videos/vid-manual-tx-api-002/transcript-request")
 
@@ -147,12 +147,13 @@ def test_manual_transcript_request_view_respects_permission_guard(
     assert toast.get("tone") == "error"
 
 
-def test_manual_transcript_detail_ui_for_auto_paused_video(client: TestClient) -> None:
+def test_manual_transcript_detail_ui_for_paused_video(client: TestClient) -> None:
     _seed_video(video_id="vid-manual-tx-ui-001")
 
     response = client.get("/videos/vid-manual-tx-ui-001")
 
     assert response.status_code == 200
+    assert 'data-pipeline-status="paused"' in response.text
     assert "data-video-transcript-request-button" in response.text
     assert "/views/videos/vid-manual-tx-ui-001/transcript-request" in response.text
     assert "자막 수집" in response.text

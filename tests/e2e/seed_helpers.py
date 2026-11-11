@@ -72,17 +72,18 @@ def seed_channel(
     conn.close()
 
 
-# Legacy pipeline status → the video_jobs row that produces it in video_pipeline_v.
-# "done"/"transcript_done" come from article/transcript rows (seed_article/seed_transcript).
+# Seed state → the video_jobs row that produces it in video_pipeline_v.
+# "transcript_ready"/"article_ready" come from seed_transcript/seed_article rows;
+# "paused" has no job at all.
 _STATUS_JOBS: dict[str, tuple[str, str, str | None]] = {
     "transcript_pending": ("transcript", "queued", None),
-    "transcript_processing": ("transcript", "running", None),
+    "transcript_running": ("transcript", "running", None),
     "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
     "no_subtitle": ("transcript", "failed", "no_subtitle"),
-    "llm_pending": ("article", "queued", None),
-    "llm_processing": ("article", "running", None),
-    "llm_failed": ("article", "queued", "llm_provider_timeout"),
-    "manual_review": ("article", "failed", "retry_exhausted"),
+    "article_pending": ("article", "queued", None),
+    "article_running": ("article", "running", None),
+    "article_retry_wait": ("article", "queued", "llm_provider_timeout"),
+    "article_failed": ("article", "failed", "retry_exhausted"),
 }
 
 _TARGET_STAGE_BY_SNAPSHOT = {"off": "none", "transcript_only": "transcript", "full": "article"}

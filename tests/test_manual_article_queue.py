@@ -73,7 +73,7 @@ def test_enqueue_manual_article_jobs_summary(tmp_path) -> None:
             # transcript_pending: active transcript job → skip.
             await seed_video(db, video_id="vid-active", channel_id=CHANNEL_ID)
             await seed_video_job(db, "vid-active", "transcript")
-            # done: article exists → skip.
+            # article_ready: article exists → skip.
             await seed_video(db, video_id="vid-done", channel_id=CHANNEL_ID)
             await _add_transcript(db, "vid-done")
             await _add_article(db, "vid-done")
@@ -142,7 +142,7 @@ def test_enqueue_manual_article_jobs_queues_article_when_transcript_exists(tmp_p
         }
     ]
     assert target == "article"
-    assert status == "llm_pending"
+    assert status == "article_pending"
 
 
 def test_enqueue_manual_article_jobs_resets_retrying_article_job(tmp_path) -> None:
@@ -179,7 +179,7 @@ def test_enqueue_manual_article_jobs_resets_retrying_article_job(tmp_path) -> No
             "error_code": None,
         }
     ]
-    assert status == "llm_pending"
+    assert status == "article_pending"
 
 
 def test_enqueue_manual_article_jobs_skips_running_and_pending_article(tmp_path) -> None:

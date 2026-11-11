@@ -39,7 +39,7 @@ def _seed_video(video_id: str, pipeline_status: str) -> None:
                 error_code="non_retryable_failure",
                 error_message="old error",
             )
-        elif pipeline_status == "done":
+        elif pipeline_status == "article_ready":
             conn.execute(
                 "INSERT INTO articles(video_id, title, lead, body) VALUES (?, 'a', 'l', 'b')",
                 (video_id,),
@@ -76,7 +76,7 @@ def test_retry_transcript_api_resets_failed_video(client: TestClient) -> None:
 
 
 def test_retry_transcript_api_rejects_non_retryable_status(client: TestClient) -> None:
-    _seed_video("vid-retry-api-002", "done")
+    _seed_video("vid-retry-api-002", "article_ready")
 
     response = client.post("/api/videos/vid-retry-api-002/transcript/retry")
     assert response.status_code == 404

@@ -801,7 +801,11 @@ async def requeue_article_for_done_video(db: aiosqlite.Connection, video_id: str
     """Regenerate the article of a finished video. The current article stays until replaced."""
     safe_video_id = str(video_id).strip()
     row = await _get_pipeline_row(db, safe_video_id)
-    if row is None or row.get("pipeline_status") != "done" or not row.get("has_transcript"):
+    if (
+        row is None
+        or row.get("pipeline_status") != "article_ready"
+        or not row.get("has_transcript")
+    ):
         return 0
     job_id = await _insert_job(db, safe_video_id, JOB_KIND_ARTICLE, JOB_ORIGIN_MANUAL)
     await db.commit()
@@ -816,34 +820,41 @@ async def get_pipeline_state(db: aiosqlite.Connection, video_id: str) -> dict[st
 
 
 async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
+    """Video counts per status plus active job counts per kind and activity."""
+    payload: dict[str, int] = {status: 0 for status in PIPELINE_STATUSES}
+    for kind in JOB_KINDS:
+        for activity in ("queued", "retry_wait", "running"):
+            payload[f"{kind}_{activity}"] = 0
     cursor = await db.execute(
         f"""
-        SELECT pipeline_status, COUNT(1) AS cnt
+        SELECT pipeline_status, pipeline_activity, activity_kind, COUNT(1) AS cnt
         FROM {PIPELINE_VIEW_NAME}
-        GROUP BY pipeline_status
+        GROUP BY pipeline_status, pipeline_activity, activity_kind
         """
     )
-    payload = {status: 0 for status in PIPELINE_STATUSES}
-    payload["unknown_count"] = 0
     for row in await cursor.fetchall():
-        status = str(row["pipeline_status"] or "").strip()
         count = int(row["cnt"] or 0)
+        status = str(row["pipeline_status"] or "")
         if status in payload:
-            payload[status] = count
-        else:
-            payload["unknown_count"] += count
+            payload[status] += count
+        activity_key = f"{row['activity_kind']}_{row['pipeline_activity']}"
+        if row["activity_kind"] and activity_key in payload:
+            payload[activity_key] += count
+    payload["badge_count"] = sum(
+        payload[f"{kind}_{activity}"] for kind in JOB_KINDS for activity in ("queued", "running")
+    )
     return payload
 
 
 async def list_queue_items(
     db: aiosqlite.Connection,
-    statuses: tuple[str, ...],
+    kind: str,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    if not statuses:
-        return []
+    """Videos whose current ``kind`` job is active, or failed with the artifact missing."""
+    safe_kind = _require_kind(kind)
+    artifact_flag = "has_transcript" if safe_kind == JOB_KIND_TRANSCRIPT else "has_article"
     safe_limit = max(1, min(500, int(limit)))
-    placeholders = ", ".join("?" for _ in statuses)
     cursor = await db.execute(
         f"""
         SELECT
@@ -854,24 +865,26 @@ async def list_queue_items(
             v.upload_time,
             v.thumbnail_path,
             p.pipeline_status,
-            p.article_attempt_count AS retry_count,
-            p.transcript_attempt_count AS transcript_retry_count,
+            p.pipeline_activity,
+            p.{safe_kind}_job_status AS job_status,
+            p.{safe_kind}_attempt_count AS attempt_count,
+            p.{safe_kind}_error_code AS error_code,
+            p.{safe_kind}_error_message AS error_message,
             v.created_at
         FROM {PIPELINE_VIEW_NAME} p
         JOIN videos v ON v.video_id = p.video_id
         LEFT JOIN channels c ON c.channel_id = v.channel_id
-        WHERE p.pipeline_status IN ({placeholders})
+        WHERE p.{safe_kind}_job_status IN ('queued', 'running')
+           OR (p.{safe_kind}_job_status = 'failed' AND NOT p.{artifact_flag})
         ORDER BY
-            CASE p.pipeline_status
-                WHEN 'transcript_processing' THEN 0
-                WHEN 'llm_processing' THEN 0
-                WHEN 'transcript_pending' THEN 1
-                WHEN 'llm_pending' THEN 1
+            CASE p.{safe_kind}_job_status
+                WHEN 'running' THEN 0
+                WHEN 'queued' THEN 1
                 ELSE 2
             END,
             v.created_at ASC
         LIMIT ?
         """,
-        (*statuses, safe_limit),
+        (safe_limit,),
     )
     return [_with_thumbnail_url(item) for item in _rows_to_dicts(await cursor.fetchall())]

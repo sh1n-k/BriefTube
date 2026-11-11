@@ -43,6 +43,8 @@ def test_video_detail_shows_transcript_retry_button_for_failed_video(client: Tes
     detail = client.get(f"/videos/{video_id}")
     assert detail.status_code == 200
     assert "자막 재시도" in detail.text
+    assert 'data-pipeline-status="transcript_failed"' in detail.text
+    assert 'data-pipeline-error="transcript"' in detail.text
     assert f'action="/videos/{video_id}/transcript/retry"' in detail.text
 
     submit = client.post(f"/videos/{video_id}/transcript/retry", follow_redirects=False)
@@ -52,3 +54,5 @@ def test_video_detail_shows_transcript_retry_button_for_failed_video(client: Tes
     after = client.get(submit.headers["location"])
     assert after.status_code == 200
     assert "자막 재시도가 요청되었습니다." in after.text
+    assert 'data-pipeline-status="transcript_pending"' in after.text
+    assert "data-pipeline-error" not in after.text

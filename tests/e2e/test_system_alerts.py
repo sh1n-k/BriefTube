@@ -54,7 +54,7 @@ def _seed_data(db_path: str) -> None:
         CHANNEL_ID,
         "Expired Video One",
         past_time,
-        pipeline_status="done",
+        pipeline_status="paused",
     )
     seed_video(
         db_path,
@@ -62,7 +62,7 @@ def _seed_data(db_path: str) -> None:
         CHANNEL_ID,
         "Expired Video Two",
         past_time,
-        pipeline_status="done",
+        pipeline_status="paused",
     )
 
 

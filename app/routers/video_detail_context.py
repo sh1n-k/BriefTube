@@ -23,6 +23,9 @@ def _build_video_detail_dynamic_refresh_key(detail: dict[str, object] | None) ->
         return ""
     payload = {
         "pipeline_status": str(detail.get("pipeline_status") or ""),
+        "pipeline_activity": str(detail.get("pipeline_activity") or ""),
+        "article_error_code": str(detail.get("article_error_code") or ""),
+        "transcript_error_code": str(detail.get("transcript_error_code") or ""),
         "article_title": str(detail.get("article_title") or ""),
         "lead": str(detail.get("lead") or ""),
         "body": str(detail.get("body") or ""),
@@ -50,14 +53,7 @@ def _build_video_detail_dynamic_refresh_key(detail: dict[str, object] | None) ->
 def _should_auto_refresh_video_detail(detail: dict[str, object] | None) -> bool:
     if not detail:
         return False
-    pipeline_status = str(detail.get("pipeline_status") or "").strip()
-    manual_transcript_status = str(detail.get("manual_transcript_status") or "").strip()
-    return manual_transcript_status in {"pending", "running"} or pipeline_status in {
-        "transcript_pending",
-        "transcript_processing",
-        "llm_pending",
-        "llm_processing",
-    }
+    return str(detail.get("pipeline_activity") or "idle").strip() != "idle"
 
 
 def _build_video_detail_dynamic_context_values(

@@ -89,24 +89,27 @@ def test_init_database_normalizes_legacy_pipeline_status_values(tmp_path: Path) 
             await init_database(db)
             cursor = await db.execute(
                 """
-                SELECT video_id, pipeline_status
+                SELECT video_id, pipeline_status, pipeline_activity
                 FROM video_pipeline_v
                 ORDER BY video_id ASC
                 """
             )
             rows = await cursor.fetchall()
-            return {str(row["video_id"]): str(row["pipeline_status"]) for row in rows}
+            return {
+                str(row["video_id"]): f"{row['pipeline_status']}/{row['pipeline_activity']}"
+                for row in rows
+            }
         finally:
             await db.close()
 
     statuses = asyncio.run(_run())
-    assert statuses["vid-norm-pending"] == "transcript_pending"
+    assert statuses["vid-norm-pending"] == "transcript_pending/queued"
     # v4 requeues work that was running when the old process stopped.
-    assert statuses["vid-norm-processing"] == "llm_pending"
-    assert statuses["vid-norm-failed"] == "llm_failed"
-    assert statuses["vid-norm-unknown"] == "manual_review"
+    assert statuses["vid-norm-processing"] == "article_pending/queued"
+    assert statuses["vid-norm-failed"] == "article_pending/retry_wait"
+    assert statuses["vid-norm-unknown"] == "article_failed/idle"
     # "done" without an article row is not a fact the derived status can claim.
-    assert statuses["vid-norm-done"] == "auto_paused"
+    assert statuses["vid-norm-done"] == "paused/idle"
 
 
 def test_init_database_migrates_legacy_split_status_columns_before_index_creation(
@@ -188,5 +191,5 @@ def test_init_database_migrates_legacy_split_status_columns_before_index_creatio
             await db.close()
 
     status, has_queue_index = asyncio.run(_run())
-    assert status == "llm_pending"
+    assert status == "article_pending"
     assert has_queue_index is True

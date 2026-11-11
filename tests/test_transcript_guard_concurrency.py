@@ -236,7 +236,7 @@ def test_insert_videos_if_absent_batch_keeps_category_processing_stage(
     tmp_path: Path,
 ) -> None:
     """배치 insert는 단일 insert와 동일하게 채널의
-    ``category.processing_stage`` 규칙을 따른다. ``off`` → 작업 없음(``auto_paused``),
+    ``category.processing_stage`` 규칙을 따른다. ``off`` → 작업 없음(``paused``),
     그 외 → 자막 작업 대기(``transcript_pending``), 그리고 ``target_stage``가
     ``none|transcript|article``로 매핑된다. 이미 있던 영상에는 작업을 열지 않는다."""
     db_path = tmp_path / "batch-insert.db"
@@ -321,8 +321,8 @@ def test_insert_videos_if_absent_batch_keeps_category_processing_stage(
     assert inserted == 3
     assert second_inserted == 1
     assert total == 4
-    assert pipeline_map["vid-batch-auto-1"] == "auto_paused|none"
-    assert pipeline_map["vid-batch-auto-2"] == "auto_paused|none"
+    assert pipeline_map["vid-batch-auto-1"] == "paused|none"
+    assert pipeline_map["vid-batch-auto-2"] == "paused|none"
     assert pipeline_map["vid-batch-full-1"] == "transcript_pending|article"
     assert job_counts == {"vid-batch-full-1": 1, "vid-batch-new": 1}
 

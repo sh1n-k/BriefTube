@@ -35,7 +35,7 @@ def _seed_retention_data(e2e_server: dict) -> None:
             CHANNEL_ID,
             f"Expired Video {vid}",
             upload_time=expired_time,
-            pipeline_status="done",
+            pipeline_status="paused",
         )
 
     fresh_time = make_past_time(10)
@@ -46,7 +46,7 @@ def _seed_retention_data(e2e_server: dict) -> None:
             CHANNEL_ID,
             f"Fresh Video {vid}",
             upload_time=fresh_time,
-            pipeline_status="done",
+            pipeline_status="paused",
         )
 
 

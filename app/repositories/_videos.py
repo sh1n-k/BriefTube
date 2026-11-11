@@ -10,7 +10,10 @@ import aiosqlite
 
 import app.repositories._pipeline as pipeline_repository
 from app.database_migrations import PIPELINE_VIEW_NAME
-from app.pipeline_status import VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES
+from app.pipeline_status import (
+    LEGACY_PIPELINE_STATUS_FILTER_ALIASES,
+    VIDEO_LIST_FILTER_STATUSES,
+)
 from app.repositories._common import (
     row_to_dict as _row_to_dict,
 )
@@ -22,13 +25,19 @@ from app.repositories._common import (
 )
 
 
-def normalize_pipeline_status_filter(value: str | None) -> str | None:
+def normalize_status_filter(value: str | None) -> str | None:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return None
-    if normalized in VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES:
+    if normalized in VIDEO_LIST_FILTER_STATUSES:
         return normalized
     return None
+
+
+def normalize_legacy_status_filter(value: str | None) -> str | None:
+    """Map an old ``?pipeline_status=`` value to the current status filter."""
+    normalized = str(value or "").strip().lower()
+    return LEGACY_PIPELINE_STATUS_FILTER_ALIASES.get(normalized)
 
 
 def normalize_viewed_filter(value: str | None) -> str | None:
@@ -183,7 +192,7 @@ async def list_videos(
     page: int,
     limit: int,
     category_id: int | None = None,
-    pipeline_status: str | None = None,
+    status: str | None = None,
     viewed: str | None = None,
 ) -> list[dict[str, Any]]:
     sort_column = "upload_time" if sort not in {"upload_time", "created_at"} else sort
@@ -198,9 +207,9 @@ async def list_videos(
     if category_id is not None:
         conditions.append("c.category_id = ?")
         params.append(category_id)
-    if pipeline_status:
+    if status:
         conditions.append("p.pipeline_status = ?")
-        params.append(pipeline_status)
+        params.append(status)
     _append_viewed_filter(conditions, viewed)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.extend([limit, offset])
@@ -215,6 +224,8 @@ async def list_videos(
             v.upload_time,
             v.thumbnail_path,
             p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
             p.article_attempt_count AS retry_count,
             v.created_at,
             v.viewed_at,
@@ -241,7 +252,7 @@ async def count_videos(
     db: aiosqlite.Connection,
     channel_id: str | None = None,
     category_id: int | None = None,
-    pipeline_status: str | None = None,
+    status: str | None = None,
     viewed: str | None = None,
 ) -> int:
     conditions: list[str] = []
@@ -253,9 +264,9 @@ async def count_videos(
         conditions.append("c.category_id = ?")
         params.append(category_id)
     status_join = ""
-    if pipeline_status:
+    if status:
         conditions.append("p.pipeline_status = ?")
-        params.append(pipeline_status)
+        params.append(status)
         status_join = f"JOIN {PIPELINE_VIEW_NAME} p ON p.video_id = v.video_id"
     _append_viewed_filter(conditions, viewed)
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
@@ -286,6 +297,8 @@ async def get_video(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] |
             v.upload_time,
             v.thumbnail_path,
             p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
             p.article_attempt_count AS retry_count,
             v.created_at
         FROM videos v
@@ -319,6 +332,8 @@ async def list_videos_by_ids(
             v.upload_time,
             v.thumbnail_path,
             p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
             p.article_attempt_count AS retry_count,
             v.created_at
         FROM videos v
@@ -352,8 +367,13 @@ async def get_video_detail(db: aiosqlite.Connection, video_id: str) -> dict[str,
             v.upload_time,
             v.thumbnail_path,
             p.pipeline_status,
+            p.pipeline_activity,
+            p.activity_kind,
             p.article_attempt_count AS retry_count,
             p.transcript_attempt_count AS transcript_retry_count,
+            p.transcript_error_code,
+            p.transcript_error_message,
+            p.article_error_code,
             v.created_at,
             t.raw_text,
             t.language,

@@ -1190,19 +1190,30 @@ SELECT
     aj.error_message AS article_error_message,
     aj.error_at AS article_error_at,
     CASE
-        WHEN aj.status = 'running' THEN 'llm_processing'
-        WHEN aj.status = 'queued' AND aj.error_code IS NOT NULL THEN 'llm_failed'
-        WHEN aj.status = 'queued' THEN 'llm_pending'
-        WHEN tj.status = 'running' THEN 'transcript_processing'
-        WHEN tj.status = 'queued' THEN 'transcript_pending'
-        WHEN a.video_id IS NOT NULL THEN 'done'
-        WHEN t.video_id IS NOT NULL AND aj.status = 'failed' THEN 'manual_review'
-        WHEN t.video_id IS NOT NULL THEN 'transcript_done'
+        WHEN a.video_id IS NOT NULL THEN 'article_ready'
+        WHEN aj.status IN ('queued', 'running') THEN 'article_pending'
+        WHEN t.video_id IS NOT NULL AND aj.status = 'failed' THEN 'article_failed'
+        WHEN t.video_id IS NOT NULL AND v.target_stage = 'article' THEN 'paused'
+        WHEN t.video_id IS NOT NULL THEN 'transcript_ready'
+        WHEN tj.status IN ('queued', 'running') THEN 'transcript_pending'
         WHEN tj.status = 'failed' AND tj.error_code = 'no_subtitle' THEN 'no_subtitle'
         WHEN tj.status = 'failed' THEN 'transcript_failed'
-        WHEN aj.status = 'failed' THEN 'manual_review'
-        ELSE 'auto_paused'
-    END AS pipeline_status
+        WHEN aj.status = 'failed' THEN 'article_failed'
+        ELSE 'paused'
+    END AS pipeline_status,
+    CASE
+        WHEN aj.status = 'running' THEN 'running'
+        WHEN aj.status = 'queued' AND aj.error_code IS NOT NULL THEN 'retry_wait'
+        WHEN aj.status = 'queued' THEN 'queued'
+        WHEN tj.status = 'running' THEN 'running'
+        WHEN tj.status = 'queued' AND tj.error_code IS NOT NULL THEN 'retry_wait'
+        WHEN tj.status = 'queued' THEN 'queued'
+        ELSE 'idle'
+    END AS pipeline_activity,
+    CASE
+        WHEN aj.status IN ('queued', 'running') THEN 'article'
+        WHEN tj.status IN ('queued', 'running') THEN 'transcript'
+    END AS activity_kind
 FROM videos v
 LEFT JOIN transcripts t ON t.video_id = v.video_id
 LEFT JOIN articles a ON a.video_id = v.video_id

@@ -46,10 +46,10 @@ uv run pytest -q tests/test_llm_client.py tests/test_llm_capabilities.py \
 # 실패 시 로그 필드: stderr_summary, stdout_summary, exit_code
 # 실패 시 캡처 jsonl에는 stderr/stdout 스트림이 강제 포함된다 (article body는 INCLUDE_CONTENT 필요)
 
-# transcript와 수동 작업
+# transcript·article 작업 큐(video_jobs)와 수동 요청
 uv run pytest -q tests/test_transcript_policy.py tests/test_transcript_guard_policy.py \
-  tests/test_transcript_guard_concurrency.py tests/test_manual_transcript_worker.py \
-  tests/test_manual_article_worker.py
+  tests/test_transcript_guard_concurrency.py tests/test_transcript_worker_jobs.py \
+  tests/test_manual_article_queue.py
 
 # DB migration과 config
 uv run pytest -q tests/test_database_migrations.py \

@@ -14,13 +14,20 @@ from app.routers.helpers import parse_optional_int
 from app.routers.template_context import build_template_context
 
 
+def resolve_status_filter(status: str | None, legacy_pipeline_status: str | None) -> str | None:
+    """Normalize ``status``; fall back to a legacy ``pipeline_status`` value when absent."""
+    if str(status or "").strip():
+        return videos_repo.normalize_status_filter(status)
+    return videos_repo.normalize_legacy_status_filter(legacy_pipeline_status)
+
+
 @dataclass(frozen=True, slots=True)
 class VideoListContext:
     context: dict[str, Any]
     page: int
     limit: int
     category_id: int | None
-    pipeline_status: str | None
+    status: str | None
     viewed: str | None
 
 
@@ -30,7 +37,8 @@ async def build_video_list_context(
     q: str = "",
     channel_id: str | None,
     category_id: object,
-    pipeline_status: str | None,
+    status: str | None,
+    legacy_pipeline_status: str | None = None,
     viewed: str | None = None,
     sort: str,
     order: str,
@@ -38,7 +46,7 @@ async def build_video_list_context(
     limit: int | None,
 ) -> VideoListContext:
     normalized_category_id = parse_optional_int(category_id)
-    normalized_pipeline_status = videos_repo.normalize_pipeline_status_filter(pipeline_status)
+    normalized_status = resolve_status_filter(status, legacy_pipeline_status)
     normalized_viewed = videos_repo.normalize_viewed_filter(viewed)
     resolved_limit = limit or await settings_repo.get_videos_per_page_setting(
         request.app.state.runtime.db
@@ -47,7 +55,7 @@ async def build_video_list_context(
         request.app.state.runtime.db,
         channel_id=channel_id,
         category_id=normalized_category_id,
-        pipeline_status=normalized_pipeline_status,
+        status=normalized_status,
         viewed=normalized_viewed,
     )
     total_pages = max(1, (total + resolved_limit - 1) // resolved_limit)
@@ -60,7 +68,7 @@ async def build_video_list_context(
         page=current_page,
         limit=resolved_limit,
         category_id=normalized_category_id,
-        pipeline_status=normalized_pipeline_status,
+        status=normalized_status,
         viewed=normalized_viewed,
     )
     all_channels = await channels_repo.list_channels(request.app.state.runtime.db)
@@ -86,7 +94,7 @@ async def build_video_list_context(
         q=q,
         results=search_results,
         categories_for_filter=categories,
-        status_filter_options=videos_repo.VIDEO_LIST_FILTER_CORE_PIPELINE_STATUSES,
+        status_filter_options=videos_repo.VIDEO_LIST_FILTER_STATUSES,
         article_enqueue_skip_statuses=MANUAL_ARTICLE_ENQUEUE_SKIP_PIPELINE_STATUSES,
         pagination={
             "page": current_page,
@@ -95,7 +103,7 @@ async def build_video_list_context(
             "total_pages": total_pages,
             "channel_id": channel_id or "",
             "category_id": normalized_category_id if normalized_category_id is not None else "",
-            "pipeline_status": normalized_pipeline_status or "",
+            "status": normalized_status or "",
             "viewed": normalized_viewed or "",
             "sort": sort,
             "order": order,
@@ -106,6 +114,6 @@ async def build_video_list_context(
         page=current_page,
         limit=resolved_limit,
         category_id=normalized_category_id,
-        pipeline_status=normalized_pipeline_status,
+        status=normalized_status,
         viewed=normalized_viewed,
     )

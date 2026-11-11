@@ -34,7 +34,7 @@ def _video_list_push_url(
     order: str,
     channel_id: str | None,
     category_id: int | None,
-    pipeline_status: str | None,
+    status: str | None,
     viewed: str | None,
 ) -> str:
     params: dict[str, str] = {
@@ -47,8 +47,8 @@ def _video_list_push_url(
         params["channel_id"] = channel_id
     if category_id is not None:
         params["category_id"] = str(category_id)
-    if pipeline_status:
-        params["pipeline_status"] = pipeline_status
+    if status:
+        params["status"] = status
     if viewed:
         params["viewed"] = viewed
     return "/?" + urlencode(params)
@@ -126,6 +126,7 @@ async def video_list(
     request: Request,
     channel_id: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     pipeline_status: str | None = Query(default=None),
     viewed: str | None = Query(default=None),
     sort: str = Query(default="upload_time"),
@@ -145,7 +146,8 @@ async def video_list(
         request,
         channel_id=channel_id,
         category_id=category_id,
-        pipeline_status=pipeline_status,
+        status=status,
+        legacy_pipeline_status=pipeline_status,
         viewed=viewed,
         sort=sort,
         order=order,
@@ -164,7 +166,7 @@ async def video_list(
                 order=order,
                 channel_id=channel_id,
                 category_id=result.category_id,
-                pipeline_status=result.pipeline_status,
+                status=result.status,
                 viewed=result.viewed,
             )
         },
@@ -180,16 +182,15 @@ async def _video_list_response_from_form(request: Request, form: FormData):
     order = str(form.get("_order") or "desc")
     channel_id = str(form.get("_channel_id") or "") or None
     category_id = parse_optional_int(form.get("_category_id"))
-    pipeline_status = videos_repo.normalize_pipeline_status_filter(
-        str(form.get("_pipeline_status") or "")
-    )
+    status = videos_repo.normalize_status_filter(str(form.get("_status") or ""))
     viewed = videos_repo.normalize_viewed_filter(str(form.get("_viewed") or ""))
 
     return await video_list(
         request=request,
         channel_id=channel_id,
         category_id=str(category_id) if category_id is not None else None,
-        pipeline_status=pipeline_status,
+        status=status,
+        pipeline_status=None,
         viewed=viewed,
         sort=sort,
         order=order,
@@ -226,7 +227,7 @@ async def delete_selected_videos(request: Request):
         request,
         channel_id=channel_id,
         category_id=form.get("_category_id"),
-        pipeline_status=str(form.get("_pipeline_status") or ""),
+        status=str(form.get("_status") or ""),
         viewed=str(form.get("_viewed") or ""),
         sort=sort,
         order=order,
@@ -365,10 +366,14 @@ async def article_request_single_video(video_id: str, request: Request):
     failed_count = 0
     detail = await videos_repo.get_video_detail(request.app.state.runtime.db, video_id)
     pipeline_status = str(detail.get("pipeline_status") or "").strip().lower() if detail else ""
+    pipeline_activity = str(detail.get("pipeline_activity") or "").strip() if detail else ""
     has_transcript = bool(str(detail.get("raw_text") or "").strip()) if detail else False
 
-    if detail and pipeline_status == "done":
-        if has_transcript:
+    if detail and pipeline_status == "article_ready":
+        if pipeline_activity not in {"", "idle"}:
+            # A regeneration is already queued or running.
+            skip_count = 1
+        elif has_transcript:
             retried = await pipeline_repo.requeue_article_for_done_video(
                 request.app.state.runtime.db,
                 video_id,

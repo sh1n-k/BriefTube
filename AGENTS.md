@@ -16,7 +16,7 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 - `app/main.py`, `app/state.py`, `app/config.py`, `app/database.py`, `app/worker_registry.py`:
   앱 조립, 설정, DB 초기화·복구, worker registry
 - `app/routers/`: page, `/api` JSON, `/views` HTMX route
-- `app/workers/`: RSS, transcript, manual transcript/article, LLM, download, channel metadata,
+- `app/workers/`: RSS, transcript(자동·수동 공용), LLM, download, channel metadata,
   notifier. 공유 sleep/recover는 `wake_sleep.py`
 - `app/services/`: 외부 I/O와 변환. LLM entry point는 `UnifiedLlmClient`
 - `app/repositories/<domain>.py`: 공개 facade. private 구현은 `_<domain>.py`,
@@ -32,6 +32,11 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 - 재활성화 toast는 `HX-Trigger`의 `channel-reactivate-toast`로 전달하고
   `json.dumps(..., ensure_ascii=True)`를 유지한다. 버튼에 `data-save-toast`를 추가하지 않는다.
 - 채널 목록 갱신은 `#channel-list-wrap` fragment 교체 계약을 유지한다.
+- 영상 상태는 저장하지 않고 `video_pipeline_v`가 사실(`transcripts`/`articles`), `videos.target_stage`,
+  (video, kind)별 최신 `video_jobs` 행으로 계산한다. 상태 8개와 activity 정의는 `app/pipeline_status.py`.
+  `video_jobs`와 `target_stage` 쓰기는 `app/repositories/_pipeline.py`만 한다(migration·시작 복구 제외,
+  `test_architecture_contracts.py`가 강제). (video, kind)당 queued/running job은 최대 1개이고 수동 요청은
+  `origin='manual'`로 같은 큐에 들어가 먼저 claim된다. 큐 비우기는 queued·failed job만 cancel하고 사실은 지우지 않는다.
 - transcript fetch 경로는 공유 `state.transcript_fetch_lock`을 사용한다. 일반 transcript worker의 단일 실행은
   `state.transcript_worker_lock`으로 보장한다.
 - pytest에서는 background worker를 기본 비활성화하고 필요한 테스트만

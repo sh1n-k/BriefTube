@@ -13,11 +13,13 @@
   {% set manual_transcript_status = (video.manual_transcript_status or '')|lower %}
   {% set manual_transcript_active = manual_transcript_status in ['pending', 'running'] %}
   {% set manual_transcript_failed = manual_transcript_status == 'failed' %}
-  {% set can_request_manual_transcript = (not video.raw_text) and (video.pipeline_status in ['auto_paused', 'transcript_failed', 'no_subtitle']) and (not manual_transcript_active) %}
+  {% set can_request_manual_transcript = (not video.raw_text) and (video.pipeline_status in ['paused', 'transcript_failed', 'no_subtitle']) and (not manual_transcript_active) %}
   <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-detail-status-card>
     <div class="flex flex-wrap items-center gap-3">
       <span class="text-xs text-slate-500">{{ txt.detail_label_status }}</span>
       {% set status = video.pipeline_status %}
+      {% set activity = video.pipeline_activity %}
+      {% set activity_kind = video.activity_kind %}
       {% include "fragments/status_badge.html" %}
       {% if manual_transcript_active %}
       <span class="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-700" data-manual-transcript-status="{{ manual_transcript_status }}">
@@ -54,6 +56,11 @@
     </div>
     {% if manual_transcript_failed and video.manual_transcript_error %}
     <p class="mt-2 text-xs text-rose-600" data-manual-transcript-error>{{ video.manual_transcript_error }}</p>
+    {% elif video.pipeline_status == 'transcript_failed' and (video.transcript_error_message or video.transcript_error_code) %}
+    <p class="mt-2 text-xs text-rose-600" data-pipeline-error="transcript">{{ txt.pipeline_error_label }}: {{ video.transcript_error_message or video.transcript_error_code }}</p>
+    {% endif %}
+    {% if video.article_error_code and (video.pipeline_status == 'article_failed' or (video.activity_kind == 'article' and video.pipeline_activity == 'retry_wait')) %}
+    <p class="mt-2 text-xs text-rose-600" data-pipeline-error="article">{{ txt.pipeline_error_label }}: <span class="font-mono">{{ video.article_error_code }}</span></p>
     {% endif %}
   </section>
 

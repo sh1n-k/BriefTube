@@ -9,14 +9,14 @@ from tests.helpers.db_seed import seed_video_job_sync
 
 CHANNEL_ID = "UCqueuepage001"
 
-# Legacy pipeline_status -> (job kind, job status, error_code) producing it in the view.
-_JOB_BY_LEGACY_STATUS: dict[str, tuple[str, str, str | None]] = {
+# Seed state -> (job kind, job status, error_code) producing it in the view.
+_JOB_BY_SEED_STATE: dict[str, tuple[str, str, str | None]] = {
     "transcript_pending": ("transcript", "queued", None),
-    "transcript_processing": ("transcript", "running", None),
+    "transcript_running": ("transcript", "running", None),
     "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
-    "llm_pending": ("article", "queued", None),
-    "llm_processing": ("article", "running", None),
-    "llm_failed": ("article", "queued", "llm_provider_timeout"),
+    "article_pending": ("article", "queued", None),
+    "article_running": ("article", "running", None),
+    "article_retry_wait": ("article", "queued", "llm_provider_timeout"),
 }
 
 
@@ -25,12 +25,12 @@ def _seed_queue_rows() -> None:
     statuses = [
         ("queue-tp1", "transcript_pending"),
         ("queue-tp2", "transcript_pending"),
-        ("queue-tpr1", "transcript_processing"),
+        ("queue-tpr1", "transcript_running"),
         ("queue-tf1", "transcript_failed"),
-        ("queue-lp1", "llm_pending"),
-        ("queue-lp2", "llm_pending"),
-        ("queue-lpr1", "llm_processing"),
-        ("queue-lf1", "llm_failed"),
+        ("queue-lp1", "article_pending"),
+        ("queue-lp2", "article_pending"),
+        ("queue-lpr1", "article_running"),
+        ("queue-lf1", "article_retry_wait"),
     ]
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -52,7 +52,13 @@ def _seed_queue_rows() -> None:
                 """,
                 (video_id, CHANNEL_ID, f"Video {video_id}"),
             )
-            kind, job_status, error_code = _JOB_BY_LEGACY_STATUS[status]
+            kind, job_status, error_code = _JOB_BY_SEED_STATE[status]
+            if kind == "article":
+                conn.execute(
+                    "INSERT INTO transcripts(video_id, raw_text, language, source_type) "
+                    "VALUES (?, 'raw', 'ko', 'manual')",
+                    (video_id,),
+                )
             seed_video_job_sync(conn, video_id, kind, status=job_status, error_code=error_code)
         conn.execute(
             "INSERT OR REPLACE INTO app_settings(key, value, updated_at) VALUES ('worker_transcript_enabled', 'true', datetime('now'))"
@@ -96,13 +102,23 @@ def test_queue_poll_api_returns_counts_and_runtime_state(client: TestClient) -> 
     payload = response.json()
     assert len(payload["transcript_items"]) == 4
     assert len(payload["llm_items"]) == 4
-    assert payload["counts"]["transcript_pending"] == 2
-    assert payload["counts"]["transcript_processing"] == 1
-    assert payload["counts"]["transcript_failed"] == 1
-    assert payload["counts"]["llm_pending"] == 2
-    assert payload["counts"]["llm_processing"] == 1
-    assert payload["counts"]["llm_failed"] == 1
+    counts = payload["counts"]
+    assert counts["transcript_queued"] == 2
+    assert counts["transcript_running"] == 1
+    assert counts["transcript_failed"] == 1
+    assert counts["transcript_pending"] == 3
+    assert counts["article_queued"] == 2
+    assert counts["article_running"] == 1
+    assert counts["article_retry_wait"] == 1
+    assert counts["article_pending"] == 4
     assert payload["badge_count"] == 6
+    html = payload["queue_html"]
+    assert 'data-queue-retry-transcript="queue-tf1"' in html
+    assert 'data-queue-retry-llm="queue-lf1"' in html
+    assert 'data-queue-retry-llm="queue-lp1"' not in html
+    assert "non_retryable_failure" in html
+    assert "llm_provider_timeout" in html
+    assert 'data-pipeline-activity="retry_wait"' in html
     assert payload["workers"] == {"transcript": True, "llm": True}
     assert payload["transcript_guard"]["breaker_state"] == "closed"
 

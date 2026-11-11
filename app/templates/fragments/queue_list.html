@@ -1,26 +1,30 @@
 {% set t_counts = queue_counts or {} %}
-{% set t_count = (t_counts.get('transcript_pending', 0) + t_counts.get('transcript_processing', 0) + t_counts.get('transcript_failed', 0) + t_counts.get('no_subtitle', 0)) %}
-{% set l_count = (t_counts.get('llm_pending', 0) + t_counts.get('llm_processing', 0) + t_counts.get('llm_failed', 0) + t_counts.get('manual_review', 0)) %}
-
-{% set failed_statuses = ('transcript_failed', 'no_subtitle', 'llm_failed', 'manual_review') %}
+{% set t_queued = t_counts.get('transcript_queued', 0) %}
+{% set t_running = t_counts.get('transcript_running', 0) %}
+{% set t_retry_wait = t_counts.get('transcript_retry_wait', 0) %}
+{% set t_failed_count = t_counts.get('transcript_failed', 0) %}
+{% set t_no_subtitle = t_counts.get('no_subtitle', 0) %}
+{% set t_count = t_queued + t_running + t_retry_wait + t_failed_count + t_no_subtitle %}
+{% set l_queued = t_counts.get('article_queued', 0) %}
+{% set l_running = t_counts.get('article_running', 0) %}
+{% set l_retry_wait = t_counts.get('article_retry_wait', 0) %}
+{% set l_failed_count = t_counts.get('article_failed', 0) %}
+{% set l_count = l_queued + l_running + l_retry_wait + l_failed_count %}
 
 <section class="rounded-lg border border-slate-200 bg-white shadow-sm" data-collapsible data-collapsible-open>
   <div class="flex cursor-pointer flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3" data-collapsible-toggle>
     <div class="flex min-w-0 flex-wrap items-center gap-2.5">
       <h2 class="text-base font-semibold text-slate-900">{{ txt.queue_transcript_title }}</h2>
       <div class="flex items-center gap-1" data-queue-transcript-chips>
-        {% set tp = t_counts.get('transcript_pending', 0) %}
-        {% set tpr = t_counts.get('transcript_processing', 0) %}
-        {% set tf = t_counts.get('transcript_failed', 0) %}
-        {% set tns = t_counts.get('no_subtitle', 0) %}
-        {% if tp > 0 %}<span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">{{ txt.queue_chip_pending }} {{ tp }}</span>{% endif %}
-        {% if tpr > 0 %}<span class="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">{{ txt.queue_chip_processing }} {{ tpr }}</span>{% endif %}
-        {% if tf > 0 %}<span class="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">{{ txt.queue_chip_failed }} {{ tf }}</span>{% endif %}
-        {% if tns > 0 %}<span class="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">{{ txt.queue_chip_no_subtitle }} {{ tns }}</span>{% endif %}
+        {% if t_queued > 0 %}<span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">{{ txt.queue_chip_pending }} {{ t_queued }}</span>{% endif %}
+        {% if t_running > 0 %}<span class="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">{{ txt.queue_chip_processing }} {{ t_running }}</span>{% endif %}
+        {% if t_retry_wait > 0 %}<span class="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-800">{{ txt.queue_chip_retry_wait }} {{ t_retry_wait }}</span>{% endif %}
+        {% if t_failed_count > 0 %}<span class="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">{{ txt.queue_chip_failed }} {{ t_failed_count }}</span>{% endif %}
+        {% if t_no_subtitle > 0 %}<span class="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">{{ txt.queue_chip_no_subtitle }} {{ t_no_subtitle }}</span>{% endif %}
       </div>
     </div>
     <div class="flex shrink-0 items-center gap-2">
-      {% set t_failed = (t_counts.get('transcript_failed', 0) + t_counts.get('no_subtitle', 0)) %}
+      {% set t_failed = t_failed_count + t_no_subtitle %}
       {% if t_failed > 0 %}
       <button type="button"
               data-queue-retry-section="transcript"
@@ -45,7 +49,8 @@
     {% if transcript_items %}
       <div class="divide-y divide-slate-100">
         {% for item in transcript_items %}
-        <div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3 {% if item.pipeline_status in failed_statuses %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}">
+        {% set row_attention = item.job_status == 'failed' or item.pipeline_activity == 'retry_wait' %}
+        <div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3 {% if row_attention %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}" data-queue-item="{{ item.video_id }}">
           <div class="flex min-w-0 flex-1 items-center gap-3">
             <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
               {% if item.thumbnail_url %}
@@ -57,10 +62,15 @@
             <div class="min-w-0 flex-1">
               <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600" title="{{ item.title or item.video_id }}">{{ item.title or item.video_id }}</a>
               <p class="truncate text-xs text-slate-500" title="{{ item.channel_name or item.channel_id or '' }}">{{ item.channel_name or item.channel_id or '' }}</p>
+              {% if row_attention and (item.error_code or item.error_message) %}
+              <p class="truncate text-xs text-rose-600" data-queue-error title="{{ item.error_message or item.error_code }}">{{ txt.pipeline_error_label }}: {{ item.error_code or '' }}{% if item.error_message %} · {{ item.error_message }}{% endif %}</p>
+              {% endif %}
             </div>
           </div>
           <div class="flex shrink-0 items-center justify-end gap-2">
             {% set status = item.pipeline_status %}
+            {% set activity = item.pipeline_activity %}
+            {% set activity_kind = 'transcript' %}
             {% include "fragments/status_badge.html" %}
             {% if item.pipeline_status in ('transcript_failed', 'no_subtitle') %}
             <button type="button"
@@ -84,18 +94,14 @@
     <div class="flex min-w-0 flex-wrap items-center gap-2.5">
       <h2 class="text-base font-semibold text-slate-900">{{ txt.queue_llm_title }}</h2>
       <div class="flex items-center gap-1" data-queue-llm-chips>
-        {% set lp = t_counts.get('llm_pending', 0) %}
-        {% set lpr = t_counts.get('llm_processing', 0) %}
-        {% set lf = t_counts.get('llm_failed', 0) %}
-        {% set lmr = t_counts.get('manual_review', 0) %}
-        {% if lp > 0 %}<span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">{{ txt.queue_chip_pending }} {{ lp }}</span>{% endif %}
-        {% if lpr > 0 %}<span class="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">{{ txt.queue_chip_processing }} {{ lpr }}</span>{% endif %}
-        {% if lf > 0 %}<span class="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">{{ txt.queue_chip_failed }} {{ lf }}</span>{% endif %}
-        {% if lmr > 0 %}<span class="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-800">{{ txt.queue_chip_manual_review }} {{ lmr }}</span>{% endif %}
+        {% if l_queued > 0 %}<span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">{{ txt.queue_chip_pending }} {{ l_queued }}</span>{% endif %}
+        {% if l_running > 0 %}<span class="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">{{ txt.queue_chip_processing }} {{ l_running }}</span>{% endif %}
+        {% if l_retry_wait > 0 %}<span class="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-800">{{ txt.queue_chip_retry_wait }} {{ l_retry_wait }}</span>{% endif %}
+        {% if l_failed_count > 0 %}<span class="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">{{ txt.queue_chip_failed }} {{ l_failed_count }}</span>{% endif %}
       </div>
     </div>
     <div class="flex shrink-0 items-center gap-2">
-      {% set l_failed = (t_counts.get('llm_failed', 0) + t_counts.get('manual_review', 0)) %}
+      {% set l_failed = l_failed_count + l_retry_wait %}
       {% if l_failed > 0 %}
       <button type="button"
               data-queue-retry-section="llm"
@@ -120,7 +126,8 @@
     {% if llm_items %}
       <div class="divide-y divide-slate-100">
         {% for item in llm_items %}
-        <div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3 {% if item.pipeline_status in failed_statuses %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}">
+        {% set row_attention = item.job_status == 'failed' or item.pipeline_activity == 'retry_wait' %}
+        <div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3 {% if row_attention %}-mx-2 rounded-md bg-rose-50/60 px-2{% endif %}" data-queue-item="{{ item.video_id }}">
           <div class="flex min-w-0 flex-1 items-center gap-3">
             <div class="h-12 w-20 flex-shrink-0 overflow-hidden rounded">
               {% if item.thumbnail_url %}
@@ -132,12 +139,17 @@
             <div class="min-w-0 flex-1">
               <a href="/videos/{{ item.video_id }}" class="block truncate text-sm font-medium text-slate-900 hover:text-indigo-600" title="{{ item.title or item.video_id }}">{{ item.title or item.video_id }}</a>
               <p class="truncate text-xs text-slate-500" title="{{ item.channel_name or item.channel_id or '' }}">{{ item.channel_name or item.channel_id or '' }}</p>
+              {% if row_attention and item.error_code %}
+              <p class="truncate text-xs text-rose-600" data-queue-error title="{{ item.error_code }}">{{ txt.pipeline_error_label }}: {{ item.error_code }}</p>
+              {% endif %}
             </div>
           </div>
           <div class="flex shrink-0 items-center justify-end gap-2">
             {% set status = item.pipeline_status %}
+            {% set activity = item.pipeline_activity %}
+            {% set activity_kind = 'article' %}
             {% include "fragments/status_badge.html" %}
-            {% if item.pipeline_status in ('llm_failed', 'manual_review') %}
+            {% if item.job_status == 'failed' or item.pipeline_activity == 'retry_wait' %}
             <button type="button"
                     data-queue-retry-llm="{{ item.video_id }}"
                     class="ui-control flex-shrink-0 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100">

@@ -108,19 +108,19 @@ def _video_state(db, video_id: str) -> tuple[str, str]:
     return str(row["pipeline_status"]), str(row["target_stage"])
 
 
-def test_processing_stage_off_inserts_auto_paused(db) -> None:
+def test_processing_stage_off_inserts_paused(db) -> None:
     cat = db.run(repository.create_category(db.conn, "중지"))
     _add_channel(db, "UC_stage_off", "Stage Off")
     db.run(repository.move_channels_to_category(db.conn, ["UC_stage_off"], cat["id"]))
     _insert_video(db, video_id="vid_stage_off", channel_id="UC_stage_off")
 
     status, target_stage = _video_state(db, "vid_stage_off")
-    assert status == "auto_paused"
+    assert status == "paused"
     assert target_stage == "none"
     assert _transcript_job_ids(db, "vid_stage_off") == []
 
 
-def test_processing_stage_transcript_only_stops_at_transcript_done(db) -> None:
+def test_processing_stage_transcript_only_stops_at_transcript_ready(db) -> None:
     cat = db.run(repository.create_category(db.conn, "자막전용"))
     db.run(repository.update_category_processing_stage(db.conn, cat["id"], "transcript_only"))
     _add_channel(db, "UC_stage_tx", "Stage Transcript Only")
@@ -129,7 +129,7 @@ def test_processing_stage_transcript_only_stops_at_transcript_done(db) -> None:
     _save_transcript(db, video_id="vid_stage_tx")
 
     status, target_stage = _video_state(db, "vid_stage_tx")
-    assert status == "transcript_done"
+    assert status == "transcript_ready"
     assert target_stage == "transcript"
     candidate = db.run(repository.claim_next_article_job(db.conn, max_attempts=3))
     assert candidate is None
@@ -144,7 +144,7 @@ def test_processing_stage_full_queues_llm_candidate(db) -> None:
     _save_transcript(db, video_id="vid_stage_full")
 
     status, target_stage = _video_state(db, "vid_stage_full")
-    assert status == "llm_pending"
+    assert status == "article_pending"
     assert target_stage == "article"
     candidate = db.run(repository.claim_next_article_job(db.conn, max_attempts=3))
     assert candidate is not None

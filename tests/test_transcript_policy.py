@@ -73,6 +73,14 @@ async def _status(db, video_id: str) -> str:
     return str(row["pipeline_status"])
 
 
+async def _activity(db, video_id: str) -> str:
+    cursor = await db.execute(
+        "SELECT pipeline_activity FROM video_pipeline_v WHERE video_id = ?", (video_id,)
+    )
+    row = await cursor.fetchone()
+    return str(row["pipeline_activity"])
+
+
 async def _job(db, job_id: int) -> dict:
     cursor = await db.execute("SELECT * FROM video_jobs WHERE id = ?", (job_id,))
     row = await cursor.fetchone()
@@ -163,7 +171,7 @@ def test_schedule_transcript_job_retry_updates_attempt_and_next_attempt(client) 
 def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> None:
     db_path = tmp_path / "recover-stuck-jobs.db"
 
-    async def _run() -> tuple[int, str, str]:
+    async def _run() -> tuple[int, str, str, str, str]:
         db = await open_database(str(db_path))
         try:
             await init_database(db)
@@ -177,14 +185,18 @@ def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> 
                 recovered,
                 await _status(db, "vid-recover-llm"),
                 await _status(db, "vid-recover-transcript"),
+                await _activity(db, "vid-recover-llm"),
+                await _activity(db, "vid-recover-transcript"),
             )
         finally:
             await db.close()
 
-    recovered, llm_status, transcript_status = asyncio.run(_run())
+    recovered, llm_status, transcript_status, llm_activity, transcript_activity = asyncio.run(
+        _run()
+    )
     assert recovered == 1
-    assert llm_status == "llm_pending"
-    assert transcript_status == "transcript_processing"
+    assert (llm_status, llm_activity) == ("article_pending", "queued")
+    assert (transcript_status, transcript_activity) == ("transcript_pending", "running")
 
 
 def test_recover_running_transcript_jobs_requeues_processing_rows(tmp_path) -> None:
@@ -283,7 +295,7 @@ def test_transcript_fetcher_recovers_processing_rows(tmp_path) -> None:
             await db.close()
 
     status, raw_text, calls = asyncio.run(_run())
-    assert status == "transcript_done"
+    assert status == "transcript_ready"
     assert raw_text == "recovered transcript"
     assert calls == ["vid-recover-processing"]
 
@@ -403,7 +415,7 @@ def test_complete_transcript_job_sets_language_and_queues_article(client) -> Non
             await db.close()
 
     status, target_language, transcript_job, article_job = asyncio.run(_run())
-    assert status == "llm_pending"
+    assert status == "article_pending"
     assert target_language == "ko"
     assert transcript_job["status"] == "succeeded"
     assert transcript_job["error_code"] is None
@@ -447,7 +459,7 @@ def test_complete_transcript_job_stops_at_transcript_target(client) -> None:
             await db.close()
 
     status, article_jobs = asyncio.run(_run())
-    assert status == "transcript_done"
+    assert status == "transcript_ready"
     assert article_jobs == 0
 
 
@@ -572,7 +584,7 @@ def test_article_attempt_floor_allows_at_least_one_attempt(client) -> None:
     assert candidate_id == "vid-llm-floor-001"
     assert next_status == "failed"
     assert affected == 1
-    assert pipeline_status == "manual_review"
+    assert pipeline_status == "article_failed"
     assert job["attempt_count"] == 1
     assert job["error_code"] == "llm_provider_timeout"
 
@@ -585,19 +597,24 @@ def test_record_article_job_failure_requeues_until_attempts_run_out(client) -> N
         job_id = seed_video_job_sync(conn, "vid-llm-retry-001", "article", status="running")
         conn.commit()
 
-    async def _run() -> tuple[str, str, dict]:
+    async def _run() -> tuple[str, str, str, dict]:
         db = await open_database(db_path)
         try:
             next_status, _ = await pipeline_repo.record_article_job_failure(
                 db, job_id, max_attempts=3, error_code="llm_provider_timeout"
             )
-            return next_status, await _status(db, "vid-llm-retry-001"), await _job(db, job_id)
+            return (
+                next_status,
+                await _status(db, "vid-llm-retry-001"),
+                await _activity(db, "vid-llm-retry-001"),
+                await _job(db, job_id),
+            )
         finally:
             await db.close()
 
-    next_status, pipeline_status, job = asyncio.run(_run())
+    next_status, pipeline_status, activity, job = asyncio.run(_run())
     assert next_status == "queued"
-    assert pipeline_status == "llm_failed"
+    assert (pipeline_status, activity) == ("article_pending", "retry_wait")
     assert job["attempt_count"] == 1
     assert job["error_code"] == "llm_provider_timeout"
 
@@ -622,7 +639,7 @@ def test_requeue_article_job_keeps_attempt_count(client) -> None:
 
     affected, pipeline_status, job = asyncio.run(_run())
     assert affected == 1
-    assert pipeline_status == "llm_pending"
+    assert pipeline_status == "article_pending"
     assert job["attempt_count"] == 2
 
 
@@ -653,6 +670,7 @@ def test_claim_next_article_job_fails_jobs_without_transcript(client) -> None:
                 {
                     "vid-orphan-pending": await _status(db, "vid-orphan-pending"),
                     "vid-orphan-safe": await _status(db, "vid-orphan-safe"),
+                    "vid-orphan-safe-activity": await _activity(db, "vid-orphan-safe"),
                 },
             )
         finally:
@@ -662,8 +680,9 @@ def test_claim_next_article_job_fails_jobs_without_transcript(client) -> None:
     assert candidate_id == "vid-orphan-safe"
     assert orphan["status"] == "failed"
     assert orphan["error_code"] == "transcript_missing"
-    assert statuses["vid-orphan-pending"] == "manual_review"
-    assert statuses["vid-orphan-safe"] == "llm_processing"
+    assert statuses["vid-orphan-pending"] == "article_failed"
+    assert statuses["vid-orphan-safe"] == "article_pending"
+    assert statuses["vid-orphan-safe-activity"] == "running"
 
 
 def test_ensure_llm_config_missing_alert_is_deduplicated_and_reset(client) -> None:

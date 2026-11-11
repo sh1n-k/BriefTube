@@ -141,7 +141,7 @@ async def ensure_llm_config_missing_alert(db: aiosqlite.Connection) -> bool:
     await alerts_repository.create_system_alert(
         db,
         alert_type=alerts_repository.ALERT_TYPE_LLM_CONFIG_MISSING,
-        message="LLM runtime is not ready. llm_pending items are waiting.",
+        message="LLM runtime is not ready. article_pending items are waiting.",
     )
     await set_setting(db, key=LLM_CONFIG_MISSING_ALERT_SENT_KEY, value="1")
     return True
@@ -204,7 +204,7 @@ async def ensure_llm_schema_invalid_alert(db: aiosqlite.Connection) -> bool:
     await alerts_repository.create_system_alert(
         db,
         alert_type=alerts_repository.ALERT_TYPE_LLM_SCHEMA_INVALID,
-        message="LLM output schema is incompatible. llm_pending items are waiting.",
+        message="LLM output schema is incompatible. article_pending items are waiting.",
     )
     await set_setting(db, key=LLM_SCHEMA_INVALID_ALERT_SENT_KEY, value="1")
     return True

@@ -9,14 +9,14 @@ from app.i18n import get_texts
 
 REPRESENTATIVE_STATUS_CLASS_EXPECTATIONS = {
     "transcript_pending": "status-badge--transcript-pending",
-    "llm_failed": "status-badge--llm-failed",
-    "done": "status-badge--done",
+    "article_failed": "status-badge--llm-failed",
+    "article_ready": "status-badge--done",
 }
 
 
-def _render_status_badge(client: TestClient, status: str) -> str:
+def _render_status_badge(client: TestClient, status: str, **context: str) -> str:
     template = client.app.state.templates.get_template("fragments/status_badge.html")
-    return template.render(status=status, txt=get_texts("ko"))
+    return template.render(status=status, txt=get_texts("ko"), **context)
 
 
 def test_status_badge_renders_representative_semantic_classes(client: TestClient) -> None:
@@ -24,6 +24,19 @@ def test_status_badge_renders_representative_semantic_classes(client: TestClient
         html = _render_status_badge(client, status)
         assert "status-badge" in html
         assert class_name in html
+
+
+def test_status_badge_activity_overrides_pending_class(client: TestClient) -> None:
+    running = _render_status_badge(client, "article_pending", activity="running")
+    assert "status-badge--llm-processing" in running
+    assert 'data-pipeline-activity="running"' in running
+    retry_wait = _render_status_badge(client, "article_pending", activity="retry_wait")
+    assert "status-badge--manual-review" in retry_wait
+    regenerating = _render_status_badge(
+        client, "article_ready", activity="queued", activity_kind="article"
+    )
+    assert "status-badge--done" in regenerating
+    assert "data-pipeline-regenerating" in regenerating
 
 
 def test_status_badge_unknown_fallback_class(client: TestClient) -> None:
@@ -95,19 +108,19 @@ def test_status_badge_color_tokens_keep_readable_contrast() -> None:
     }
 
     status_pairs = {
-        "auto_paused": ("status-no-subtitle-text", "status-no-subtitle-bg"),
+        "paused": ("status-no-subtitle-text", "status-no-subtitle-bg"),
         "transcript_pending": ("status-transcript-pending-text", "status-transcript-pending-bg"),
-        "transcript_processing": (
+        "transcript_running": (
             "status-transcript-processing-text",
             "status-transcript-processing-bg",
         ),
-        "transcript_done": ("status-done-text", "status-done-bg"),
+        "transcript_ready": ("status-done-text", "status-done-bg"),
         "transcript_failed": ("status-transcript-failed-text", "status-transcript-failed-bg"),
-        "llm_pending": ("status-llm-pending-text", "status-llm-pending-bg"),
-        "llm_processing": ("status-llm-processing-text", "status-llm-processing-bg"),
-        "llm_failed": ("status-llm-failed-text", "status-llm-failed-bg"),
-        "done": ("status-done-text", "status-done-bg"),
-        "manual_review": ("status-manual-review-text", "status-manual-review-bg"),
+        "article_pending": ("status-llm-pending-text", "status-llm-pending-bg"),
+        "article_running": ("status-llm-processing-text", "status-llm-processing-bg"),
+        "article_failed": ("status-llm-failed-text", "status-llm-failed-bg"),
+        "article_ready": ("status-done-text", "status-done-bg"),
+        "article_retry_wait": ("status-manual-review-text", "status-manual-review-bg"),
         "no_subtitle": ("status-no-subtitle-text", "status-no-subtitle-bg"),
         "unknown": ("status-unknown-text", "status-unknown-bg"),
     }

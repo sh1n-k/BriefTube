@@ -23,9 +23,13 @@ def _set_status(
     attempt_count: int = 0,
     error_message: str | None = None,
 ) -> None:
-    """Reproduce a legacy pipeline_status with facts and video_jobs rows."""
+    """Reproduce a pipeline status (plus activity) with facts and video_jobs rows.
+
+    Seed states: paused, transcript_ready, article_ready, or a job-backed state from
+    ``jobs`` below (``*_running`` / ``article_retry_wait`` add the activity).
+    """
     conn.execute("DELETE FROM video_jobs WHERE video_id = ?", (video_id,))
-    if status == "done":
+    if status == "article_ready":
         conn.execute(
             """
             INSERT OR IGNORE INTO articles(video_id, title, lead, body)
@@ -34,7 +38,11 @@ def _set_status(
             (video_id, f"Article for {video_id}"),
         )
         return
-    if status == "transcript_done":
+    if status == "transcript_ready":
+        # target_stage='article' without an article job would derive "paused".
+        conn.execute(
+            "UPDATE videos SET target_stage = 'transcript' WHERE video_id = ?", (video_id,)
+        )
         conn.execute(
             """
             INSERT OR IGNORE INTO transcripts(video_id, raw_text, language, source_type)
@@ -43,17 +51,17 @@ def _set_status(
             (video_id, f"Transcript for {video_id}"),
         )
         return
-    if status == "auto_paused":
+    if status == "paused":
         return
     jobs = {
         "transcript_pending": ("transcript", "queued", None),
-        "transcript_processing": ("transcript", "running", None),
+        "transcript_running": ("transcript", "running", None),
         "transcript_failed": ("transcript", "failed", "non_retryable_failure"),
         "no_subtitle": ("transcript", "failed", "no_subtitle"),
-        "llm_pending": ("article", "queued", None),
-        "llm_processing": ("article", "running", None),
-        "llm_failed": ("article", "queued", "llm_provider_timeout"),
-        "manual_review": ("article", "failed", "retry_exhausted"),
+        "article_pending": ("article", "queued", None),
+        "article_running": ("article", "running", None),
+        "article_retry_wait": ("article", "queued", "llm_provider_timeout"),
+        "article_failed": ("article", "failed", "retry_exhausted"),
     }
     kind, job_status, error_code = jobs[status]
     seed_video_job_sync(
@@ -141,7 +149,7 @@ def _seed_paginated_videos(total: int) -> None:
                 "UCpage001",
                 f"Pagination Video {index:03d}",
                 f"2026-02-{(index % 28) + 1:02d}T00:00:00+00:00",
-                "done",
+                "article_ready",
             )
         conn.commit()
 
@@ -243,10 +251,20 @@ def test_video_delete_selected_invalidates_retention_notice_cache(client: TestCl
             ),
         )
         _insert_video(
-            conn, "vid-ret-delete", "UC_RET_VIDEO", "old", "2000-01-01T00:00:00+00:00", "done"
+            conn,
+            "vid-ret-delete",
+            "UC_RET_VIDEO",
+            "old",
+            "2000-01-01T00:00:00+00:00",
+            "article_ready",
         )
         _insert_video(
-            conn, "vid-ret-keep", "UC_RET_VIDEO", "new", "2999-01-01T00:00:00+00:00", "done"
+            conn,
+            "vid-ret-keep",
+            "UC_RET_VIDEO",
+            "new",
+            "2999-01-01T00:00:00+00:00",
+            "article_ready",
         )
         conn.commit()
 
@@ -299,19 +317,19 @@ def test_video_list_channel_name_links_to_channel_filter(client: TestClient) -> 
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        _set_status(conn, "vid-b-000", "done")
+        _set_status(conn, "vid-b-000", "article_ready")
         conn.commit()
 
     response = client.get(
         "/views/video-list",
-        params={"limit": "20", "pipeline_status": "done"},
+        params={"limit": "20", "status": "article_ready"},
         headers=FRAGMENT_HEADERS,
     )
 
     assert response.status_code == 200
     html = unescape(response.text)
     expected_query = (
-        "page=1&limit=20&sort=upload_time&order=desc&channel_id=UC_BBB&pipeline_status=done"
+        "page=1&limit=20&sort=upload_time&order=desc&channel_id=UC_BBB&status=article_ready"
     )
     assert re.search(r">\s*Channel B\s*</a>", html)
     assert f'href="/?{expected_query}"' in html
@@ -319,22 +337,22 @@ def test_video_list_channel_name_links_to_channel_filter(client: TestClient) -> 
     assert f'hx-push-url="?{expected_query}"' in html
 
 
-def test_video_list_pipeline_status_filter(client: TestClient) -> None:
+def test_video_list_status_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        _set_status(conn, "vid-b-000", "done")
-        _set_status(conn, "vid-a-001", "manual_review")
+        _set_status(conn, "vid-b-000", "article_ready")
+        _set_status(conn, "vid-a-001", "article_failed")
         conn.commit()
 
     response = client.get(
         "/views/video-list",
-        params={"pipeline_status": "done", "limit": "20"},
+        params={"status": "article_ready", "limit": "20"},
         headers=FRAGMENT_HEADERS,
     )
     assert response.status_code == 200
     html = response.text
-    assert 'name="pipeline_status"' in html
+    assert 'name="status"' in html
     assert "전체 상태" in html
     assert "vid-b-000" in html
     assert "vid-a-001" not in html
@@ -352,9 +370,9 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
         conn.execute(
             "UPDATE channels SET category_id = ? WHERE channel_id = ?", (category_id, "UC_BBB")
         )
-        _set_status(conn, "vid-a-000", "manual_review")
-        _set_status(conn, "vid-b-001", "manual_review")
-        _set_status(conn, "vid-b-000", "done")
+        _set_status(conn, "vid-a-000", "article_failed")
+        _set_status(conn, "vid-b-001", "article_failed")
+        _set_status(conn, "vid-b-000", "article_ready")
         conn.commit()
 
     response = client.get(
@@ -362,7 +380,7 @@ def test_video_list_filters_apply_as_and(client: TestClient) -> None:
         params={
             "category_id": str(category_id),
             "channel_id": "UC_BBB",
-            "pipeline_status": "manual_review",
+            "status": "article_failed",
             "limit": "20",
         },
         headers=FRAGMENT_HEADERS,
@@ -396,17 +414,17 @@ def test_video_list_sets_home_push_url_header(client: TestClient) -> None:
     assert "channel_id=UC_BBB" in push_url
 
 
-def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestClient) -> None:
+def test_video_list_sets_home_push_url_header_with_status(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        _set_status(conn, "vid-b-000", "done")
+        _set_status(conn, "vid-b-000", "article_ready")
         conn.commit()
 
     response = client.get(
         "/views/video-list",
         params={
-            "pipeline_status": "done",
+            "status": "article_ready",
             "page": "1",
             "limit": "20",
             "sort": "upload_time",
@@ -417,12 +435,12 @@ def test_video_list_sets_home_push_url_header_with_pipeline_status(client: TestC
     assert response.status_code == 200
     push_url = response.headers.get("HX-Push-Url")
     assert push_url is not None
-    assert "pipeline_status=done" in push_url
+    assert "status=article_ready" in push_url
 
 
 def test_video_list_direct_access_redirects_to_home_page(client: TestClient) -> None:
     response = client.get(
-        "/views/video-list?page=2&limit=10&pipeline_status=done",
+        "/views/video-list?page=2&limit=10&status=article_ready",
         follow_redirects=False,
     )
 
@@ -432,7 +450,7 @@ def test_video_list_direct_access_redirects_to_home_page(client: TestClient) -> 
     assert parse_qs(location.query) == {
         "page": ["2"],
         "limit": ["10"],
-        "pipeline_status": ["done"],
+        "status": ["article_ready"],
     }
 
 
@@ -474,19 +492,19 @@ def test_home_uses_default_videos_per_page_when_limit_is_missing(client: TestCli
     assert "페이지 1 / 4" in response.text
 
 
-def test_video_list_fragment_keeps_pipeline_status_in_paging_queries(client: TestClient) -> None:
+def test_video_list_fragment_keeps_status_in_paging_queries(client: TestClient) -> None:
     _seed_paginated_videos(25)
 
     response = client.get(
         "/views/video-list",
-        params={"page": 2, "limit": 10, "pipeline_status": "done"},
+        params={"page": 2, "limit": 10, "status": "article_ready"},
         headers=FRAGMENT_HEADERS,
     )
 
     assert response.status_code == 200
     html = response.text
-    assert "pipeline_status=done" in html
-    assert 'name="pipeline_status" value="done"' in html
+    assert "status=article_ready" in html
+    assert 'name="status" value="article_ready"' in html
 
 
 def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
@@ -513,18 +531,134 @@ def test_home_accepts_empty_category_id_as_all(client: TestClient) -> None:
     assert "Channel B" in html
 
 
-def test_home_pipeline_status_filter(client: TestClient) -> None:
+def test_home_status_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        _set_status(conn, "vid-b-001", "done")
+        _set_status(conn, "vid-b-001", "article_ready")
         conn.commit()
 
-    response = client.get("/", params={"pipeline_status": "done", "limit": "20"})
+    response = client.get("/", params={"status": "article_ready", "limit": "20"})
     assert response.status_code == 200
     html = response.text
     assert "vid-b-001" in html
     assert "vid-a-000" not in html
+
+
+def test_legacy_pipeline_status_query_maps_to_status_filter(client: TestClient) -> None:
+    """북마크된 ?pipeline_status= 값은 새 status 필터로 매핑되고 새 키로 다시 쓴다."""
+    _seed_channels_and_videos()
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        _set_status(conn, "vid-a-000", "article_failed")
+        _set_status(conn, "vid-a-001", "article_retry_wait")
+        _set_status(conn, "vid-b-000", "article_ready")
+        conn.commit()
+
+    home = client.get("/", params={"pipeline_status": "manual_review", "limit": "20"})
+    assert home.status_code == 200
+    assert "vid-a-000" in home.text
+    assert "vid-a-001" not in home.text
+    assert "vid-b-000" not in home.text
+    assert re.search(r'<option value="article_failed"\s+selected', home.text)
+
+    fragment = client.get(
+        "/views/video-list",
+        params={"pipeline_status": "llm_failed", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert fragment.status_code == 200
+    assert "vid-a-001" in fragment.text
+    assert "vid-a-000" not in fragment.text
+    push_url = fragment.headers["HX-Push-Url"]
+    assert "status=article_pending" in push_url
+    assert "pipeline_status" not in push_url
+    assert 'name="status" value="article_pending"' in fragment.text
+
+    # An explicit status wins over the legacy alias; unknown legacy values mean "all".
+    both = client.get(
+        "/views/video-list",
+        params={"status": "article_ready", "pipeline_status": "manual_review", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert "vid-b-000" in both.text
+    assert "vid-a-000" not in both.text
+    unknown = client.get(
+        "/views/video-list",
+        params={"pipeline_status": "bogus", "limit": "20"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert all(video_id in unknown.text for video_id in ("vid-a-000", "vid-a-001", "vid-b-000"))
+
+
+def test_video_list_status_filter_lists_all_statuses(client: TestClient) -> None:
+    _seed_channels_and_videos()
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    options = re.findall(r'<option value="([a-z_]+)"', response.text)
+    for status in (
+        "paused",
+        "transcript_pending",
+        "transcript_failed",
+        "no_subtitle",
+        "transcript_ready",
+        "article_pending",
+        "article_failed",
+        "article_ready",
+    ):
+        assert status in options
+    assert re.search(
+        r'<option value="article_failed"\s*>\s*기사 생성 실패\s*</option>', response.text
+    )
+
+
+def test_video_list_article_retry_and_eligibility_follow_activity(client: TestClient) -> None:
+    """기사 실패·재시도 대기 행만 재시도 버튼과 기사화 선택을 허용하고, 실행 중 행은 막는다."""
+    _seed_channels_and_videos()
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        _set_status(conn, "vid-a-000", "article_failed")
+        _set_status(conn, "vid-a-001", "article_retry_wait", attempt_count=1, error_message="x")
+        _set_status(conn, "vid-a-002", "article_running")
+        _set_status(conn, "vid-b-000", "article_pending")
+        conn.commit()
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+
+    def _eligible(video_id: str) -> set[str]:
+        return set(
+            re.findall(
+                rf'value="{video_id}"\s+data-video-select-item\s+data-article-eligible="(\d)"',
+                html,
+            )
+        )
+
+    for video_id in ("vid-a-000", "vid-a-001"):
+        # 모바일 카드와 데스크톱 행 양쪽에 재시도 버튼을 노출한다.
+        assert html.count(f'hx-post="/api/videos/{video_id}/retry"') == 2
+        assert _eligible(video_id) == {"1"}
+    for video_id in ("vid-a-002", "vid-b-000"):
+        assert f'hx-post="/api/videos/{video_id}/retry"' not in html
+        assert _eligible(video_id) == {"0"}
+    # transcript_pending 행도 기사화 대상이 아니다.
+    assert _eligible("vid-b-001") == {"0"}
+
+    assert 'data-pipeline-status="article_pending" data-pipeline-activity="retry_wait"' in html
+    assert 'data-pipeline-status="article_pending" data-pipeline-activity="running"' in html
+    assert 'data-pipeline-status="article_failed"' in html
+
+
+def test_video_list_badge_marks_regenerating_article(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        _set_status(conn, "vid-a-000", "article_ready")
+        seed_video_job_sync(conn, "vid-a-000", "article", status="running", origin="manual")
+        conn.commit()
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    assert response.text.count("data-pipeline-regenerating") == 2
 
 
 def test_video_list_category_then_all_restores_all_channel_options(client: TestClient) -> None:
@@ -615,7 +749,7 @@ def test_video_download_selected_empty_selection_returns_bulk_toast(client: Test
     assert "video-download-bulk-toast" in response.headers["HX-Trigger"]
 
 
-def test_video_download_selected_preserves_pipeline_status_filter(client: TestClient) -> None:
+def test_video_download_selected_preserves_status_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
@@ -624,11 +758,11 @@ def test_video_download_selected_preserves_pipeline_status_filter(client: TestCl
 
     response = client.post(
         "/views/videos/download-selected",
-        data={"_page": "1", "_limit": "20", "_pipeline_status": "no_subtitle"},
+        data={"_page": "1", "_limit": "20", "_status": "no_subtitle"},
     )
 
     assert response.status_code == 200
-    assert 'name="_pipeline_status" value="no_subtitle"' in response.text
+    assert 'name="_status" value="no_subtitle"' in response.text
     assert "vid-b-001" in response.text
     assert "vid-a-000" not in response.text
 
@@ -732,12 +866,12 @@ def test_video_list_renders_fixed_action_column(client: TestClient) -> None:
     assert "영상이 없습니다" in empty_response.text or "No videos yet" in empty_response.text
 
 
-def test_video_list_marks_article_eligible_for_transcript_done(client: TestClient) -> None:
+def test_video_list_marks_article_eligible_for_transcript_ready(client: TestClient) -> None:
     """자막 완료·기사 없음 행은 기사화 가능 표시와 인라인 기사화 CTA를 노출한다."""
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        _set_status(conn, "vid-a-001", "transcript_done")
+        _set_status(conn, "vid-a-001", "transcript_ready")
         conn.commit()
     _seed_video_outputs("vid-a-001", transcript=True, article=False)
 
@@ -785,20 +919,20 @@ def test_video_article_selected_empty_selection_returns_bulk_toast(client: TestC
     assert "video-article-request-toast" in payload
 
 
-def test_video_article_selected_preserves_pipeline_status_filter(client: TestClient) -> None:
+def test_video_article_selected_preserves_status_filter(client: TestClient) -> None:
     _seed_channels_and_videos()
     db_path = os.environ["DB_PATH"]
     with sqlite3.connect(db_path) as conn:
-        _set_status(conn, "vid-a-002", "done")
+        _set_status(conn, "vid-a-002", "article_ready")
         conn.commit()
 
     response = client.post(
         "/views/videos/article-request-selected",
-        data={"_page": "1", "_limit": "20", "_pipeline_status": "done"},
+        data={"_page": "1", "_limit": "20", "_status": "article_ready"},
     )
 
     assert response.status_code == 200
-    assert 'name="_pipeline_status" value="done"' in response.text
+    assert 'name="_status" value="article_ready"' in response.text
     assert "vid-a-002" in response.text
     assert "vid-b-000" not in response.text
 
@@ -824,7 +958,7 @@ def test_video_article_selected_limit_exceeded_returns_bulk_toast(client: TestCl
                 "UC_MANUAL_LIMIT",
                 f"Manual Limit {idx}",
                 f"2026-02-{10 + idx:02d}T00:00:00+00:00",
-                "done",
+                "article_ready",
             )
         conn.commit()
 
@@ -952,7 +1086,7 @@ def test_video_list_renders_transcript_retry_only_for_missing_transcript_rows(
         {
             "vid-a-000": "no_subtitle",
             "vid-a-001": "transcript_failed",
-            "vid-a-002": "transcript_done",
+            "vid-a-002": "transcript_ready",
             "vid-b-000": "no_subtitle",
         }
     )
@@ -993,10 +1127,10 @@ def test_video_list_transcript_retry_requeues_and_rerenders_list(client: TestCli
 
 def test_video_list_transcript_retry_skips_ineligible_status(client: TestClient) -> None:
     _seed_channels_and_videos()
-    _set_video_statuses({"vid-a-000": "transcript_done"})
+    _set_video_statuses({"vid-a-000": "transcript_ready"})
 
     for video_id, expected_status in (
-        ("vid-a-000", "transcript_done"),
+        ("vid-a-000", "transcript_ready"),
         ("vid-a-001", "transcript_pending"),
     ):
         response = client.post(
@@ -1048,7 +1182,7 @@ def test_video_list_transcript_retry_preserves_filters(client: TestClient) -> No
 
     response = client.post(
         "/views/videos/vid-a-000/transcript-retry",
-        data={"_page": "1", "_limit": "20", "_pipeline_status": "no_subtitle"},
+        data={"_page": "1", "_limit": "20", "_status": "no_subtitle"},
         headers=FRAGMENT_HEADERS,
     )
     assert response.status_code == 200

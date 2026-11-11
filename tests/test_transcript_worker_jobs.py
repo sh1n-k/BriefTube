@@ -129,7 +129,7 @@ def test_manual_transcript_request_is_collected_without_article_for_none_target(
     assert job["origin"] == "manual"
     assert state["has_transcript"] == 1
     assert state["article_job_id"] is None
-    assert state["pipeline_status"] == "transcript_done"
+    assert state["pipeline_status"] == "transcript_ready"
 
 
 def test_manual_article_request_chains_transcript_then_article_job(tmp_path: Path) -> None:
@@ -160,7 +160,7 @@ def test_manual_article_request_chains_transcript_then_article_job(tmp_path: Pat
     assert state["transcript_job_status"] == "succeeded"
     assert article_job["status"] == "queued"
     assert article_job["origin"] == "manual"
-    assert state["pipeline_status"] == "llm_pending"
+    assert state["pipeline_status"] == "article_pending"
 
 
 def test_manual_requests_are_claimed_before_newer_auto_jobs(tmp_path: Path) -> None:
