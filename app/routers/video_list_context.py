@@ -14,13 +14,6 @@ from app.routers.helpers import parse_optional_int
 from app.routers.template_context import build_template_context
 
 
-def resolve_status_filter(status: str | None, legacy_pipeline_status: str | None) -> str | None:
-    """Normalize ``status``; fall back to a legacy ``pipeline_status`` value when absent."""
-    if str(status or "").strip():
-        return videos_repo.normalize_status_filter(status)
-    return videos_repo.normalize_legacy_status_filter(legacy_pipeline_status)
-
-
 @dataclass(frozen=True, slots=True)
 class VideoListContext:
     context: dict[str, Any]
@@ -38,7 +31,6 @@ async def build_video_list_context(
     channel_id: str | None,
     category_id: object,
     status: str | None,
-    legacy_pipeline_status: str | None = None,
     viewed: str | None = None,
     sort: str,
     order: str,
@@ -46,7 +38,7 @@ async def build_video_list_context(
     limit: int | None,
 ) -> VideoListContext:
     normalized_category_id = parse_optional_int(category_id)
-    normalized_status = resolve_status_filter(status, legacy_pipeline_status)
+    normalized_status = videos_repo.normalize_status_filter(status)
     normalized_viewed = videos_repo.normalize_viewed_filter(viewed)
     resolved_limit = limit or await settings_repo.get_videos_per_page_setting(
         request.app.state.runtime.db

@@ -43,7 +43,6 @@ JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_FAILED = "failed"
 
 ERROR_CODE_NO_SUBTITLE = "no_subtitle"
-ERROR_CODE_EMPTY_TRANSCRIPT = "empty_transcript"
 ERROR_CODE_TRANSCRIPT_MISSING = "transcript_missing"
 ERROR_CODE_RETRY_EXHAUSTED = "retry_exhausted"
 
@@ -838,10 +837,6 @@ async def requeue_article_for_done_video(db: aiosqlite.Connection, video_id: str
 
 
 # --- derived status reads --------------------------------------------------------
-
-
-async def get_pipeline_state(db: aiosqlite.Connection, video_id: str) -> dict[str, Any] | None:
-    return await _get_pipeline_row(db, str(video_id).strip())
 
 
 async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:

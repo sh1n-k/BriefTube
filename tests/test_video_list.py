@@ -546,7 +546,7 @@ def test_home_status_filter(client: TestClient) -> None:
 
 
 def test_legacy_pipeline_status_query_maps_to_status_filter(client: TestClient) -> None:
-    """북마크된 ?pipeline_status= 값은 새 status 필터로 매핑되고 새 키로 다시 쓴다."""
+    """북마크된 ?pipeline_status= 홈 주소는 새 ?status= 주소로 리다이렉트된다."""
     _seed_channels_and_videos()
     with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         _set_status(conn, "vid-a-000", "article_failed")
@@ -572,9 +572,10 @@ def test_legacy_pipeline_status_query_maps_to_status_filter(client: TestClient) 
     assert "vid-b-000" not in home.text
     assert re.search(r'<option value="article_failed"\s+selected', home.text)
 
+    # Legacy mapping is a one-time page redirect; HTMX fragments use only ?status=.
     fragment = client.get(
         "/views/video-list",
-        params={"pipeline_status": "llm_failed", "limit": "20"},
+        params={"status": "article_pending", "limit": "20"},
         headers=FRAGMENT_HEADERS,
     )
     assert fragment.status_code == 200
@@ -584,21 +585,6 @@ def test_legacy_pipeline_status_query_maps_to_status_filter(client: TestClient) 
     assert "status=article_pending" in push_url
     assert "pipeline_status" not in push_url
     assert 'name="status" value="article_pending"' in fragment.text
-
-    # An explicit status wins over the legacy alias; unknown legacy values mean "all".
-    both = client.get(
-        "/views/video-list",
-        params={"status": "article_ready", "pipeline_status": "manual_review", "limit": "20"},
-        headers=FRAGMENT_HEADERS,
-    )
-    assert "vid-b-000" in both.text
-    assert "vid-a-000" not in both.text
-    unknown = client.get(
-        "/views/video-list",
-        params={"pipeline_status": "bogus", "limit": "20"},
-        headers=FRAGMENT_HEADERS,
-    )
-    assert all(video_id in unknown.text for video_id in ("vid-a-000", "vid-a-001", "vid-b-000"))
 
 
 def test_video_list_status_filter_lists_all_statuses(client: TestClient) -> None:

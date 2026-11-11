@@ -6,7 +6,6 @@ JOB_KIND_TRANSCRIPT = repository.JOB_KIND_TRANSCRIPT
 JOB_KIND_ARTICLE = repository.JOB_KIND_ARTICLE
 JOB_STATUS_QUEUED = repository.JOB_STATUS_QUEUED
 ERROR_CODE_NO_SUBTITLE = repository.ERROR_CODE_NO_SUBTITLE
-ERROR_CODE_EMPTY_TRANSCRIPT = repository.ERROR_CODE_EMPTY_TRANSCRIPT
 
 list_claimable_transcript_jobs = repository.list_claimable_transcript_jobs
 mark_transcript_job_running = repository.mark_transcript_job_running
@@ -29,6 +28,5 @@ enqueue_manual_transcript_job = repository.enqueue_manual_transcript_job
 enqueue_manual_article_jobs = repository.enqueue_manual_article_jobs
 requeue_article_for_done_video = repository.requeue_article_for_done_video
 
-get_pipeline_state = repository.get_pipeline_state
 queue_status = repository.queue_status
 list_queue_items = repository.list_queue_items
