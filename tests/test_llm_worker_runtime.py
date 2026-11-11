@@ -1131,7 +1131,8 @@ async def _seed_article_pending_videos(db, video_ids: tuple[str, ...]) -> None:
 def test_llm_worker_spaces_claude_call_starts_even_with_free_slots(tmp_path, monkeypatch) -> None:
     import app.workers.llm_worker as llm_worker
 
-    interval = 1.5
+    interval = 0.3
+    monkeypatch.setattr(llm_worker, "LLM_MIN_IDLE_SLEEP_SECONDS", 0.05)
     monkeypatch.setattr(
         llm_worker,
         "llm_min_call_interval_seconds",
@@ -1210,6 +1211,7 @@ def test_llm_worker_requeues_rate_limited_job_without_spending_retry(tmp_path, m
     import app.workers.llm_worker as llm_worker
 
     monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", 0.2)
+    monkeypatch.setattr(llm_worker, "LLM_MIN_IDLE_SLEEP_SECONDS", 0.05)
     monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
     db_path = tmp_path / "worker-runtime-claude-rate-limited.db"
 
@@ -1247,8 +1249,9 @@ def test_llm_worker_requeues_rate_limited_job_without_spending_retry(tmp_path, m
 def test_llm_worker_rate_limit_pauses_every_slot(tmp_path, monkeypatch) -> None:
     import app.workers.llm_worker as llm_worker
 
-    backoff = 1.0
+    backoff = 0.3
     monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", backoff)
+    monkeypatch.setattr(llm_worker, "LLM_MIN_IDLE_SLEEP_SECONDS", 0.05)
     monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
     db_path = tmp_path / "worker-runtime-claude-rate-limit-global.db"
 
@@ -1277,7 +1280,10 @@ def test_llm_worker_rate_limit_pauses_every_slot(tmp_path, monkeypatch) -> None:
         )
         task = asyncio.create_task(run_llm_queue_worker(state))
         try:
-            await asyncio.sleep(0.2)
+            deadline = asyncio.get_running_loop().time() + 3
+            while client.calls < 1:
+                assert asyncio.get_running_loop().time() < deadline
+                await asyncio.sleep(0.01)
             # Wake events must not bypass the usage-limit pause.
             state.llm_wake_event.set()
             for video_id in ("vid-limit-a", "vid-limit-b"):
@@ -1300,6 +1306,8 @@ def test_llm_worker_provider_switch_lifts_rate_limit_pause(tmp_path, monkeypatch
     import app.workers.llm_worker as llm_worker
 
     monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", 600.0)
+    # Settings saves do not wake the worker; shorten the idle re-read instead.
+    monkeypatch.setattr(llm_worker, "LLM_IDLE_RECHECK_SECONDS", 0.1)
     monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
     db_path = tmp_path / "worker-runtime-claude-rate-limit-switch.db"
 
@@ -1340,8 +1348,9 @@ def test_llm_worker_provider_switch_lifts_rate_limit_pause(tmp_path, monkeypatch
 def test_llm_worker_keeps_rate_limit_pause_for_last_pending_job(tmp_path, monkeypatch) -> None:
     import app.workers.llm_worker as llm_worker
 
-    backoff = 1.0
+    backoff = 0.3
     monkeypatch.setattr(llm_worker, "LLM_RATE_LIMITED_SLEEP_SECONDS", backoff)
+    monkeypatch.setattr(llm_worker, "LLM_MIN_IDLE_SLEEP_SECONDS", 0.05)
     monkeypatch.setattr(llm_worker, "llm_min_call_interval_seconds", lambda _provider: 0.0)
     db_path = tmp_path / "worker-runtime-claude-rate-limit-last.db"
 

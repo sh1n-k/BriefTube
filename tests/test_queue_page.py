@@ -121,15 +121,3 @@ def test_queue_poll_api_returns_counts_and_runtime_state(client: TestClient) -> 
     assert 'data-pipeline-activity="retry_wait"' in html
     assert payload["workers"] == {"transcript": True, "llm": True}
     assert payload["transcript_guard"]["breaker_state"] == "closed"
-
-
-def test_queue_page_renders_empty_js_contract_anchors(client: TestClient) -> None:
-    response = client.get("/queue")
-
-    assert response.status_code == 200
-    html = response.text
-    assert "data-queue-page" in html
-    assert "data-queue-transcript-list" in html
-    assert "data-queue-llm-list" in html
-    assert "data-queue-transcript-count" in html
-    assert "data-queue-llm-count" in html

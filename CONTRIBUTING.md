@@ -63,10 +63,14 @@ uv run pytest -q tests/test_retention_page.py tests/test_search_results.py \
 uv run pytest -q tests/test_architecture_contracts.py tests/test_repository_common.py \
   tests/test_worker_wake_sleep.py
 
-# 전체 unit test와 E2E
-uv run pytest -q
-uv run pytest -q -m e2e tests/e2e
+# 전체 unit test와 E2E (pytest-xdist 병렬)
+uv run pytest -q -n auto
+uv run pytest -q -n auto --dist loadscope -m e2e tests/e2e
 ```
+
+전체 실행은 `-n auto`로 병렬화합니다. E2E는 모듈 단위 서버 fixture를 공유하므로 `--dist loadscope`를
+유지합니다. 범위별 실행이나 `pdb` 디버깅은 `-n` 없이 직렬로 실행합니다. 테스트는 실제 시간 대기에
+의존하지 않도록 worker의 sleep·timeout·delay 상수를 monkeypatch로 줄이거나 wake event로 깨웁니다.
 
 pytest에서는 background worker가 기본 비활성화됩니다. worker가 필요한 테스트만
 `BRIEFTUBE_ENABLE_<NAME>_WORKER_IN_TESTS=1` 또는 코드에 정의된 전용 alias로 활성화합니다.

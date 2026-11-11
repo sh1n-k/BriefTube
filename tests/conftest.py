@@ -17,6 +17,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "120")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+    # xdist worker들이 저장소 ./logs의 같은 RotatingFileHandler 파일을 공유하지 않도록 한다.
+    monkeypatch.setenv("LOG_TO_FILE", "false")
 
     from app.main import app
 

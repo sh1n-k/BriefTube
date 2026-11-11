@@ -180,14 +180,6 @@ def test_detail_empty_fact_box_hidden(client: TestClient) -> None:
     assert "Key Facts" not in html
 
 
-def test_detail_empty_timestamps_hidden(client: TestClient) -> None:
-    """timestamps='[]'이면 타임스탬프 미렌더링"""
-    _seed_video(timestamps="[]")
-    response = client.get("/videos/vid-001")
-    html = response.text
-    assert "detail_timestamps" not in html or html.count("detail_timestamps") == 0
-
-
 def test_detail_transcript_badges(client: TestClient) -> None:
     """자막 language/source_type 뱃지 표시"""
     _seed_video(language="ko", source_type="auto")

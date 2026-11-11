@@ -73,6 +73,7 @@ def test_manual_transcript_request_view_queues_paused_video(client: TestClient) 
     assert response.status_code == 200
     toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
     assert toast.get("tone") == "success"
+    assert "자막 수집 요청" in str(toast.get("message") or "")
     assert client.app.state.runtime.transcript_wake_event.is_set() is True
 
     db_path = os.environ["DB_PATH"]
@@ -173,15 +174,3 @@ def test_manual_transcript_detail_ui_shows_active_state_and_auto_refresh(
     assert response.status_code == 200
     assert 'data-manual-transcript-status="pending"' in response.text
     assert 'data-video-detail-auto-refresh="1"' in response.text
-
-
-def test_manual_transcript_view_endpoint_returns_toast_header(client: TestClient) -> None:
-    _seed_video(video_id="vid-manual-tx-view-001")
-
-    response = client.post("/views/videos/vid-manual-tx-view-001/transcript-request")
-
-    assert response.status_code == 200
-    payload = json.loads(response.headers.get("HX-Trigger", "{}"))
-    toast = payload.get("video-transcript-request-toast", {})
-    assert toast.get("tone") == "success"
-    assert "자막 수집 요청" in str(toast.get("message") or "")

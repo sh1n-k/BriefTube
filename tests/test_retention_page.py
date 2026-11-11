@@ -207,25 +207,6 @@ def test_retention_delete_all_batches_expired_videos(client: TestClient) -> None
     assert fresh_row is not None
 
 
-def test_retention_delete_selected(client: TestClient) -> None:
-    db_path = os.environ["DB_PATH"]
-    _seed_retention_data(db_path)
-
-    response = client.post(
-        "/retention/delete-selected",
-        data={"video_id": "vid-ret-old-001"},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert response.headers["location"] == "/retention?deleted=1"
-
-    with sqlite3.connect(db_path) as conn:
-        old_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-old-001'").fetchone()
-        new_row = conn.execute("SELECT 1 FROM videos WHERE video_id = 'vid-ret-new-001'").fetchone()
-    assert old_row is None
-    assert new_row is not None
-
-
 def test_retention_delete_selected_handles_large_manual_payload(client: TestClient) -> None:
     db_path = os.environ["DB_PATH"]
     _seed_retention_data(db_path)

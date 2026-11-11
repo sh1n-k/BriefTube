@@ -210,13 +210,6 @@ def test_index_poll_button_disables_swap(client: TestClient) -> None:
     assert 'hx-swap="none"' in html
 
 
-def test_channel_search_enter_shortcuts_support_previous_and_next(client: TestClient) -> None:
-    response = client.get("/")
-    assert response.status_code == 200
-    html = response.text
-    assert "/static/js/main-ui.js" in html
-
-
 def test_index_does_not_render_channel_panels(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200

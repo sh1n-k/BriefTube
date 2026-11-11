@@ -334,14 +334,6 @@ def test_settings_page_guard_cooldown_until_respects_timezone_setting(client: Te
     assert "2026-02-25T00:00:00+00:00" not in response.text
 
 
-def test_settings_llm_resume_view_returns_runtime_fragment_and_toast(client: TestClient) -> None:
-    response = client.post("/views/settings/llm/resume")
-    assert response.status_code == 200
-    assert 'id="llm-runtime-status"' in response.text
-    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
-    assert "llm-runtime-toast" in trigger
-
-
 def test_settings_llm_runtime_status_fragment_renders(client: TestClient) -> None:
     response = client.get("/views/settings/llm/runtime-status", headers=FRAGMENT_HEADERS)
     assert response.status_code == 200

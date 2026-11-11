@@ -18,6 +18,7 @@ LLM_RETRYABLE_FAILURE_DELAY_SECONDS = 5.0
 LLM_MAX_CONCURRENT_LIMIT = 4
 LLM_RUNTIME_UNAVAILABLE_SLEEP_SECONDS = 5.0
 LLM_IDLE_RECHECK_SECONDS = 5.0
+LLM_MIN_IDLE_SLEEP_SECONDS = 1.0
 # A subscription usage limit resets on a schedule. Requeue without spending a
 # retry and pause claiming for every slot before probing again.
 LLM_RATE_LIMITED_SLEEP_SECONDS = 600.0
@@ -456,7 +457,10 @@ async def run_llm_queue_worker(state: AppState) -> None:
             resume_at = max(next_call_at, runtime_backoff_until)
             await _sleep_with_wake(
                 state,
-                min(LLM_IDLE_RECHECK_SECONDS, max(1.0, resume_at - time.monotonic())),
+                min(
+                    LLM_IDLE_RECHECK_SECONDS,
+                    max(LLM_MIN_IDLE_SLEEP_SECONDS, resume_at - time.monotonic()),
+                ),
             )
         except asyncio.CancelledError:
             for task in active_tasks:

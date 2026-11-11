@@ -209,6 +209,8 @@ def test_reactivate_selected_channels_partial_success_single_toast(
         "fetch_channel_feed",
         fake_fetch_channel_feed,
     )
+    # 다건 probe 사이 실제 대기(최대 0.5s)를 줄인다. sleep 분기는 그대로 탄다.
+    monkeypatch.setattr(client.app.state.runtime.config, "rss_inter_channel_delay_seconds", 0.01)
 
     response = client.post(
         "/views/channels/reactivate-selected",
