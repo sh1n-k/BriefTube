@@ -580,6 +580,14 @@ async def _requeue_failed_jobs(
     safe_kind = _require_kind(kind)
     artifact_table = _ARTIFACT_TABLE_BY_KIND[safe_kind]
     video_filter = "AND video_jobs.video_id = ?" if video_id is not None else ""
+    # An article job without a transcript would only be settled again as
+    # transcript_missing, and it is not counted as LLM work, so it would sit queued.
+    # Those videos go through a manual article request (which collects the transcript).
+    input_condition = (
+        "AND EXISTS (SELECT 1 FROM transcripts t WHERE t.video_id = video_jobs.video_id)"
+        if safe_kind == JOB_KIND_ARTICLE
+        else ""
+    )
     params: tuple[str, ...] = (origin, safe_kind) + ((video_id,) if video_id is not None else ())
     cursor = await db.execute(
         f"""
@@ -592,6 +600,7 @@ async def _requeue_failed_jobs(
           AND NOT EXISTS (
               SELECT 1 FROM {artifact_table} x WHERE x.video_id = video_jobs.video_id
           )
+          {input_condition}
           {video_filter}
           {extra_condition}
         """,

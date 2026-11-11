@@ -797,3 +797,27 @@ def test_retry_article_for_video_marks_retry_wait_job_manual(client) -> None:
     assert job["origin"] == "manual"
     assert job["attempt_count"] == 0
     assert job["error_code"] is None
+
+
+def test_article_retry_skips_failed_jobs_without_transcript(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCretryorphan", "Retry Orphan Channel")
+        _seed_video_sync(conn, "vid-retry-orphan", "UCretryorphan", "2026-02-21T00:00:00+00:00")
+        seed_video_job_sync(
+            conn, "vid-retry-orphan", "article", status="failed", error_code="transcript_missing"
+        )
+        conn.commit()
+
+    async def _run() -> tuple[int, int, str]:
+        db = await open_database(db_path)
+        try:
+            bulk = await pipeline_repo.retry_failed_jobs(db, pipeline_repo.JOB_KIND_ARTICLE)
+            single = await pipeline_repo.retry_article_for_video(db, "vid-retry-orphan")
+            return bulk, single, await _status(db, "vid-retry-orphan")
+        finally:
+            await db.close()
+
+    bulk, single, status = asyncio.run(_run())
+    assert (bulk, single) == (0, 0)
+    assert status == "article_failed"
