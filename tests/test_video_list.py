@@ -903,3 +903,182 @@ def test_video_list_shows_article_title_and_lead_summary(client: TestClient) -> 
     assert html.count("data-video-article-summary") == 2
     assert html.count("Article for vid-a-000") >= 2
     assert "Lead paragraph" in html
+
+
+def _set_video_statuses(statuses: dict[str, str]) -> None:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        for video_id, pipeline_status in statuses.items():
+            conn.execute(
+                "UPDATE videos SET pipeline_status = ?, transcript_retry_count = 3, "
+                "transcript_last_error = 'boom' WHERE video_id = ?",
+                (pipeline_status, video_id),
+            )
+        conn.commit()
+
+
+def _video_transcript_state(video_id: str) -> tuple[str, int, str | None]:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        row = conn.execute(
+            "SELECT pipeline_status, transcript_retry_count, transcript_last_error "
+            "FROM videos WHERE video_id = ?",
+            (video_id,),
+        ).fetchone()
+    return str(row[0]), int(row[1]), row[2]
+
+
+def test_video_list_renders_transcript_retry_only_for_missing_transcript_rows(
+    client: TestClient,
+) -> None:
+    """자막 없음·자막 실패 행만 복사 칸에 재수집 버튼을 모바일·데스크톱 양쪽에 노출한다."""
+    _seed_channels_and_videos()
+    _set_video_statuses(
+        {
+            "vid-a-000": "no_subtitle",
+            "vid-a-001": "transcript_failed",
+            "vid-a-002": "transcript_done",
+            "vid-b-000": "no_subtitle",
+        }
+    )
+    _seed_video_outputs("vid-a-002", transcript=True, article=False)
+    # 자막이 저장된 no_subtitle 행은 복사 버튼이 우선한다.
+    _seed_video_outputs("vid-b-000", transcript=True, article=False)
+
+    response = client.get("/views/video-list", params={"limit": "20"}, headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+
+    for video_id in ("vid-a-000", "vid-a-001"):
+        assert html.count(f'hx-post="/views/videos/{video_id}/transcript-retry"') == 2
+    for video_id in ("vid-a-002", "vid-b-000", "vid-b-001"):
+        assert f'hx-post="/views/videos/{video_id}/transcript-retry"' not in html
+    assert html.count("data-video-list-transcript-retry") == 4
+    assert html.count('data-transcript-url="/api/videos/vid-b-000/transcript"') == 2
+    assert 'aria-label="자막 재수집"' in html or 'aria-label="Retry transcript"' in html
+
+
+def test_video_list_transcript_retry_requeues_and_rerenders_list(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _set_video_statuses({"vid-a-000": "no_subtitle", "vid-a-001": "transcript_failed"})
+
+    for video_id in ("vid-a-000", "vid-a-001"):
+        response = client.post(
+            f"/views/videos/{video_id}/transcript-retry",
+            data={"_page": "1", "_limit": "20", "_sort": "upload_time", "_order": "desc"},
+            headers=FRAGMENT_HEADERS,
+        )
+        assert response.status_code == 200
+        assert "data-video-list-cards" in response.text
+        assert f'hx-post="/views/videos/{video_id}/transcript-retry"' not in response.text
+        toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
+        assert toast["tone"] == "success"
+        assert _video_transcript_state(video_id) == ("transcript_pending", 0, None)
+
+
+def test_video_list_transcript_retry_skips_ineligible_status(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _set_video_statuses({"vid-a-000": "transcript_done"})
+
+    for video_id, expected_status in (
+        ("vid-a-000", "transcript_done"),
+        ("vid-a-001", "transcript_pending"),
+    ):
+        response = client.post(
+            f"/views/videos/{video_id}/transcript-retry",
+            data={"_page": "1", "_limit": "20"},
+            headers=FRAGMENT_HEADERS,
+        )
+        assert response.status_code == 200
+        toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
+        assert toast["tone"] == "info"
+        assert _video_transcript_state(video_id)[0] == expected_status
+
+    missing = client.post(
+        "/views/videos/vid-missing/transcript-retry",
+        data={"_page": "1"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert missing.status_code == 200
+    toast = json.loads(missing.headers["HX-Trigger"])["video-transcript-request-toast"]
+    assert toast["tone"] == "info"
+    assert "worker" not in toast["message"]
+
+
+def test_video_list_transcript_retry_reports_disabled_worker(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _set_video_statuses({"vid-a-000": "no_subtitle"})
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings(key, value) "
+            "VALUES ('worker_transcript_enabled', 'false')"
+        )
+        conn.commit()
+
+    response = client.post(
+        "/views/videos/vid-a-000/transcript-retry",
+        data={"_page": "1"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert response.status_code == 200
+    toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
+    assert toast["tone"] == "info"
+    assert "worker" in toast["message"]
+    assert _video_transcript_state("vid-a-000")[0] == "transcript_pending"
+
+
+def test_video_list_transcript_retry_preserves_filters(client: TestClient) -> None:
+    _seed_channels_and_videos()
+    _set_video_statuses({"vid-a-000": "no_subtitle", "vid-b-000": "no_subtitle"})
+
+    response = client.post(
+        "/views/videos/vid-a-000/transcript-retry",
+        data={"_page": "1", "_limit": "20", "_pipeline_status": "no_subtitle"},
+        headers=FRAGMENT_HEADERS,
+    )
+    assert response.status_code == 200
+    html = response.text
+    # 재대기열에 들어간 vid-a-000은 no_subtitle 필터에서 빠지고 vid-b-000만 남는다.
+    assert 'hx-post="/views/videos/vid-b-000/transcript-retry"' in html
+    assert "Video A-0" not in html
+
+
+def test_video_list_transcript_retry_skips_active_manual_jobs_and_stored_transcript(
+    client: TestClient,
+) -> None:
+    """수동 기사화·자막 job이 진행 중이거나 자막이 이미 저장된 영상은 재대기열에 넣지 않는다."""
+    _seed_channels_and_videos()
+    _set_video_statuses(
+        {
+            "vid-a-000": "no_subtitle",
+            "vid-a-001": "no_subtitle",
+            "vid-a-002": "transcript_failed",
+            "vid-b-000": "no_subtitle",
+        }
+    )
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        conn.execute(
+            "INSERT INTO manual_article_jobs(video_id, status) VALUES ('vid-a-000', 'pending')"
+        )
+        conn.execute(
+            "INSERT INTO manual_transcript_jobs(video_id, status) VALUES ('vid-a-001', 'running')"
+        )
+        conn.execute(
+            "INSERT INTO manual_article_jobs(video_id, status) VALUES ('vid-b-000', 'failed')"
+        )
+        conn.commit()
+    _seed_video_outputs("vid-a-002", transcript=True, article=False)
+
+    for video_id, expected_status in (
+        ("vid-a-000", "no_subtitle"),
+        ("vid-a-001", "no_subtitle"),
+        ("vid-a-002", "transcript_failed"),
+        ("vid-b-000", "transcript_pending"),
+    ):
+        response = client.post(
+            f"/views/videos/{video_id}/transcript-retry",
+            data={"_page": "1"},
+            headers=FRAGMENT_HEADERS,
+        )
+        assert response.status_code == 200
+        toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
+        assert toast["tone"] == ("success" if expected_status == "transcript_pending" else "info")
+        assert _video_transcript_state(video_id)[0] == expected_status

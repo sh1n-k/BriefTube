@@ -337,6 +337,15 @@ async def reset_transcript_for_retry(db: aiosqlite.Connection, video_id: str) ->
             transcript_last_error_at = NULL
         WHERE video_id = ?
           AND pipeline_status IN ('transcript_failed', 'no_subtitle')
+          AND NOT EXISTS (SELECT 1 FROM transcripts t WHERE t.video_id = videos.video_id)
+          AND NOT EXISTS (
+              SELECT 1 FROM manual_article_jobs maj
+              WHERE maj.video_id = videos.video_id AND maj.status IN ('pending', 'running')
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM manual_transcript_jobs mtj
+              WHERE mtj.video_id = videos.video_id AND mtj.status IN ('pending', 'running')
+          )
         """,
         (video_id,),
     )
