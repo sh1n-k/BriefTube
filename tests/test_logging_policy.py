@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-import time
 from pathlib import Path
+from types import SimpleNamespace
 
+from app import logging_setup
 from app.config import AppConfig, load_config
 from app.logging_setup import (
     ColorConsoleFormatter,
@@ -225,6 +226,8 @@ def test_color_console_formatter_colors_metadata_only() -> None:
 
 
 def test_noise_gate_filter_suppresses_repeated_logs_and_emits_summary(monkeypatch) -> None:
+    clock = [1000.0]
+    monkeypatch.setattr(logging_setup, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     gate = NoiseGateFilter(window_seconds=1, suppress_threshold=1)
     summary_calls: list[tuple[int, str, tuple, dict]] = []
 
@@ -265,7 +268,7 @@ def test_noise_gate_filter_suppresses_repeated_logs_and_emits_summary(monkeypatc
     assert gate.filter(record2) is False
     assert gate.filter(record3) is False
 
-    time.sleep(1.05)
+    clock[0] += 1.05
     record4 = logging.LogRecord(
         name="tests.noise",
         level=logging.WARNING,

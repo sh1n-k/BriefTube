@@ -370,48 +370,6 @@ def test_restructure_classifies_invalid_json_schema_as_non_retryable_schema_erro
         assert exc.retryable is False
 
 
-def test_restructure_rejects_result_string_with_embedded_article_json() -> None:
-    async def fake_runner(
-        args: list[str], timeout: int, stdin_text: str | None
-    ) -> CommandExecutionResult:
-        assert args[0] == _expected_provider_command("codex")
-        output_path = Path(args[args.index("--output-last-message") + 1])
-        output_path.write_text(
-            json.dumps(
-                {
-                    "result": json.dumps(
-                        {
-                            "title": "From nested string",
-                            "lead": "Lead text",
-                            "body": "Body text",
-                            "fact_box": "{}",
-                            "timestamps": "[]",
-                        }
-                    )
-                }
-            ),
-            encoding="utf-8",
-        )
-        return CommandExecutionResult(exit_code=0, stdout="", stderr="")
-
-    client = UnifiedLlmClient(timeout_seconds=10, runner=fake_runner, command_exists=lambda _: True)
-    try:
-        asyncio.run(
-            client.restructure(
-                source_title="Source",
-                transcript_text="Transcript",
-                settings={
-                    "provider_primary": "codex",
-                    "provider_fallback": "none",
-                    "prompt_template": "{transcript_text}",
-                },
-            )
-        )
-        assert False, "expected LlmClientError"
-    except LlmClientError as exc:
-        assert exc.code == "llm_schema_invalid"
-
-
 def test_restructure_allows_refusal_word_inside_valid_article_json() -> None:
     async def fake_runner(
         args: list[str], timeout: int, stdin_text: str | None

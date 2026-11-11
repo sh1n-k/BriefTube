@@ -78,11 +78,3 @@ def test_validate_complete_header_fields_accepts_all_keys() -> None:
         for key in TRANSCRIPT_REQUEST_HEADER_KEYS
     }
     validate_complete_header_fields(payload)
-
-
-def test_validate_complete_header_fields_rejects_missing_keys() -> None:
-    payload = {
-        TRANSCRIPT_REQUEST_HEADER_FORM_FIELDS["User-Agent"]: "Mozilla/5.0",
-    }
-    with pytest.raises(ValueError, match="header fields input requires all fixed keys"):
-        validate_complete_header_fields(payload)

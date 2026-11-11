@@ -31,43 +31,6 @@ class _FakeNotifier:
         return {"ok": True}
 
 
-def _build_state(notifier: _FakeNotifier, db, sleep_recorder: list[float]) -> SimpleNamespace:
-    queue: asyncio.Queue = asyncio.Queue()
-    return SimpleNamespace(
-        telegram_notifier=notifier,
-        notification_queue=queue,
-        db=db,
-    )
-
-
-async def _drive_worker_once(state, monkeypatch) -> None:
-    """Run worker until first send result is observed, then cancel."""
-    task = asyncio.create_task(notifier_worker.run_telegram_notifier(state))
-    try:
-        # 워커가 큐를 비울 때까지 대기
-        for _ in range(200):
-            await asyncio.sleep(0.05)
-            if state.telegram_notifier.calls and state.notification_queue.empty():
-                # 한 호출 후에도 worker 가 alert/log 작성하도록 약간 더 대기
-                await asyncio.sleep(0.2)
-                break
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-
-def _enqueue_sample(state, count: int = 1) -> None:
-    for idx in range(count):
-        state.notification_queue.put_nowait(
-            {
-                "video_id": f"vid-test-{idx:03d}",
-                "title": f"Title {idx}",
-                "lead": f"Lead {idx}",
-            }
-        )
-
-
 async def _noop_sleep(seconds: float) -> None:
     return None
 

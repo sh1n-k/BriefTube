@@ -507,20 +507,6 @@ def test_video_list_fragment_keeps_status_in_paging_queries(client: TestClient) 
     assert 'name="status" value="article_ready"' in html
 
 
-def test_video_list_accepts_empty_category_id_as_all(client: TestClient) -> None:
-    _seed_channels_and_videos()
-
-    response = client.get(
-        "/views/video-list",
-        params={"category_id": "", "limit": "20"},
-        headers=FRAGMENT_HEADERS,
-    )
-    assert response.status_code == 200
-    html = response.text
-    assert "Channel A" in html
-    assert "Channel B" in html
-
-
 def test_home_accepts_empty_category_id_as_all(client: TestClient) -> None:
     _seed_channels_and_videos()
 

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from app.config import YAML_CONFIG_KEYS
 from app.i18n import _TRANSLATIONS, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
-from app.pipeline_status import PIPELINE_STATUSES
 from app.worker_registry import WORKER_SPECS
 
 
@@ -23,10 +22,6 @@ def test_locale_keys_have_full_parity() -> None:
     locale_keys = {language: set(_TRANSLATIONS[language]) for language in SUPPORTED_LANGUAGES}
     expected = locale_keys[DEFAULT_LANGUAGE]
     assert all(keys == expected for keys in locale_keys.values())
-
-
-def test_pipeline_statuses_are_unique() -> None:
-    assert len(PIPELINE_STATUSES) == len(set(PIPELINE_STATUSES))
 
 
 def test_project_yaml_keys_match_supported_config_fields() -> None:

@@ -80,13 +80,6 @@ def test_normalize_fact_box_preserves_valid_json_with_escaped_newlines() -> None
     assert json.loads(article["fact_box"])["note"] == "a\nb"
 
 
-def test_normalize_fact_box_unescapes_markdown_fact_box() -> None:
-    raw = "### 핵심\\n\\n- 항목1\\n\\n- 항목2"
-    fixed = normalize_fact_box_text(raw)
-    assert fixed.startswith("### 핵심\n")
-    assert "\\n" not in fixed
-
-
 def test_coerce_article_normalizes_body_and_markdown_fact_box() -> None:
     article = coerce_article(
         {

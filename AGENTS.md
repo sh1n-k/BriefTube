@@ -89,6 +89,7 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 ## 검증 주의
 
 - 명령과 변경 범위별 기준은 `CONTRIBUTING.md`만 따른다.
+- 전체 unit/E2E는 `CONTRIBUTING.md`의 `-n auto` 명령을 쓰고, 범위별 실행은 `-n` 없이 직렬로 한다.
 - `ruff` 개별 대상에는 Python 파일만 전달한다. HTML/Jinja/JS는 관련 E2E나 브라우저로 검증한다.
 - E2E는 반드시 `-m e2e`로 실행하며 `deselected`를 통과로 보지 않는다.
 - 포맷 실패 시 본인이 수정한 파일만 포맷한다.
