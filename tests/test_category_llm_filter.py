@@ -166,5 +166,21 @@ def test_count_llm_pending_counts_only_full_stage(db) -> None:
     _insert_video(db, video_id="vid_cnt_tx", channel_id="UC_cnt_tx")
     _save_transcript(db, video_id="vid_cnt_tx")
 
+    # A legacy article job without a transcript is settled at claim time and must not
+    # count as waiting work (it would raise the LLM-blocked alert/toast for nothing).
+    _insert_video(db, video_id="vid_cnt_orphan", channel_id="UC_cnt_full")
+    db.run(
+        db.conn.execute(
+            "UPDATE video_jobs SET status = 'cancelled' WHERE video_id = 'vid_cnt_orphan'"
+        )
+    )
+    db.run(
+        db.conn.execute(
+            "INSERT INTO video_jobs(video_id, kind, origin, status) "
+            "VALUES ('vid_cnt_orphan', 'article', 'auto', 'queued')"
+        )
+    )
+    db.run(db.conn.commit())
+
     count = db.run(repository.count_queued_article_jobs(db.conn))
     assert count == 1

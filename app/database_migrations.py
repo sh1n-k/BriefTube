@@ -933,6 +933,7 @@ async def _v4_backfill_jobs(
             FROM manual_article_jobs m
             JOIN videos v ON v.video_id = m.video_id
             WHERE m.status IN ('pending', 'running')
+              AND NOT {_V4_HAS_ARTICLE}
             ORDER BY m.id
             """
         )

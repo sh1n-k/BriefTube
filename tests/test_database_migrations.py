@@ -380,6 +380,7 @@ _V3_ROWS = (
     ("v-paused-article", "auto_paused", "off", True, True),
     ("v-manual-tx", "auto_paused", "off", False, False),
     ("v-manual-article", "no_subtitle", "transcript_only", False, False),
+    ("v-manual-article-done", "done", "full", True, True),
 )
 
 
@@ -436,6 +437,11 @@ def test_v4_migration_splits_pipeline_status_into_target_stage_and_jobs(tmp_path
         )
         conn.execute(
             "INSERT INTO manual_article_jobs(video_id, status) VALUES ('v-manual-article', 'running')"
+        )
+        # A stale request for a video whose article already exists must not regenerate it.
+        conn.execute(
+            "INSERT INTO manual_article_jobs(video_id, status) "
+            "VALUES ('v-manual-article-done', 'pending')"
         )
         conn.execute("PRAGMA user_version = 3")
         conn.commit()
@@ -510,5 +516,7 @@ def test_v4_migration_splits_pipeline_status_into_target_stage_and_jobs(tmp_path
     assert status("v-manual-tx") == "transcript_pending"
     assert rows["v-manual-tx"]["transcript_job_origin"] == "manual"
     assert status("v-manual-article") == "transcript_pending"
+    assert status("v-manual-article-done") == "article_ready"
+    assert rows["v-manual-article-done"]["article_job_id"] is None
     assert rows["v-manual-article"]["transcript_job_origin"] == "manual"
     assert rows["v-manual-article"]["target_stage"] == "article"

@@ -185,6 +185,10 @@ def _set_llm_auth_issue(db_path: str, *, pending: bool) -> None:
                 """,
                 ("vid-llm-block-01", "UCllmblock01", "blocked", "2026-10-25T00:00:00+00:00"),
             )
+            conn.execute(
+                "INSERT INTO transcripts(video_id, raw_text, language, source_type) "
+                "VALUES ('vid-llm-block-01', 'hello', 'ko', 'manual')"
+            )
             seed_video_job_sync(conn, "vid-llm-block-01", "article")
         conn.executemany(
             "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?, ?)",

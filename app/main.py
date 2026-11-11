@@ -163,7 +163,7 @@ async def lifespan(app: FastAPI):
         recovered_metadata_running = await channels_repo.recover_stuck_channel_metadata_running(db)
         scheduled_metadata_targets = await channels_repo.schedule_channel_metadata_backfill(db)
     logger.info(
-        "event=app.recovered_stuck_jobs recovered_article_jobs=%s recovered_download_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
+        "event=app.recovered_stuck_jobs recovered_pipeline_jobs=%s recovered_download_jobs=%s recovered_metadata_running=%s scheduled_metadata_targets=%s metadata_worker_enabled=%s",
         recovered,
         recovered_download_jobs,
         recovered_metadata_running,

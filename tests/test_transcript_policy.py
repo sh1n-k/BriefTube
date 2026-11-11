@@ -168,7 +168,7 @@ def test_schedule_transcript_job_retry_updates_attempt_and_next_attempt(client) 
     assert status == "transcript_pending"
 
 
-def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> None:
+def test_recover_stuck_jobs_requeues_running_jobs_of_both_kinds(tmp_path) -> None:
     db_path = tmp_path / "recover-stuck-jobs.db"
 
     async def _run() -> tuple[int, str, str, str, str]:
@@ -194,9 +194,9 @@ def test_recover_stuck_jobs_leaves_transcript_processing_untouched(tmp_path) -> 
     recovered, llm_status, transcript_status, llm_activity, transcript_activity = asyncio.run(
         _run()
     )
-    assert recovered == 1
+    assert recovered == 2
     assert (llm_status, llm_activity) == ("article_pending", "queued")
-    assert (transcript_status, transcript_activity) == ("transcript_pending", "running")
+    assert (transcript_status, transcript_activity) == ("transcript_pending", "queued")
 
 
 def test_recover_running_transcript_jobs_requeues_processing_rows(tmp_path) -> None:
@@ -737,3 +737,63 @@ def test_transcript_worker_skips_when_lock_already_held(tmp_path) -> None:
             lock.release()
 
     asyncio.run(_run())
+
+
+def test_queue_badge_counts_transcript_retry_wait_but_not_article_retry_wait(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCbadge001", "Badge Channel")
+        _seed_video_sync(conn, "vid-badge-tx", "UCbadge001", "2026-02-21T00:00:00+00:00")
+        _seed_video_sync(conn, "vid-badge-llm", "UCbadge001", "2026-02-21T00:00:01+00:00")
+        conn.execute(
+            "INSERT INTO transcripts(video_id, raw_text, language, source_type) "
+            "VALUES ('vid-badge-llm', 'hello', 'ko', 'manual')"
+        )
+        seed_video_job_sync(
+            conn, "vid-badge-tx", "transcript", attempt_count=1, error_code="retryable_transient"
+        )
+        seed_video_job_sync(
+            conn, "vid-badge-llm", "article", attempt_count=1, error_code="llm_provider_timeout"
+        )
+        conn.commit()
+
+    async def _run() -> dict:
+        db = await open_database(db_path)
+        try:
+            return await pipeline_repo.queue_status(db)
+        finally:
+            await db.close()
+
+    counts = asyncio.run(_run())
+    assert counts["transcript_retry_wait"] == 1
+    assert counts["article_retry_wait"] == 1
+    assert counts["badge_count"] == 1
+
+
+def test_retry_article_for_video_marks_retry_wait_job_manual(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCretryorigin", "Retry Origin Channel")
+        _seed_video_sync(conn, "vid-retry-origin", "UCretryorigin", "2026-02-21T00:00:00+00:00")
+        job_id = seed_video_job_sync(
+            conn,
+            "vid-retry-origin",
+            "article",
+            attempt_count=2,
+            error_code="llm_provider_timeout",
+        )
+        conn.commit()
+
+    async def _run() -> tuple[int, dict]:
+        db = await open_database(db_path)
+        try:
+            retried = await pipeline_repo.retry_article_for_video(db, "vid-retry-origin")
+            return retried, await _job(db, job_id)
+        finally:
+            await db.close()
+
+    retried, job = asyncio.run(_run())
+    assert retried == 1
+    assert job["origin"] == "manual"
+    assert job["attempt_count"] == 0
+    assert job["error_code"] is None

@@ -513,7 +513,13 @@ async def requeue_article_job(db: aiosqlite.Connection, job_id: int) -> int:
 
 async def count_queued_article_jobs(db: aiosqlite.Connection) -> int:
     cursor = await db.execute(
-        "SELECT COUNT(1) AS cnt FROM video_jobs WHERE kind = 'article' AND status = 'queued'"
+        """
+        SELECT COUNT(1) AS cnt
+        FROM video_jobs j
+        WHERE j.kind = 'article'
+          AND j.status = 'queued'
+          AND EXISTS (SELECT 1 FROM transcripts t WHERE t.video_id = j.video_id)
+        """
     )
     row = await cursor.fetchone()
     return int((row["cnt"] if row is not None else 0) or 0)
@@ -598,13 +604,21 @@ async def _reset_retrying_article_jobs(
     db: aiosqlite.Connection,
     *,
     video_id: str | None = None,
+    origin: str | None = None,
 ) -> int:
-    """Give queued article jobs waiting on a retry a full attempt budget. Caller commits."""
+    """Give queued article jobs waiting on a retry a full attempt budget. Caller commits.
+
+    ``origin`` re-labels the job (a per-video retry is a manual request and is claimed first).
+    """
     video_filter = "AND video_id = ?" if video_id is not None else ""
+    params: list[str] = [] if origin is None else [origin]
+    if video_id is not None:
+        params.append(video_id)
     cursor = await db.execute(
         f"""
         UPDATE video_jobs
         SET attempt_count = 0,
+            origin = {"?" if origin is not None else "origin"},
             next_attempt_at = NULL,
             error_code = NULL,
             error_message = NULL,
@@ -615,7 +629,7 @@ async def _reset_retrying_article_jobs(
           AND error_code IS NOT NULL
           {video_filter}
         """,
-        (video_id,) if video_id is not None else (),
+        params,
     )
     return int(cursor.rowcount or 0)
 
@@ -634,7 +648,9 @@ async def retry_article_for_video(db: aiosqlite.Connection, video_id: str) -> in
     retried = await _requeue_failed_jobs(
         db, JOB_KIND_ARTICLE, origin=JOB_ORIGIN_MANUAL, video_id=safe_video_id
     )
-    retried += await _reset_retrying_article_jobs(db, video_id=safe_video_id)
+    retried += await _reset_retrying_article_jobs(
+        db, video_id=safe_video_id, origin=JOB_ORIGIN_MANUAL
+    )
     await db.commit()
     return retried
 
@@ -840,7 +856,9 @@ async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
         activity_key = f"{row['activity_kind']}_{row['pipeline_activity']}"
         if row["activity_kind"] and activity_key in payload:
             payload[activity_key] += count
-    payload["badge_count"] = sum(
+    # Transcript retry waits are still pending work (as before); article retry waits were
+    # the separate llm_failed state and stay out of the badge.
+    payload["badge_count"] = payload["transcript_retry_wait"] + sum(
         payload[f"{kind}_{activity}"] for kind in JOB_KINDS for activity in ("queued", "running")
     )
     return payload

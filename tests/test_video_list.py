@@ -554,8 +554,19 @@ def test_legacy_pipeline_status_query_maps_to_status_filter(client: TestClient) 
         _set_status(conn, "vid-b-000", "article_ready")
         conn.commit()
 
+    redirect = client.get(
+        "/",
+        params={"pipeline_status": "manual_review", "limit": "20"},
+        follow_redirects=False,
+    )
+    assert redirect.status_code == 307
+    assert redirect.headers["location"] == "/?limit=20&status=article_failed"
+    unknown_redirect = client.get("/", params={"pipeline_status": "bogus"}, follow_redirects=False)
+    assert unknown_redirect.headers["location"] == "/"
+
     home = client.get("/", params={"pipeline_status": "manual_review", "limit": "20"})
     assert home.status_code == 200
+    assert str(home.url).endswith("/?limit=20&status=article_failed")
     assert "vid-a-000" in home.text
     assert "vid-a-001" not in home.text
     assert "vid-b-000" not in home.text

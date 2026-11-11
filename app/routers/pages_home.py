@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
 from app.repositories import pipeline as pipeline_repo
+from app.repositories import videos as videos_repo
 from app.routers.template_context import build_llm_runtime_context
 from app.routers.video_detail_context import build_video_detail_context
 from app.routers.video_list_context import build_video_list_context
@@ -25,13 +26,20 @@ async def home(
     page: int = Query(default=1, ge=1),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
+    if status is None and pipeline_status is not None:
+        # Rewrite bookmarked ?pipeline_status= URLs so the address bar and links use ?status=.
+        url = request.url.remove_query_params("pipeline_status")
+        legacy_status = videos_repo.normalize_legacy_status_filter(pipeline_status)
+        if legacy_status is not None:
+            url = url.include_query_params(status=legacy_status)
+        target = f"{url.path}?{url.query}" if url.query else url.path
+        return RedirectResponse(url=target, status_code=307)
     result = await build_video_list_context(
         request,
         q=q,
         channel_id=channel_id,
         category_id=category_id,
         status=status,
-        legacy_pipeline_status=pipeline_status,
         viewed=viewed,
         sort=sort,
         order=order,

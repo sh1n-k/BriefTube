@@ -48,17 +48,17 @@ async def init_database(db: aiosqlite.Connection) -> None:
 
 
 async def recover_stuck_jobs(db: aiosqlite.Connection) -> int:
-    """Requeue article jobs left running by a previous process.
+    """Requeue transcript/article jobs left running by a previous process.
 
-    Running transcript jobs are requeued by the transcript worker when it starts.
+    Runs at startup before any worker, so a disabled worker cannot leave a job
+    stuck in ``running`` (which would also block new manual requests).
     """
     cursor = await db.execute(
         """
         UPDATE video_jobs
         SET status = 'queued',
             updated_at = datetime('now')
-        WHERE kind = 'article'
-          AND status = 'running'
+        WHERE status = 'running'
         """
     )
     await db.commit()
