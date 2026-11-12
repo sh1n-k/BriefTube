@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -83,6 +84,36 @@ def test_delete_selected_channels_removes_multiple(client: TestClient) -> None:
         ).fetchone()[0]
     assert channel_count == 0
     assert video_count == 0
+
+
+def test_delete_selected_channels_logs_names_and_counts(client: TestClient, caplog) -> None:
+    db_path = os.environ["DB_PATH"]
+    _seed_channel_with_video(db_path, "UCdellog01", "vid-del-log-01")
+    _seed_channel_with_video(db_path, "UCdellog02", "vid-del-log-02")
+
+    with caplog.at_level(logging.INFO, logger="app.domains.channels.service"):
+        response = client.post(
+            "/views/channels/delete-selected",
+            data={"channel_id": ["UCdellog01", "UCdellog02", "UCdellog-missing"]},
+        )
+
+    assert response.status_code == 200
+    records = [r for r in caplog.records if "event=channels.deleted" in r.getMessage()]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "count=2" in message
+    assert "UCdellog01(Name-UCdellog01)" in message
+    assert "UCdellog02(Name-UCdellog02)" in message
+    assert "UCdellog-missing" not in message
+    assert "videos=2 transcripts=2 articles=2" in message
+
+
+def test_delete_missing_channel_does_not_log_deletion(client: TestClient, caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="app.domains.channels.service"):
+        response = client.post("/views/channels/UCdel-none/delete")
+
+    assert response.status_code == 200
+    assert "event=channels.deleted" not in caplog.text
 
 
 def test_delete_single_channel_cleans_thumbnail_and_runtime_cache(client: TestClient) -> None:

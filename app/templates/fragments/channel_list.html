@@ -87,6 +87,12 @@
       data-reactivate-delay-seconds="{{ probe_delay_seconds }}"
       {% endif %}
       {% if current_status == 'active' %}data-save-toast="{{ txt.channel_delete_success }}"{% endif %}
+      data-channel-delete-confirm-bulk="{{ txt.channel_delete_confirm_bulk }}"
+      data-channel-delete-confirm-more="{{ txt.channel_delete_confirm_more }}"
+      hx-disabled-elt="[data-channel-manage-form] [data-channel-bulk-submit]"
+      hx-sync="#channel-list-wrap:drop"
+      {% if current_status == 'active' %}hx-confirm="{{ txt.channel_delete_confirm_bulk_fallback }}"{% endif %}
+      hx-disinherit="hx-disabled-elt hx-sync hx-confirm"
     >
       <input type="hidden" name="status" value="{{ current_status }}" />
       {% if selected_cat_id is not none %}
@@ -184,6 +190,7 @@
                     name="channel_id"
                     value="{{ channel.channel_id }}"
                     data-channel-select-item
+                    data-channel-name="{{ channel.channel_name or channel.channel_id }}"
                     class="mt-1 h-4 w-4 shrink-0"
                   />
                   <div class="relative mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
@@ -309,10 +316,14 @@
                     title="{{ txt.channel_delete_one }}"
                     aria-label="{{ txt.channel_delete_one }}"
                     hx-post="/views/channels/{{ channel.channel_id }}/delete?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
+                    hx-confirm="{{ txt.channel_delete_confirm_one|replace('{channel}', channel.channel_name or channel.channel_id) }}"
+                    hx-disabled-elt="this"
+                    hx-sync="#channel-list-wrap:drop"
+                    data-channel-delete-button
                     data-save-toast="{{ txt.channel_delete_success }}"
                     hx-target="#channel-list-wrap"
                     hx-swap="innerHTML"
-                    class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-300 bg-white text-rose-600 hover:bg-rose-50"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-300 bg-white text-rose-600 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-50"
                   >
                     <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                       <path fill-rule="evenodd" d="M8.5 2.5A1.5 1.5 0 0 0 7 4v.5H4.5a.75.75 0 0 0 0 1.5h.638l.605 9.07A2.25 2.25 0 0 0 7.988 17h4.024a2.25 2.25 0 0 0 2.245-1.93L14.862 6H15.5a.75.75 0 0 0 0-1.5H13V4a1.5 1.5 0 0 0-1.5-1.5h-3Zm3 .75h-3A.75.75 0 0 0 7.75 4v.5h4.5V4a.75.75 0 0 0-.75-.75ZM8.5 8a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 8.5 8Zm3 .75a.75.75 0 0 0-1.5 0v4.5a.75.75 0 0 0 1.5 0v-4.5Z" clip-rule="evenodd" />

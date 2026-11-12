@@ -279,6 +279,7 @@
     navTransitionController?.bindNavTransitions?.(document);
     categoryControls?.bindCategoryRename?.();
     channelActions?.initChannelImportForm?.();
+    channelListControls?.bindChannelDeleteConfirm?.();
     revealPageShell();
     showLlmRuntimeBlockedToast();
   }
@@ -303,7 +304,19 @@
     const payload = parseJsonSafe(event.detail?.xhr?.responseText || "");
     showUiToast(buildSaveToastMessage(baseMessage, payload));
   });
+  let channelListScrollSnapshot = null;
+  document.addEventListener("htmx:beforeSwap", (event) => {
+    const target = event.detail?.target;
+    channelListScrollSnapshot = target instanceof Element && target.id === "channel-list-wrap"
+      ? channelListControls?.captureChannelListScroll?.(target) || null
+      : null;
+  });
   document.addEventListener("htmx:afterSwap", (event) => {
+    const swapTarget = event.detail?.target;
+    if (channelListScrollSnapshot && swapTarget instanceof Element && swapTarget.id === "channel-list-wrap") {
+      channelListControls?.restoreChannelListScroll?.(swapTarget, channelListScrollSnapshot);
+    }
+    channelListScrollSnapshot = null;
     hydrateUiScope(event.target);
     videoControls?.bindRetentionNotices?.(document);
     categoryControls?.bindCategoryRename?.();

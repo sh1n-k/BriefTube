@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 class ChannelDeletionResult(TypedDict):
     deleted_channels: int
     deleted_videos: int
+    deleted_transcripts: int
+    deleted_articles: int
+    deleted_channel_names: dict[str, str]
     thumbnail_paths: list[str]
 
 
@@ -530,9 +533,29 @@ async def delete_channels_with_related_data(
 ) -> ChannelDeletionResult:
     normalized = [channel_id for channel_id in dict.fromkeys(channel_ids) if channel_id]
     if not normalized:
-        return {"deleted_channels": 0, "deleted_videos": 0, "thumbnail_paths": []}
+        return {
+            "deleted_channels": 0,
+            "deleted_videos": 0,
+            "deleted_transcripts": 0,
+            "deleted_articles": 0,
+            "deleted_channel_names": {},
+            "thumbnail_paths": [],
+        }
 
     placeholders = ",".join(["?"] * len(normalized))
+
+    cursor = await db.execute(
+        f"""
+        SELECT channel_id, channel_name
+        FROM channels
+        WHERE channel_id IN ({placeholders})
+        """,
+        tuple(normalized),
+    )
+    channel_rows = await cursor.fetchall()
+    deleted_channel_names = {
+        str(row["channel_id"]): str(row["channel_name"] or "") for row in channel_rows
+    }
 
     cursor = await db.execute(
         f"""
@@ -545,7 +568,7 @@ async def delete_channels_with_related_data(
     rows = await cursor.fetchall()
     thumbnail_paths = [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
 
-    await db.execute(
+    articles_cursor = await db.execute(
         f"""
         DELETE FROM articles
         WHERE video_id IN (
@@ -554,7 +577,7 @@ async def delete_channels_with_related_data(
         """,
         tuple(normalized),
     )
-    await db.execute(
+    transcripts_cursor = await db.execute(
         f"""
         DELETE FROM transcripts
         WHERE video_id IN (
@@ -577,5 +600,8 @@ async def delete_channels_with_related_data(
     return {
         "deleted_channels": int(channels_cursor.rowcount or 0),
         "deleted_videos": int(videos_cursor.rowcount or 0),
+        "deleted_transcripts": int(transcripts_cursor.rowcount or 0),
+        "deleted_articles": int(articles_cursor.rowcount or 0),
+        "deleted_channel_names": deleted_channel_names,
         "thumbnail_paths": thumbnail_paths,
     }

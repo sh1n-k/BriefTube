@@ -31,7 +31,13 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 - 수동 재활성화는 RSS probe 성공 시에만 적용한다. 다건 요청은 순차 처리하며 부분 성공을 허용한다.
 - 재활성화 toast는 `HX-Trigger`의 `channel-reactivate-toast`로 전달하고
   `json.dumps(..., ensure_ascii=True)`를 유지한다. 버튼에 `data-save-toast`를 추가하지 않는다.
-- 채널 목록 갱신은 `#channel-list-wrap` fragment 교체 계약을 유지한다.
+- 채널 목록 갱신은 `#channel-list-wrap` fragment 교체 계약을 유지한다. 교체 후 같은 목록
+  (`data-channel-list-refresh-url`)이면 `[data-channel-scroll]` scrollTop을 복원한다
+  (`captureChannelListScroll`/`restoreChannelListScroll`, htmx 교체와 자동 새로고침 공통).
+- 채널 삭제는 영상·자막·기사까지 하드삭제한다. 개별 버튼은 채널명 `hx-confirm`, 일괄 삭제는
+  `htmx:confirm` 리스너의 이름 목록 확인(활성 탭 폼은 정적 `hx-confirm` fallback)을 거치고,
+  `hx-sync="#channel-list-wrap:drop"`·`hx-disabled-elt`로 요청 중 클릭을 버린다. 폼의 이 속성들은
+  `hx-disinherit`로 내부 htmx 요소에 상속하지 않는다. 삭제는 `event=channels.deleted`로 기록한다.
 - 영상 상태는 저장하지 않고 `video_pipeline_v`가 사실(`transcripts`/`articles`), `videos.target_stage`,
   (video, kind)별 최신 `video_jobs` 행으로 계산한다. 상태 8개와 activity 정의는 `app/pipeline_status.py`.
   `video_jobs`와 `target_stage` 쓰기는 `app/repositories/_pipeline.py`만 한다(migration·시작 복구 제외,
