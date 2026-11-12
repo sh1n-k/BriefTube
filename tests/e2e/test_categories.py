@@ -6,6 +6,11 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
+from tests.e2e.dialog_helpers import (
+    cancel_app_dialog,
+    confirm_app_dialog,
+    expect_app_dialog_open,
+)
 from tests.e2e.seed_helpers import (
     get_db_connection,
     seed_categories,
@@ -82,9 +87,21 @@ def test_category_crud(seeded_page: Page):
     custom_list = new_sidebar.locator("[data-category-list]")
     invest_item = custom_list.locator("li", has_text="투자")
 
-    seeded_page.once("dialog", lambda dialog: dialog.accept("주식"))
     invest_item.hover()
     invest_item.locator("[data-category-rename-trigger]").click()
+    rename_dialog = expect_app_dialog_open(seeded_page, text="카테고리 이름 변경")
+    rename_input = rename_dialog.locator("[data-app-dialog-input]")
+    expect(rename_input).to_be_focused()
+    expect(rename_input).to_have_value("투자")
+    # Esc cancels without a request; Enter in the input submits.
+    seeded_page.keyboard.press("Escape")
+    expect(rename_dialog).to_be_hidden()
+    invest_item.hover()
+    invest_item.locator("[data-category-rename-trigger]").click()
+    expect_app_dialog_open(seeded_page)
+    rename_input.fill("주식")
+    rename_input.press("Enter")
+    expect(rename_dialog).to_be_hidden()
 
     seeded_page.wait_for_function(
         "() => document.querySelector('#category-sidebar [data-category-list]')?.textContent?.includes('주식')",
@@ -99,8 +116,16 @@ def test_category_crud(seeded_page: Page):
     expect(new_sidebar.locator("[data-category-list] li", has_text="투자")).to_have_count(0)
 
     renamed_item.hover()
-    seeded_page.once("dialog", lambda dialog: dialog.accept())
     renamed_item.locator("button[hx-delete]").click()
+    delete_dialog = expect_app_dialog_open(seeded_page, text="카테고리 삭제")
+    # Destructive confirms focus the cancel button first.
+    expect(delete_dialog.locator("[data-app-dialog-cancel]")).to_be_focused()
+    cancel_app_dialog(seeded_page)
+    expect(new_sidebar.locator("[data-category-list] li", has_text="주식")).to_have_count(1)
+    renamed_item.hover()
+    renamed_item.locator("button[hx-delete]").click()
+    expect_app_dialog_open(seeded_page, text="카테고리 삭제")
+    confirm_app_dialog(seeded_page)
 
     expect(new_sidebar.locator("[data-category-list] li", has_text="주식")).to_have_count(0)
     expect(new_sidebar.locator("[data-category-list] li[data-category-id]")).to_have_count(2)

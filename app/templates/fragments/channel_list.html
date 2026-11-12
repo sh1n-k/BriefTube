@@ -92,6 +92,9 @@
       hx-disabled-elt="[data-channel-manage-form] [data-channel-bulk-submit]"
       hx-sync="#channel-list-wrap:drop"
       {% if current_status == 'active' %}hx-confirm="{{ txt.channel_delete_confirm_bulk_fallback }}"{% endif %}
+      data-confirm-title="{{ txt.channel_delete_selected }}"
+      data-confirm-label="{{ txt.channel_delete_confirm_submit }}"
+      data-confirm-tone="danger"
       hx-disinherit="hx-disabled-elt hx-sync hx-confirm"
     >
       <input type="hidden" name="status" value="{{ current_status }}" />
@@ -317,6 +320,9 @@
                     aria-label="{{ txt.channel_delete_one }}"
                     hx-post="/views/channels/{{ channel.channel_id }}/delete?status={{ current_status }}{% if selected_cat_id is not none %}&category_id={{ selected_cat_id }}{% endif %}"
                     hx-confirm="{{ txt.channel_delete_confirm_one|replace('{channel}', channel.channel_name or channel.channel_id) }}"
+                    data-confirm-title="{{ txt.channel_delete_confirm_title }}"
+                    data-confirm-label="{{ txt.channel_delete_confirm_submit }}"
+                    data-confirm-tone="danger"
                     hx-disabled-elt="this"
                     hx-sync="#channel-list-wrap:drop"
                     data-channel-delete-button

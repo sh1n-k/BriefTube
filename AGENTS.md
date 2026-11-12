@@ -38,6 +38,11 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `htmx:confirm` 리스너의 이름 목록 확인(활성 탭 폼은 정적 `hx-confirm` fallback)을 거치고,
   `hx-sync="#channel-list-wrap:drop"`·`hx-disabled-elt`로 요청 중 클릭을 버린다. 폼의 이 속성들은
   `hx-disinherit`로 내부 htmx 요소에 상속하지 않는다. 삭제는 `event=channels.deleted`로 기록한다.
+- 확인·입력 대화상자는 브라우저 기본 `alert`/`confirm`/`prompt`를 쓰지 않고 `app/static/js/ui/app-dialog.js`의
+  `window.BrieftubeDialog.confirm/prompt` 모달을 쓴다(`tests/test_ui_dialog_contract.py`, E2E 전역
+  fixture가 강제). `hx-confirm` 문구는 그대로 두고 `data-confirm-title/label/tone`으로 모달을 꾸민다.
+  목록 전용 확인(일괄 삭제, 재활성화)은 폼 단위 `htmx:confirm` 리스너가 먼저 처리한다. 요청 전 확인은
+  submit이 아니라 `htmx:confirm`에서 한다(htmx submit 리스너가 먼저 등록돼 submit 단계 모달은 POST를 못 막음).
 - 영상 상태는 저장하지 않고 `video_pipeline_v`가 사실(`transcripts`/`articles`), `videos.target_stage`,
   (video, kind)별 최신 `video_jobs` 행으로 계산한다. 상태 8개와 activity 정의는 `app/pipeline_status.py`.
   `video_jobs`와 `target_stage` 쓰기는 `app/repositories/_pipeline.py`만 한다(migration·시작 복구 제외,

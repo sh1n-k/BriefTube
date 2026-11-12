@@ -5,6 +5,11 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Page, expect
 
+from tests.e2e.dialog_helpers import (
+    cancel_app_dialog,
+    confirm_app_dialog,
+    expect_app_dialog_open,
+)
 from tests.e2e.seed_helpers import (
     get_db_connection,
     seed_channel,
@@ -233,3 +238,37 @@ def test_download_from_video_detail(e2e_page: Page, downloads_seeded: dict) -> N
 
     # The modal should close after submission
     expect(modal).to_be_hidden(timeout=5_000)
+
+
+def test_download_history_clear_asks_in_app_modal(e2e_page: Page, downloads_seeded: dict) -> None:
+    """Clearing history asks in the app modal; Tab stays inside; cancel sends nothing."""
+    clear_posts: list[str] = []
+    e2e_page.on(
+        "request",
+        lambda r: (
+            clear_posts.append(r.url)
+            if r.method == "POST" and "/views/downloads/clear" in r.url
+            else None
+        ),
+    )
+    _goto_downloads(e2e_page)
+    clear_form = e2e_page.locator("form[hx-post='/views/downloads/clear']")
+    clear_form.locator("button[type='submit']").click()
+
+    dialog = expect_app_dialog_open(e2e_page, text="다운로드 기록 정리")
+    cancel_button = dialog.locator("[data-app-dialog-cancel]")
+    confirm_button = dialog.locator("[data-app-dialog-confirm]")
+    expect(cancel_button).to_be_focused()
+    e2e_page.keyboard.press("Tab")
+    expect(confirm_button).to_be_focused()
+    e2e_page.keyboard.press("Tab")
+    expect(cancel_button).to_be_focused()
+    cancel_app_dialog(e2e_page)
+    assert clear_posts == []
+
+    clear_form.locator("button[type='submit']").click()
+    expect_app_dialog_open(e2e_page)
+    with e2e_page.expect_response(lambda r: "/views/downloads/clear" in r.url) as resp:
+        confirm_app_dialog(e2e_page)
+    assert resp.value.ok
+    assert len(clear_posts) == 1

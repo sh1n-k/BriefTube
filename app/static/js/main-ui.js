@@ -279,7 +279,6 @@
     navTransitionController?.bindNavTransitions?.(document);
     categoryControls?.bindCategoryRename?.();
     channelActions?.initChannelImportForm?.();
-    channelListControls?.bindChannelDeleteConfirm?.();
     revealPageShell();
     showLlmRuntimeBlockedToast();
   }

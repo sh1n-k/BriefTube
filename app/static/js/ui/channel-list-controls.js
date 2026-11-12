@@ -89,6 +89,7 @@
   function initChannelManageForm(form) {
     if (form.dataset.channelManageBound === "1") return;
     form.dataset.channelManageBound = "1";
+    form.addEventListener("htmx:confirm", handleBulkDeleteConfirm);
 
     const selectAll = form.querySelector("[data-channel-select-all]");
     const items = Array.from(form.querySelectorAll("[data-channel-select-item]"));
@@ -200,7 +201,6 @@
   }
 
   const BULK_DELETE_CONFIRM_NAME_LIMIT = 10;
-  let channelDeleteConfirmBound = false;
 
   function formatText(template, values) {
     return String(template || "").replace(/\{(\w+)\}/g, (match, key) => (
@@ -234,18 +234,23 @@
     });
   }
 
-  function bindChannelDeleteConfirm() {
-    if (channelDeleteConfirmBound) return;
-    channelDeleteConfirmBound = true;
-    document.addEventListener("htmx:confirm", (event) => {
-      const detail = event.detail;
-      if (!isBulkDeleteRequest(detail)) return;
-      const message = buildBulkDeleteConfirmMessage(detail.elt);
-      if (!message) return;
-      event.preventDefault();
-      if (window.confirm(message)) {
-        detail.issueRequest(true);
-      }
+  // Form-level, so it runs before the global hx-confirm modal handler in app-dialog.js.
+  function handleBulkDeleteConfirm(event) {
+    const detail = event.detail;
+    if (!isBulkDeleteRequest(detail)) return;
+    const form = detail.elt;
+    const message = buildBulkDeleteConfirmMessage(form);
+    if (!message) return;
+    event.preventDefault();
+    const dialog = window.BrieftubeDialog;
+    if (!dialog || dialog.isDroppedBySync(form)) return;
+    dialog.confirm({
+      title: form.dataset.confirmTitle || "",
+      message,
+      confirmLabel: form.dataset.confirmLabel || "",
+      tone: "danger",
+    }).then((confirmed) => {
+      if (confirmed) detail.issueRequest(true);
     });
   }
 
@@ -274,7 +279,6 @@
     bindChannelManageForms,
     bindChannelMetaAccordion,
     bindChannelAvatars,
-    bindChannelDeleteConfirm,
     captureChannelListScroll,
     restoreChannelListScroll,
   };

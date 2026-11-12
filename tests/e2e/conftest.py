@@ -201,3 +201,29 @@ def pytest_collection_modifyitems(config, items):
         path = Path(str(item.fspath))
         if "tests" in path.parts and "e2e" in path.parts:
             item.add_marker(pytest.mark.e2e)
+
+
+@pytest.fixture(autouse=True)
+def _fail_on_native_dialog(request: pytest.FixtureRequest):
+    """The service shows confirms/prompts in the app modal; any native dialog is a regression.
+
+    Tests that deliberately exercise the native safety net opt out with
+    ``@pytest.mark.allow_native_dialog`` and handle the dialog themselves.
+    """
+    if "context" not in request.fixturenames or request.node.get_closest_marker(
+        "allow_native_dialog"
+    ):
+        yield
+        return
+    context = request.getfixturevalue("context")
+    seen: list[str] = []
+
+    def _on_dialog(dialog) -> None:
+        seen.append(f"{dialog.type}: {dialog.message}")
+        dialog.dismiss()
+
+    context.on("dialog", _on_dialog)
+    yield
+    context.remove_listener("dialog", _on_dialog)
+    if seen:
+        pytest.fail(f"native browser dialog opened: {seen}")

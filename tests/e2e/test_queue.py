@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
+from tests.e2e.dialog_helpers import confirm_app_dialog, expect_app_dialog_open
 from tests.e2e.seed_helpers import (
     get_db_connection,
     seed_app_setting,
@@ -89,10 +90,31 @@ def test_queue_section_collapsible_and_clear_action(queue_page: Page):
     transcript_toggle.click()
     expect(transcript_body).to_be_visible()
 
-    queue_page.once("dialog", lambda dialog: dialog.dismiss())
+    clear_posts: list[str] = []
+    queue_page.on(
+        "request",
+        lambda r: (
+            clear_posts.append(r.url)
+            if r.method == "POST" and "/api/queue/" in r.url and r.url.endswith("/clear")
+            else None
+        ),
+    )
     queue_page.locator("[data-queue-clear-section='transcript']").click()
-
+    dialog = expect_app_dialog_open(queue_page, text="대기/실패 항목만 정리")
+    # Backdrop click cancels.
+    dialog.locator("[data-app-dialog-backdrop]").click(position={"x": 5, "y": 5})
+    expect(dialog).to_be_hidden()
+    assert clear_posts == []
     expect(transcript_body).to_be_visible()
+
+    queue_page.locator("[data-queue-clear-section='transcript']").click()
+    expect_app_dialog_open(queue_page)
+    with queue_page.expect_response(
+        lambda r: r.url.endswith("/api/queue/transcript/clear")
+    ) as resp:
+        confirm_app_dialog(queue_page)
+    assert resp.value.ok
+    assert len(clear_posts) == 1
 
 
 # --------------------------------------------------------------------------- #

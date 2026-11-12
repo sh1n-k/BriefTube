@@ -233,7 +233,15 @@
         const section = btn.dataset.queueClearSection;
         if (!section || btn.disabled) return;
         const confirmMessage = btn.dataset.confirmMessage || "Clear queue items?";
-        if (!window.confirm(confirmMessage)) return;
+        const dialog = window.BrieftubeDialog;
+        if (!dialog) return;
+        const confirmed = await dialog.confirm({
+          title: btn.dataset.confirmTitle || "",
+          message: confirmMessage,
+          confirmLabel: btn.dataset.confirmLabel || "",
+          tone: "danger",
+        });
+        if (!confirmed || btn.disabled) return;
         btn.disabled = true;
         const page = document.querySelector("[data-queue-page]");
         try {

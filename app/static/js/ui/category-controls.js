@@ -215,7 +215,13 @@
       const renameFailedToast = sidebar.dataset.renameFailedToast || "Rename failed";
       const renameEmptyToast = sidebar.dataset.renameEmptyToast || "Name is required";
 
-      const nextNameRaw = window.prompt(renameTitle, currentName);
+      const dialog = window.BrieftubeDialog;
+      if (!dialog) return;
+      const nextNameRaw = await dialog.prompt({
+        title: renameTitle,
+        value: currentName,
+        confirmLabel: sidebar.dataset.renameSubmit || "",
+      });
       if (nextNameRaw === null) return;
       const nextName = nextNameRaw.trim();
       if (!nextName) {
