@@ -268,3 +268,341 @@ def test_channel_category_filter_keeps_full_page_url_after_reload(page: Page) ->
     page.wait_for_selector("#category-sidebar")
     expect(page.locator("#channel-list-wrap")).to_be_visible()
     expect(page.locator("body")).to_contain_text("투자채널A")
+
+
+# ---------------------------------------------------------------------------
+# Channel delete guards: named confirm, repeat-click guard, scroll restore
+# ---------------------------------------------------------------------------
+
+
+class _DialogRecorder:
+    def __init__(self, page: Page) -> None:
+        self.messages: list[str] = []
+        self.accept = False
+        page.on("dialog", self._handle)
+
+    def _handle(self, dialog) -> None:
+        self.messages.append(dialog.message)
+        if self.accept:
+            dialog.accept()
+        else:
+            dialog.dismiss()
+
+
+def _record_delete_posts(page: Page) -> list[str]:
+    posts: list[str] = []
+
+    def _on_request(request) -> None:
+        if request.method != "POST":
+            return
+        url = request.url
+        if "/views/channels/" not in url:
+            return
+        if "/delete" in url or "bulk_action=delete" in (request.post_data or ""):
+            posts.append(url)
+
+    page.on("request", _on_request)
+    return posts
+
+
+def _row(page: Page, channel_id: str):
+    return page.locator(f"[data-channel-meta-item]:has(input[value='{channel_id}'])")
+
+
+def _delete_button(page: Page, channel_id: str):
+    return page.locator(f"button[hx-post^='/views/channels/{channel_id}/delete']")
+
+
+def _seed_scroll_channels(db_path: str, *, count: int = 20, is_active: int = 1) -> list[str]:
+    prefix = "UC_SCROLL_A" if is_active else "UC_SCROLL_I"
+    ids = [f"{prefix}{index:02d}" for index in range(count)]
+    for index, channel_id in enumerate(ids):
+        seed_channel(db_path, channel_id, f"스크롤채널{index:02d}", is_active=is_active)
+    return ids
+
+
+def _scroll_top(page: Page) -> float:
+    return float(page.locator("[data-channel-scroll]").evaluate("(node) => node.scrollTop"))
+
+
+def _set_scroll_top(page: Page, top: int) -> float:
+    scroller = page.locator("[data-channel-scroll]")
+    scroller.evaluate("(node, top) => { node.scrollTop = top; }", top)
+    return _scroll_top(page)
+
+
+@pytest.mark.e2e
+def test_channel_delete_requires_named_confirm(page: Page) -> None:
+    """Single delete shows the channel name; dismiss keeps it, accept removes it."""
+    dialogs = _DialogRecorder(page)
+    posts = _record_delete_posts(page)
+    _goto_channels(page)
+
+    _delete_button(page, "UC_TECH_01").click()
+    page.wait_for_timeout(300)
+    assert len(dialogs.messages) == 1
+    assert "'기술채널A' 채널을 제거합니다." in dialogs.messages[0]
+    assert "영구 삭제" in dialogs.messages[0]
+    assert posts == []
+    expect(_row(page, "UC_TECH_01")).to_have_count(1)
+
+    dialogs.accept = True
+    with page.expect_response(lambda r: "/views/channels/UC_TECH_01/delete" in r.url):
+        _delete_button(page, "UC_TECH_01").click()
+    expect(_row(page, "UC_TECH_01")).to_have_count(0)
+    expect(_row(page, "UC_TECH_02")).to_have_count(1)
+    assert len(posts) == 1
+
+
+@pytest.mark.e2e
+def test_channel_bulk_delete_confirm_lists_selected_names(page: Page) -> None:
+    """Active bulk delete lists the selected names before deleting."""
+    dialogs = _DialogRecorder(page)
+    posts = _record_delete_posts(page)
+    _goto_channels(page)
+
+    page.locator("input[data-channel-select-item][value='UC_INVEST_01']").check()
+    page.locator("input[data-channel-select-item][value='UC_TECH_02']").check()
+    bulk_button = page.locator("button[data-channel-bulk-submit]")
+
+    bulk_button.click()
+    page.wait_for_timeout(300)
+    assert len(dialogs.messages) == 1
+    message = dialogs.messages[0]
+    assert "선택한 채널 2개를 제거합니다." in message
+    assert "- 투자채널A" in message
+    assert "- 기술채널B" in message
+    assert posts == []
+    expect(_row(page, "UC_INVEST_01")).to_have_count(1)
+
+    dialogs.accept = True
+    with page.expect_response(lambda r: "/views/channels/delete-selected" in r.url):
+        bulk_button.click()
+    expect(_row(page, "UC_INVEST_01")).to_have_count(0)
+    expect(_row(page, "UC_TECH_02")).to_have_count(0)
+    expect(_row(page, "UC_INVEST_02")).to_have_count(1)
+    assert len(posts) == 1
+
+
+@pytest.mark.e2e
+def test_inactive_bulk_delete_confirms_but_reactivate_keeps_modal(page: Page) -> None:
+    """Inactive bulk delete needs a native confirm; reactivate uses only its modal."""
+    dialogs = _DialogRecorder(page)
+    posts = _record_delete_posts(page)
+    _goto_channels(page, status="inactive")
+
+    page.locator("input[data-channel-select-item][value='UC_INACTIVE_01']").check()
+    reactivate_btn = page.locator(
+        "button[data-channel-bulk-submit]:not([name='bulk_action'])"
+    ).first
+    reactivate_btn.click()
+    confirm_modal = page.locator("#channel-reactivate-confirm-modal")
+    expect(confirm_modal).to_be_visible(timeout=5_000)
+    confirm_modal.locator("[data-reactivate-confirm-cancel]").click()
+    expect(confirm_modal).to_be_hidden()
+    assert dialogs.messages == []
+    # The reactivate flow is outside this guard; start the delete check from a fresh list.
+    _goto_channels(page, status="inactive")
+    posts.clear()
+    page.locator("input[data-channel-select-item][value='UC_INACTIVE_01']").check()
+
+    delete_btn = page.locator(
+        "button[data-channel-bulk-submit][name='bulk_action'][value='delete']"
+    )
+    delete_btn.click()
+    page.wait_for_timeout(300)
+    assert len(dialogs.messages) == 1
+    assert "선택한 채널 1개를 제거합니다." in dialogs.messages[0]
+    assert "- 비활성채널A" in dialogs.messages[0]
+    assert posts == []
+    expect(_row(page, "UC_INACTIVE_01")).to_have_count(1)
+
+    dialogs.accept = True
+    with page.expect_response(lambda r: "reactivate-selected" in r.url):
+        delete_btn.click()
+    expect(_row(page, "UC_INACTIVE_01")).to_have_count(0)
+    expect(_row(page, "UC_INACTIVE_02")).to_have_count(1)
+    assert len(posts) == 1
+    expect(confirm_modal).to_be_hidden()
+
+
+@pytest.mark.e2e
+def test_channel_delete_blocks_other_clicks_while_in_flight(page: Page) -> None:
+    """While a delete is in flight its button is disabled and other deletes are dropped."""
+    dialogs = _DialogRecorder(page)
+    dialogs.accept = True
+    posts = _record_delete_posts(page)
+
+    def _delay_delete(route) -> None:
+        page.wait_for_timeout(1500)
+        route.continue_()
+
+    page.route(re.compile(r".*/views/channels/UC_INVEST_01/delete.*"), _delay_delete)
+    _goto_channels(page)
+
+    first_button = _delete_button(page, "UC_INVEST_01")
+    with page.expect_response(lambda r: "/views/channels/UC_INVEST_01/delete" in r.url):
+        first_button.click()
+        expect(first_button).to_be_disabled()
+        _delete_button(page, "UC_INVEST_02").click()
+        _delete_button(page, "UC_TECH_01").click(force=True)
+
+    expect(_row(page, "UC_INVEST_01")).to_have_count(0)
+    page.wait_for_timeout(500)
+    assert len(posts) == 1
+    assert len(dialogs.messages) == 1
+    expect(_row(page, "UC_INVEST_02")).to_have_count(1)
+    expect(_row(page, "UC_TECH_01")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_channel_delete_keeps_list_scroll_position(page: Page) -> None:
+    """Deleting a row keeps the list scroll position instead of jumping to the top."""
+    scroll_ids = _seed_scroll_channels(page._e2e_db_path)
+    dialogs = _DialogRecorder(page)
+    dialogs.accept = True
+    _goto_channels(page)
+
+    before = _set_scroll_top(page, 600)
+    assert before > 0
+    target = page.locator("[data-channel-meta-item]").nth(12)
+    target_id = target.locator("input[data-channel-select-item]").get_attribute("value")
+    assert target_id is not None
+
+    with page.expect_response(lambda r: f"/views/channels/{target_id}/delete" in r.url):
+        _delete_button(page, target_id).click()
+    expect(_row(page, target_id)).to_have_count(0)
+    page.wait_for_timeout(200)
+
+    after = _scroll_top(page)
+    assert abs(after - before) <= 60, (before, after)
+    assert len(scroll_ids) == 20
+
+
+@pytest.mark.e2e
+def test_channel_category_switch_resets_list_scroll(page: Page) -> None:
+    """Switching category is a different list, so the scroll position is not restored."""
+    _seed_scroll_channels(page._e2e_db_path)
+    _goto_channels(page)
+    assert _set_scroll_top(page, 600) > 0
+
+    category_id = str(page._e2e_server["categories"]["투자"])
+    with page.expect_response(lambda r: "/views/channel-list" in r.url):
+        page.locator(f"#category-sidebar a[href*='category_id={category_id}']").first.click()
+    expect(page.locator("[data-channel-list-fragment]")).to_have_attribute(
+        "data-channel-list-refresh-url", re.compile(r"category_id=")
+    )
+    page.wait_for_timeout(200)
+    assert _scroll_top(page) == 0
+
+
+@pytest.mark.e2e
+def test_channel_list_auto_refresh_keeps_scroll_position(page: Page) -> None:
+    """The periodic inactive-list refresh swaps the fragment without resetting scroll."""
+    _seed_scroll_channels(page._e2e_db_path, is_active=0)
+    page.clock.install()
+    _goto_channels(page, status="inactive")
+    fragment = page.locator("[data-channel-list-fragment]")
+    expect(fragment).to_have_attribute("data-channel-list-auto-refresh", "1")
+    fragment.evaluate("(node) => node.setAttribute('data-e2e-stale', '1')")
+    before = _set_scroll_top(page, 600)
+    assert before > 0
+
+    with page.expect_response(lambda r: "/views/channel-list?status=inactive" in r.url):
+        page.clock.run_for(16_000)
+    expect(page.locator("[data-channel-list-fragment][data-e2e-stale]")).to_have_count(0)
+    # The response also carries an OOB RSS preview card; the list itself must survive.
+    expect(page.locator("#channel-list-wrap > [data-channel-list-fragment]")).to_have_count(1)
+    expect(page.locator("[data-channel-row]")).to_have_count(len(INACTIVE_CHANNELS) + 20)
+    page.wait_for_timeout(200)
+
+    assert abs(_scroll_top(page) - before) <= 1
+
+
+@pytest.mark.e2e
+def test_stale_auto_refresh_response_does_not_restore_deleted_channel(page: Page) -> None:
+    """A poll response fetched before a delete must not bring the deleted row back."""
+    dialogs = _DialogRecorder(page)
+    dialogs.accept = True
+    page.clock.install()
+
+    def _hold_poll_response(route) -> None:
+        response = route.fetch()
+        page.wait_for_timeout(1500)
+        route.fulfill(response=response)
+
+    _goto_channels(page, status="inactive")
+    page.route(re.compile(r".*/views/channel-list\?status=inactive$"), _hold_poll_response)
+
+    with page.expect_response(lambda r: "/views/channel-list?status=inactive" in r.url) as poll:
+        page.clock.run_for(16_000)
+        with page.expect_response(lambda r: "/views/channels/UC_INACTIVE_01/delete" in r.url):
+            _delete_button(page, "UC_INACTIVE_01").click()
+        expect(_row(page, "UC_INACTIVE_01")).to_have_count(0)
+    assert poll.value.ok
+    page.wait_for_timeout(300)
+
+    expect(_row(page, "UC_INACTIVE_01")).to_have_count(0)
+    expect(_row(page, "UC_INACTIVE_02")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_channel_bulk_delete_confirm_truncates_long_selection(page: Page) -> None:
+    """Long selections list the first 10 names and summarize the rest."""
+    _seed_scroll_channels(page._e2e_db_path, count=12)
+    dialogs = _DialogRecorder(page)
+    posts = _record_delete_posts(page)
+    _goto_channels(page)
+
+    page.locator("[data-channel-select-all]").check()
+    page.locator("button[data-channel-bulk-submit]").click()
+    page.wait_for_timeout(300)
+
+    total = len(ACTIVE_CHANNELS) + 12
+    assert len(dialogs.messages) == 1
+    message = dialogs.messages[0]
+    assert f"선택한 채널 {total}개를 제거합니다." in message
+    assert message.count("\n- ") == 10
+    assert f"외 {total - 10}개" in message
+    assert posts == []
+    expect(page.locator("[data-channel-row]")).to_have_count(total)
+
+
+@pytest.mark.e2e
+def test_rss_priority_change_does_not_disable_bulk_buttons(page: Page) -> None:
+    """Form-level delete guards must not leak into other htmx controls in the form."""
+    _goto_channels(page)
+    page.locator("input[data-channel-select-item][value='UC_INVEST_01']").check()
+    bulk_button = page.locator("button[data-channel-bulk-submit]")
+    expect(bulk_button).to_be_enabled()
+
+    select = page.locator("[data-channel-meta-item]:has(input[value='UC_INVEST_01']) select").first
+    current = select.input_value()
+    options = select.locator("option").evaluate_all("(nodes) => nodes.map((n) => n.value)")
+    next_value = next(value for value in options if value != current)
+    with page.expect_response(lambda r: "/rss-priority" in r.url) as patch:
+        select.select_option(next_value)
+    assert patch.value.ok
+    expect(bulk_button).to_be_enabled()
+    expect(_row(page, "UC_INVEST_01")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_active_bulk_delete_falls_back_to_static_confirm(page: Page) -> None:
+    """If the named-confirm listener never runs, active bulk delete still asks first."""
+    dialogs = _DialogRecorder(page)
+    posts = _record_delete_posts(page)
+    _goto_channels(page)
+    page.evaluate(
+        "() => document.addEventListener("
+        "'htmx:confirm', (event) => event.stopImmediatePropagation(), true)"
+    )
+
+    page.locator("input[data-channel-select-item][value='UC_INVEST_01']").check()
+    page.locator("button[data-channel-bulk-submit]").click()
+    page.wait_for_timeout(300)
+
+    assert len(dialogs.messages) == 1
+    assert dialogs.messages[0].startswith("선택한 채널을 제거합니다.")
+    assert posts == []
+    expect(_row(page, "UC_INVEST_01")).to_have_count(1)

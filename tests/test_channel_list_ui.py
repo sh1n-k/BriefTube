@@ -441,3 +441,82 @@ def test_bulk_resolve_and_commit_preserve_selected_category(
         ).fetchone()
     assert row is not None
     assert int(row[0]) == category_id
+
+
+def _seed_channel(db_path: str, channel_id: str, name: str, *, is_active: int = 1) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO channels(channel_id, channel_name, rss_url, is_active) VALUES (?, ?, ?, ?)",
+            (
+                channel_id,
+                name,
+                f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+                is_active,
+            ),
+        )
+        conn.commit()
+
+
+def _delete_button_html(html: str, channel_id: str) -> str:
+    match = re.search(
+        r"<button[^>]*hx-post=\"/views/channels/" + re.escape(channel_id) + r"/delete[^>]*>",
+        html,
+        re.S,
+    )
+    assert match is not None
+    return match.group(0)
+
+
+@pytest.mark.parametrize("status", ["active", "inactive"])
+def test_channel_delete_button_requires_named_confirm_and_blocks_repeat(
+    client: TestClient, status: str
+) -> None:
+    _seed_channel(
+        os.environ["DB_PATH"],
+        "UCconfirm001",
+        'Say "Hi" <Tag> & Co',
+        is_active=1 if status == "active" else 0,
+    )
+
+    response = client.get(f"/views/channel-list?status={status}", headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    button = _delete_button_html(response.text, "UCconfirm001")
+
+    assert (
+        'hx-confirm="&#39;Say &#34;Hi&#34; &lt;Tag&gt; &amp; Co&#39; 채널을 제거합니다.\n'
+        '이 채널의 영상·자막·기사도 영구 삭제되며 되돌릴 수 없습니다."' in button
+    )
+    assert 'hx-disabled-elt="this"' in button
+    assert 'hx-sync="#channel-list-wrap:drop"' in button
+    assert "data-channel-delete-button" in button
+    assert "disabled:cursor-wait" in button
+
+
+@pytest.mark.parametrize("status", ["active", "inactive"])
+def test_channel_manage_form_has_bulk_delete_confirm_and_repeat_guard(
+    client: TestClient, status: str
+) -> None:
+    _seed_channel(
+        os.environ["DB_PATH"],
+        "UCconfirm101",
+        "Bulk & Name",
+        is_active=1 if status == "active" else 0,
+    )
+
+    response = client.get(f"/views/channel-list?status={status}", headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+    form = re.search(r"<form[^>]*data-channel-manage-form[^>]*>", html, re.S)
+    assert form is not None
+    form_html = form.group(0)
+
+    assert 'data-channel-delete-confirm-bulk="선택한 채널 {count}개를 제거합니다.' in form_html
+    assert 'data-channel-delete-confirm-more="외 {count}개"' in form_html
+    assert 'hx-disabled-elt="[data-channel-manage-form] [data-channel-bulk-submit]"' in form_html
+    assert 'hx-sync="#channel-list-wrap:drop"' in form_html
+    assert 'hx-disinherit="hx-disabled-elt hx-sync hx-confirm"' in form_html
+    # Active forms only delete, so a static confirm stays as a fail-closed fallback.
+    fallback = 'hx-confirm="선택한 채널을 제거합니다.'
+    assert (fallback in form_html) is (status == "active")
+    assert 'value="UCconfirm101"' in html
+    assert 'data-channel-name="Bulk &amp; Name"' in html

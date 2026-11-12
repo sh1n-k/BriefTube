@@ -199,10 +199,83 @@
     });
   }
 
+  const BULK_DELETE_CONFIRM_NAME_LIMIT = 10;
+  let channelDeleteConfirmBound = false;
+
+  function formatText(template, values) {
+    return String(template || "").replace(/\{(\w+)\}/g, (match, key) => (
+      Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match
+    ));
+  }
+
+  function isBulkDeleteRequest(detail) {
+    const form = detail?.elt;
+    if (!(form instanceof HTMLFormElement) || !form.matches("[data-channel-manage-form]")) return false;
+    if (String(detail?.path || "").includes("/channels/delete-selected")) return true;
+    const submitter = detail?.triggeringEvent?.submitter;
+    return submitter instanceof HTMLButtonElement
+      && submitter.name === "bulk_action"
+      && submitter.value === "delete";
+  }
+
+  function buildBulkDeleteConfirmMessage(form) {
+    const names = Array.from(form.querySelectorAll("[data-channel-select-item]"))
+      .filter((item) => item instanceof HTMLInputElement && item.checked)
+      .map((item) => item.dataset.channelName || item.value);
+    if (!names.length) return "";
+    const shown = names.slice(0, BULK_DELETE_CONFIRM_NAME_LIMIT).map((name) => `- ${name}`);
+    const hiddenCount = names.length - shown.length;
+    if (hiddenCount > 0) {
+      shown.push(formatText(form.dataset.channelDeleteConfirmMore, { count: hiddenCount }));
+    }
+    return formatText(form.dataset.channelDeleteConfirmBulk, {
+      count: names.length,
+      channels: shown.join("\n"),
+    });
+  }
+
+  function bindChannelDeleteConfirm() {
+    if (channelDeleteConfirmBound) return;
+    channelDeleteConfirmBound = true;
+    document.addEventListener("htmx:confirm", (event) => {
+      const detail = event.detail;
+      if (!isBulkDeleteRequest(detail)) return;
+      const message = buildBulkDeleteConfirmMessage(detail.elt);
+      if (!message) return;
+      event.preventDefault();
+      if (window.confirm(message)) {
+        detail.issueRequest(true);
+      }
+    });
+  }
+
+  function captureChannelListScroll(wrap) {
+    if (!(wrap instanceof Element)) return null;
+    const fragment = wrap.querySelector("[data-channel-list-fragment]");
+    const scroller = wrap.querySelector("[data-channel-scroll]");
+    if (!(fragment instanceof HTMLElement) || !(scroller instanceof HTMLElement)) return null;
+    return {
+      key: fragment.dataset.channelListRefreshUrl || "",
+      top: scroller.scrollTop,
+    };
+  }
+
+  function restoreChannelListScroll(wrap, snapshot) {
+    if (!snapshot || !(wrap instanceof Element)) return;
+    const fragment = wrap.querySelector("[data-channel-list-fragment]");
+    const scroller = wrap.querySelector("[data-channel-scroll]");
+    if (!(fragment instanceof HTMLElement) || !(scroller instanceof HTMLElement)) return;
+    if ((fragment.dataset.channelListRefreshUrl || "") !== snapshot.key) return;
+    scroller.scrollTop = snapshot.top;
+  }
+
   window.BrieftubeChannelListControls = {
     bindChannelSearch,
     bindChannelManageForms,
     bindChannelMetaAccordion,
     bindChannelAvatars,
+    bindChannelDeleteConfirm,
+    captureChannelListScroll,
+    restoreChannelListScroll,
   };
 })();

@@ -8,6 +8,9 @@
   let videoDetailRefreshStarted = false;
   let channelListRefreshInFlight = false;
   let channelListRefreshStarted = false;
+  // Bumped whenever an htmx request targets the channel list, so a poll response fetched
+  // before a delete/reactivate cannot overwrite the newer list it produced.
+  let channelListMutationSeq = 0;
   let llmRuntimeRefreshInFlight = false;
   let llmRuntimeRefreshStarted = false;
 
@@ -33,6 +36,7 @@
     swap = "outerHTML",
     beforeSwap = null,
     shouldSwap = null,
+    fragmentSelector = null,
   }) {
     const target = document.querySelector(targetSelector);
     if (!(target instanceof Element)) return false;
@@ -50,7 +54,11 @@
         const latestTarget = document.querySelector(targetSelector);
         if (!(latestTarget instanceof Element)) return false;
         const fragment = parseHtmlFragment(html);
-        const nextNode = fragment.firstElementChild;
+        // Responses can carry OOB siblings before the main node; pick the main node explicitly.
+        const nextNode = fragmentSelector
+          ? fragment.querySelector(fragmentSelector)
+          : fragment.firstElementChild;
+        if (fragmentSelector && !(nextNode instanceof Element)) return false;
         const currentNode = latestTarget.childElementCount === 1
           ? latestTarget.firstElementChild
           : null;
@@ -172,6 +180,9 @@
     if (searchInput instanceof HTMLInputElement && searchInput.value.trim()) {
       return true;
     }
+    if (document.querySelector("#channel-list-wrap .htmx-request")) {
+      return true;
+    }
     return Array.from(document.querySelectorAll("[data-channel-select-item]")).some((node) => (
       node instanceof HTMLInputElement && node.checked
     ));
@@ -187,12 +198,28 @@
     const refreshUrl = fragment.dataset.channelListRefreshUrl || "";
     if (!refreshUrl) return;
     channelListRefreshInFlight = true;
+    const mutationSeqAtFetch = channelListMutationSeq;
+    const listControls = window.BrieftubeChannelListControls || null;
+    let scrollSnapshot = null;
     try {
       await fetchAndSwapFragment({
         url: refreshUrl,
         targetSelector: "#channel-list-wrap",
         swap: "innerHTML",
+        fragmentSelector: "[data-channel-list-fragment]",
+        shouldSwap: () => (
+          mutationSeqAtFetch === channelListMutationSeq && !shouldSkipChannelListAutoRefresh()
+        ),
+        beforeSwap: ({ target }) => {
+          scrollSnapshot = listControls?.captureChannelListScroll?.(target) || null;
+        },
       });
+      if (scrollSnapshot) {
+        listControls?.restoreChannelListScroll?.(
+          document.querySelector("#channel-list-wrap"),
+          scrollSnapshot,
+        );
+      }
     } finally {
       channelListRefreshInFlight = false;
     }
@@ -201,6 +228,12 @@
   function startChannelListAutoRefresh() {
     if (channelListRefreshStarted) return;
     channelListRefreshStarted = true;
+    document.addEventListener("htmx:beforeRequest", (event) => {
+      const target = event.detail?.target;
+      if (target instanceof Element && target.id === "channel-list-wrap") {
+        channelListMutationSeq += 1;
+      }
+    });
     window.setInterval(() => {
       void pollChannelListFragment();
     }, CHANNEL_LIST_POLL_INTERVAL_MS);
