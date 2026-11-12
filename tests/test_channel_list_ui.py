@@ -487,6 +487,9 @@ def test_channel_delete_button_requires_named_confirm_and_blocks_repeat(
         '이 채널의 영상·자막·기사도 영구 삭제되며 되돌릴 수 없습니다."' in button
     )
     assert 'hx-disabled-elt="this"' in button
+    assert 'data-confirm-title="채널 제거"' in button
+    assert 'data-confirm-label="제거"' in button
+    assert 'data-confirm-tone="danger"' in button
     assert 'hx-sync="#channel-list-wrap:drop"' in button
     assert "data-channel-delete-button" in button
     assert "disabled:cursor-wait" in button
@@ -514,6 +517,7 @@ def test_channel_manage_form_has_bulk_delete_confirm_and_repeat_guard(
     assert 'data-channel-delete-confirm-more="외 {count}개"' in form_html
     assert 'hx-disabled-elt="[data-channel-manage-form] [data-channel-bulk-submit]"' in form_html
     assert 'hx-sync="#channel-list-wrap:drop"' in form_html
+    assert 'data-confirm-tone="danger"' in form_html
     assert 'hx-disinherit="hx-disabled-elt hx-sync hx-confirm"' in form_html
     # Active forms only delete, so a static confirm stays as a fail-closed fallback.
     fallback = 'hx-confirm="선택한 채널을 제거합니다.'

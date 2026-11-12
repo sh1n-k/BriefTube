@@ -25,75 +25,6 @@
     }, base);
   }
 
-  function ensureChannelReactivateConfirmModal() {
-    let root = document.getElementById("channel-reactivate-confirm-modal");
-    if (root) return root;
-    root = document.createElement("div");
-    root.id = "channel-reactivate-confirm-modal";
-    root.className = "fixed inset-0 z-[75] hidden items-center justify-center px-4";
-    root.innerHTML = `
-      <div class="absolute inset-0 bg-slate-900/45" data-reactivate-confirm-backdrop></div>
-      <div class="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
-        <h3 class="text-base font-semibold text-slate-900" data-reactivate-confirm-title></h3>
-        <p class="mt-2 text-sm text-slate-600" data-reactivate-confirm-desc></p>
-        <p class="mt-1 text-xs text-slate-500" data-reactivate-confirm-hint></p>
-        <div class="mt-4 flex justify-end gap-2">
-          <button type="button" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" data-reactivate-confirm-cancel></button>
-          <button type="button" class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700" data-reactivate-confirm-submit></button>
-        </div>
-      </div>`;
-    document.body.appendChild(root);
-    return root;
-  }
-
-  function openChannelReactivateConfirmModal(options) {
-    const root = ensureChannelReactivateConfirmModal();
-    const titleNode = root.querySelector("[data-reactivate-confirm-title]");
-    const descNode = root.querySelector("[data-reactivate-confirm-desc]");
-    const hintNode = root.querySelector("[data-reactivate-confirm-hint]");
-    const cancelButton = root.querySelector("[data-reactivate-confirm-cancel]");
-    const submitButton = root.querySelector("[data-reactivate-confirm-submit]");
-    if (!titleNode || !descNode || !hintNode || !cancelButton || !submitButton) {
-      return Promise.resolve(window.confirm(options?.description || ""));
-    }
-    titleNode.textContent = options?.title || CHANNEL_REACTIVATE_UI_TEXT.confirmTitle;
-    descNode.textContent = options?.description || "";
-    hintNode.textContent = options?.hint || "";
-    cancelButton.textContent = options?.cancelLabel || CHANNEL_REACTIVATE_UI_TEXT.confirmCancel;
-    submitButton.textContent = options?.confirmLabel || CHANNEL_REACTIVATE_UI_TEXT.confirmSubmit;
-    root.classList.remove("hidden");
-    root.classList.add("flex");
-
-    return new Promise((resolve) => {
-      let done = false;
-      const finalize = (confirmed) => {
-        if (done) return;
-        done = true;
-        root.classList.add("hidden");
-        root.classList.remove("flex");
-        document.removeEventListener("keydown", onKeydown);
-        cancelButton.removeEventListener("click", onCancel);
-        submitButton.removeEventListener("click", onConfirm);
-        root.removeEventListener("click", onBackdropClick);
-        resolve(confirmed);
-      };
-      const onCancel = () => finalize(false);
-      const onConfirm = () => finalize(true);
-      const onBackdropClick = (event) => {
-        if (event.target === root || event.target?.hasAttribute("data-reactivate-confirm-backdrop")) {
-          finalize(false);
-        }
-      };
-      const onKeydown = (event) => {
-        if (event.key === "Escape") finalize(false);
-      };
-      cancelButton.addEventListener("click", onCancel);
-      submitButton.addEventListener("click", onConfirm);
-      root.addEventListener("click", onBackdropClick);
-      document.addEventListener("keydown", onKeydown);
-    });
-  }
-
   function ensureChannelReactivateBlockingOverlay() {
     let root = document.getElementById("channel-reactivate-blocking-overlay");
     if (root) return root;
@@ -145,44 +76,45 @@
       hideChannelReactivateBlockingOverlay();
     };
 
-    form.addEventListener("submit", (event) => {
-      const submitter = event.submitter;
+    // Confirm on htmx:confirm (before the request is issued), not on submit: htmx's own
+    // submit listener is registered first, so a submit-time modal could not stop the POST.
+    form.addEventListener("htmx:confirm", (event) => {
+      // htmx:confirm bubbles; row buttons inside the form have their own confirms.
+      if (event.detail?.elt !== form) return;
+      const submitter = event.detail?.triggeringEvent?.submitter;
       if (submitter instanceof HTMLButtonElement && submitter.name === "bulk_action" && submitter.value === "delete") {
         clearPendingState();
         return;
       }
       const selectedCount = resolveSelectedCount();
       if (selectedCount <= 0) return;
+      event.preventDefault();
       if (selectedCount > limit) {
-        event.preventDefault();
         showToast(formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.limitExceeded, { selected: selectedCount, limit }), "error");
         return;
       }
-      if (form.dataset.reactivateConfirmed === "1") {
-        delete form.dataset.reactivateConfirmed;
+      const dialog = window.BrieftubeDialog;
+      if (!dialog || dialog.isDroppedBySync(form)) return;
+      const detail = event.detail;
+      const maxWaitSeconds = (selectedCount * timeoutSeconds) + (Math.max(0, selectedCount - 1) * probeDelaySeconds);
+      const description = formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmDesc, { count: selectedCount });
+      const hint = formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmWaitHint, { seconds: maxWaitSeconds });
+      dialog.confirm({
+        title: CHANNEL_REACTIVATE_UI_TEXT.confirmTitle,
+        message: `${description}\n${hint}`,
+        confirmLabel: CHANNEL_REACTIVATE_UI_TEXT.confirmSubmit,
+        cancelLabel: CHANNEL_REACTIVATE_UI_TEXT.confirmCancel,
+      }).then((confirmed) => {
+        if (!confirmed || !form.isConnected) return;
         form.dataset.reactivateInFlight = "1";
         form.dataset.reactivateSelectedCount = String(selectedCount);
         showChannelReactivateBlockingOverlay(
           CHANNEL_REACTIVATE_UI_TEXT.overlayTitle,
           formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.overlayDesc, { count: selectedCount }),
         );
-        return;
-      }
-      event.preventDefault();
-      if (form.dataset.reactivateDialogOpen === "1") return;
-      form.dataset.reactivateDialogOpen = "1";
-      const maxWaitSeconds = (selectedCount * timeoutSeconds) + (Math.max(0, selectedCount - 1) * probeDelaySeconds);
-      openChannelReactivateConfirmModal({
-        title: CHANNEL_REACTIVATE_UI_TEXT.confirmTitle,
-        description: formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmDesc, { count: selectedCount }),
-        hint: formatTemplate(CHANNEL_REACTIVATE_UI_TEXT.confirmWaitHint, { seconds: maxWaitSeconds }),
-        confirmLabel: CHANNEL_REACTIVATE_UI_TEXT.confirmSubmit,
-        cancelLabel: CHANNEL_REACTIVATE_UI_TEXT.confirmCancel,
-      }).then((confirmed) => {
-        delete form.dataset.reactivateDialogOpen;
-        if (!confirmed) return;
-        form.dataset.reactivateConfirmed = "1";
-        form.requestSubmit(submitter instanceof HTMLButtonElement ? submitter : undefined);
+        detail.issueRequest(true);
+        // hx-sync may drop the request (another list request in flight); do not leave the overlay up.
+        if (!form.classList.contains("htmx-request")) clearPendingState();
       });
     });
     const settle = (event) => {

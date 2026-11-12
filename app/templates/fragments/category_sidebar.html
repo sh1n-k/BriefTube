@@ -14,6 +14,7 @@
   data-current-status="{{ current_status }}"
   data-selected-category-id="{{ sel_cat_id if sel_cat_id is not none else '' }}"
   data-rename-title="{{ txt.category_rename_title }}"
+  data-rename-submit="{{ txt.category_rename_submit }}"
   data-rename-success-toast="{{ txt.category_rename_success }}"
   data-rename-failed-toast="{{ txt.category_rename_failed }}"
   data-rename-empty-toast="{{ txt.category_rename_empty_error }}"
@@ -184,6 +185,9 @@
           hx-target="#category-sidebar"
           hx-swap="outerHTML"
           hx-confirm="{{ txt.category_delete_confirm }}"
+          data-confirm-title="{{ txt.category_delete_confirm_title }}"
+          data-confirm-label="{{ txt.category_delete_confirm_submit }}"
+          data-confirm-tone="danger"
           data-save-toast="{{ txt.category_delete_success }}"
           class="rounded p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
         >

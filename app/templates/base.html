@@ -61,6 +61,11 @@
   <link rel="stylesheet" href="/static/css/app.css" />
   <script>
     window.BRIEFTUBE_UI_BOOTSTRAP = {
+      dialog: {
+        title: {{ txt.dialog_title | tojson }},
+        confirm: {{ txt.dialog_confirm | tojson }},
+        cancel: {{ txt.dialog_cancel | tojson }}
+      },
       channelReactivate: {
         confirmTitle: {{ txt.channel_reactivate_confirm_title | tojson }},
         confirmDesc: {{ txt.channel_reactivate_confirm_desc | tojson }},
@@ -121,6 +126,7 @@
       }
     };
   </script>
+  <script defer src="/static/js/ui/app-dialog.js"></script>
   <script defer src="/static/js/ui/nav-transition.js"></script>
   <script defer src="/static/js/ui/theme.js"></script>
   <script defer src="/static/js/ui/channel-list-controls.js"></script>

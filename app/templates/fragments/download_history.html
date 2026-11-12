@@ -39,6 +39,9 @@
         hx-target="#download-history-fragment"
         hx-swap="outerHTML"
         hx-confirm="{{ txt.download_clear_confirm }}"
+        data-confirm-title="{{ txt.download_clear_confirm_title }}"
+        data-confirm-label="{{ txt.download_clear_confirm_submit }}"
+        data-confirm-tone="danger"
       >
         <select name="status" aria-label="{{ txt.download_clear_button }}" class="ui-control min-w-[9rem] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700">
           <option value="{{ download_status }}">{{ txt.download_clear_current }}</option>

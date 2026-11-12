@@ -6,6 +6,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from playwright.sync_api import Page, expect
 
+from tests.e2e.dialog_helpers import (
+    AppDialogRecorder,
+    cancel_app_dialog,
+    expect_app_dialog_open,
+)
 from tests.e2e.seed_helpers import (
     disable_all_workers,
     get_db_connection,
@@ -204,11 +209,8 @@ def test_channel_select_all_and_reactivate_modal(page: Page) -> None:
     expect(reactivate_btn).to_contain_text("재활성화")
     reactivate_btn.click()
 
-    confirm_modal = page.locator("#channel-reactivate-confirm-modal")
-    expect(confirm_modal).to_be_visible(timeout=5_000)
-    expect(confirm_modal.locator("[data-reactivate-confirm-title]")).to_be_visible()
-    confirm_modal.locator("[data-reactivate-confirm-cancel]").click()
-    expect(confirm_modal).to_be_hidden()
+    expect_app_dialog_open(page, text="재활성화")
+    cancel_app_dialog(page)
 
 
 @pytest.mark.e2e
@@ -275,18 +277,19 @@ def test_channel_category_filter_keeps_full_page_url_after_reload(page: Page) ->
 # ---------------------------------------------------------------------------
 
 
-class _DialogRecorder:
+class _NativeDialogRecorder:
+    """Only for the safety-net test where the app modal handler is deliberately blocked."""
+
     def __init__(self, page: Page) -> None:
         self.messages: list[str] = []
-        self.accept = False
         page.on("dialog", self._handle)
 
     def _handle(self, dialog) -> None:
         self.messages.append(dialog.message)
-        if self.accept:
-            dialog.accept()
-        else:
-            dialog.dismiss()
+        dialog.dismiss()
+
+
+_DialogRecorder = AppDialogRecorder
 
 
 def _record_delete_posts(page: Page) -> list[str]:
@@ -386,9 +389,18 @@ def test_channel_bulk_delete_confirm_lists_selected_names(page: Page) -> None:
 
 @pytest.mark.e2e
 def test_inactive_bulk_delete_confirms_but_reactivate_keeps_modal(page: Page) -> None:
-    """Inactive bulk delete needs a native confirm; reactivate uses only its modal."""
+    """Inactive bulk delete and reactivate each ask once in the app modal before any POST."""
     dialogs = _DialogRecorder(page)
     posts = _record_delete_posts(page)
+    reactivate_posts: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            reactivate_posts.append(r.post_data or "")
+            if r.method == "POST" and "reactivate-selected" in r.url
+            else None
+        ),
+    )
     _goto_channels(page, status="inactive")
 
     page.locator("input[data-channel-select-item][value='UC_INACTIVE_01']").check()
@@ -396,25 +408,21 @@ def test_inactive_bulk_delete_confirms_but_reactivate_keeps_modal(page: Page) ->
         "button[data-channel-bulk-submit]:not([name='bulk_action'])"
     ).first
     reactivate_btn.click()
-    confirm_modal = page.locator("#channel-reactivate-confirm-modal")
-    expect(confirm_modal).to_be_visible(timeout=5_000)
-    confirm_modal.locator("[data-reactivate-confirm-cancel]").click()
-    expect(confirm_modal).to_be_hidden()
-    assert dialogs.messages == []
-    # The reactivate flow is outside this guard; start the delete check from a fresh list.
-    _goto_channels(page, status="inactive")
-    posts.clear()
-    page.locator("input[data-channel-select-item][value='UC_INACTIVE_01']").check()
+    page.wait_for_timeout(300)
+    assert len(dialogs.messages) == 1
+    assert "재활성화" in dialogs.titles[0]
+    assert reactivate_posts == []
 
     delete_btn = page.locator(
         "button[data-channel-bulk-submit][name='bulk_action'][value='delete']"
     )
     delete_btn.click()
     page.wait_for_timeout(300)
-    assert len(dialogs.messages) == 1
-    assert "선택한 채널 1개를 제거합니다." in dialogs.messages[0]
-    assert "- 비활성채널A" in dialogs.messages[0]
+    assert len(dialogs.messages) == 2
+    assert "선택한 채널 1개를 제거합니다." in dialogs.messages[1]
+    assert "- 비활성채널A" in dialogs.messages[1]
     assert posts == []
+    assert reactivate_posts == []
     expect(_row(page, "UC_INACTIVE_01")).to_have_count(1)
 
     dialogs.accept = True
@@ -423,7 +431,73 @@ def test_inactive_bulk_delete_confirms_but_reactivate_keeps_modal(page: Page) ->
     expect(_row(page, "UC_INACTIVE_01")).to_have_count(0)
     expect(_row(page, "UC_INACTIVE_02")).to_have_count(1)
     assert len(posts) == 1
-    expect(confirm_modal).to_be_hidden()
+    assert len(reactivate_posts) == 1
+    assert "bulk_action=delete" in reactivate_posts[0]
+
+
+@pytest.mark.e2e
+def test_reactivate_sends_one_request_only_after_modal_confirm(page: Page) -> None:
+    """Regression: reactivate used to POST before the modal and again after confirming."""
+    dialogs = _DialogRecorder(page)
+    reactivate_posts: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            reactivate_posts.append(r.post_data or "")
+            if r.method == "POST" and "reactivate-selected" in r.url
+            else None
+        ),
+    )
+    _goto_channels(page, status="inactive")
+    # Re-render once so the form is a swapped-in fragment, like after any list refresh.
+    with page.expect_response(lambda r: "/views/channel-list" in r.url):
+        page.evaluate(
+            "() => htmx.ajax('GET', '/views/channel-list?status=inactive',"
+            " {target: '#channel-list-wrap', swap: 'innerHTML'})"
+        )
+    page.locator("input[data-channel-select-item][value='UC_INACTIVE_02']").check()
+    reactivate_btn = page.locator(
+        "button[data-channel-bulk-submit]:not([name='bulk_action'])"
+    ).first
+
+    reactivate_btn.click()
+    page.wait_for_timeout(500)
+    assert len(dialogs.messages) == 1
+    assert reactivate_posts == []
+
+    dialogs.accept = True
+    with page.expect_response(lambda r: "reactivate-selected" in r.url):
+        reactivate_btn.click()
+    page.wait_for_timeout(500)
+    assert len(dialogs.messages) == 2
+    assert len(reactivate_posts) == 1
+    assert "bulk_action" not in reactivate_posts[0]
+    expect(page.locator("#channel-reactivate-blocking-overlay")).to_be_hidden()
+
+
+@pytest.mark.e2e
+def test_reactivate_over_limit_shows_toast_without_request(page: Page) -> None:
+    dialogs = _DialogRecorder(page)
+    reactivate_posts: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            reactivate_posts.append(r.url)
+            if r.method == "POST" and "reactivate-selected" in r.url
+            else None
+        ),
+    )
+    _seed_scroll_channels(page._e2e_db_path, count=50, is_active=0)
+    _goto_channels(page, status="inactive")
+    expect(page.locator("[data-channel-manage-form]")).to_have_attribute(
+        "data-reactivate-batch-limit", "50"
+    )
+    page.locator("[data-channel-select-all]").check()
+    page.locator("button[data-channel-bulk-submit]:not([name='bulk_action'])").first.click()
+    page.wait_for_timeout(500)
+
+    assert dialogs.messages == []
+    assert reactivate_posts == []
 
 
 @pytest.mark.e2e
@@ -588,9 +662,10 @@ def test_rss_priority_change_does_not_disable_bulk_buttons(page: Page) -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.allow_native_dialog
 def test_active_bulk_delete_falls_back_to_static_confirm(page: Page) -> None:
-    """If the named-confirm listener never runs, active bulk delete still asks first."""
-    dialogs = _DialogRecorder(page)
+    """Safety net: if no app modal handler runs, htmx still asks with the static hx-confirm."""
+    dialogs = _NativeDialogRecorder(page)
     posts = _record_delete_posts(page)
     _goto_channels(page)
     page.evaluate(
@@ -606,3 +681,20 @@ def test_active_bulk_delete_falls_back_to_static_confirm(page: Page) -> None:
     assert dialogs.messages[0].startswith("선택한 채널을 제거합니다.")
     assert posts == []
     expect(_row(page, "UC_INVEST_01")).to_have_count(1)
+
+
+@pytest.mark.e2e
+def test_inactive_row_delete_shows_its_own_confirm_with_selection(page: Page) -> None:
+    """Row buttons inside the inactive form keep their own confirm even with a selection."""
+    dialogs = _DialogRecorder(page)
+    _goto_channels(page, status="inactive")
+    page.locator("input[data-channel-select-item][value='UC_INACTIVE_01']").check()
+
+    _delete_button(page, "UC_INACTIVE_02").click()
+    page.wait_for_timeout(300)
+
+    assert len(dialogs.messages) == 1
+    assert dialogs.titles[0] == "채널 제거"
+    assert "'비활성채널B' 채널을 제거합니다." in dialogs.messages[0]
+    expect(page.locator("#channel-reactivate-blocking-overlay")).to_have_count(0)
+    expect(_row(page, "UC_INACTIVE_02")).to_have_count(1)

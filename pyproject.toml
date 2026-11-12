@@ -40,7 +40,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 addopts = "-m 'not e2e'"
-markers = ["e2e: Playwright browser-based end-to-end tests"]
+markers = [
+    "e2e: Playwright browser-based end-to-end tests",
+    "allow_native_dialog: E2E test that deliberately expects a native browser dialog",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
