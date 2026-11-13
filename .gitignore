@@ -64,3 +64,6 @@ repomix-output-*/
 
 # Local LLM prompt apply backups (version snapshots stay tracked)
 prompts/llm_restructure/backups/
+
+# Tailwind standalone CLI cache (scripts/build-tailwind.sh)
+.cache/

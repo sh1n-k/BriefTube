@@ -152,34 +152,23 @@ def test_category_drag_reorder(seeded_page: Page):
     first_name = items.nth(0).locator("a").inner_text().strip()
     second_name = items.nth(1).locator("a").inner_text().strip()
 
-    # Intercept the reorder API call to verify the payload
-    reorder_requests: list[dict] = []
-
-    def capture_reorder(route):
-        body = route.request.post_data_json
-        reorder_requests.append(body)
-        route.fallback()  # let the real request proceed
-
-    seeded_page.route("**/api/categories/reorder", capture_reorder)
-
-    # Perform real drag interaction via the draggable handles.
+    # Perform real drag interaction via the draggable handles. Read the payload from the
+    # awaited request itself: a route handler may run after expect_request resolves.
     default_cat_id = sidebar.get_attribute("data-default-category-id")
     source_handle = items.nth(1).locator("[data-drag-handle]")
     target_item = items.nth(0)
-    with seeded_page.expect_request("**/api/categories/reorder"):
+    with seeded_page.expect_request("**/api/categories/reorder") as reorder_request:
         source_handle.drag_to(target_item)
+    response = reorder_request.value.response()  # wait until the reorder is persisted
+    assert response is not None and response.ok
 
-    assert len(reorder_requests) >= 1, "Expected at least one reorder request"
-
-    payload = reorder_requests[0]
+    payload = reorder_request.value.post_data_json
     assert "ordered_ids" in payload
     assert payload["ordered_ids"] == [
         int(default_cat_id),
         int(second_id),
         int(first_id),
     ]
-
-    seeded_page.unroute("**/api/categories/reorder")
 
     # Reload the page to verify the new persisted order
     seeded_page.reload()

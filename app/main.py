@@ -11,6 +11,8 @@ import httpx
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
+from starlette.types import Scope
 
 from app.config import load_config
 from app.database import init_database, open_database, recover_stuck_jobs
@@ -251,9 +253,25 @@ async def lifespan(app: FastAPI):
         await db.close()
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Static assets keep unversioned URLs, so make browsers revalidate (ETag -> 304)
+    instead of heuristically caching a stale tailwind.css/app.css after an update."""
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 app = FastAPI(title="BriefTube", lifespan=lifespan)
 static_dir = Path(__file__).resolve().parent / "static"
-app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+app.mount("/static", RevalidatingStaticFiles(directory=str(static_dir)), name="static")
 app.include_router(api.router)
 app.include_router(views.router)
 app.include_router(pages.router)
