@@ -84,16 +84,18 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 uv run lint-imports
+./scripts/build-tailwind.sh --check
 ```
 
 `app/static/css/tailwind.css`는 Tailwind v3.4.17 standalone CLI로 빌드해 커밋하는 산출물입니다.
 템플릿·JS·Python에서 Tailwind class를 추가하거나 바꾸면 `./scripts/build-tailwind.sh`로 다시 빌드해 함께
-커밋하고, `./scripts/build-tailwind.sh --check`로 최신 상태를 확인합니다. 스크립트는 고정 버전 바이너리를
+커밋합니다. 재빌드를 잊으면 테스트는 통과해도 새 class가 화면에서 빠지므로 머지 전에 위 `--check`를
+반드시 실행합니다. 스크립트는 고정 버전 바이너리를
 `.cache/tailwindcss/`에 받아 sha256을 검증합니다. htmx·Sortable은 `app/static/vendor/`에 버전 포함 파일명으로
-두며 외부 CDN을 참조하지 않습니다.
+두며 외부 CDN을 참조하지 않습니다. Tailwind 빌드 스크립트는 bash 전용(macOS·Linux)입니다.
 
-Shell 변경은 `bash -n run-*.sh scripts/*.sh`로 문법을 확인합니다. HTML/Jinja/JS는 별도
-정적 toolchain을 두지 않으므로 관련 unit contract와 `uv run pytest -q -m e2e tests/e2e/<file>.py`를
+Shell 변경은 `bash -n run-*.sh scripts/*.sh`로 문법을 확인합니다. HTML/Jinja/JS는 Tailwind 빌드
+외의 정적 toolchain을 두지 않으므로 관련 unit contract와 `uv run pytest -q -m e2e tests/e2e/<file>.py`를
 실행합니다.
 
 `.github/workflows/ci.yml`은 위 정적 검사, Tailwind 빌드 최신성 검사와 전체 unit/E2E 명령을 그대로 실행합니다. 로컬에서
