@@ -7,6 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = ROOT / "app" / "static"
 TEMPLATE_DIR = ROOT / "app" / "templates"
 DIALOG_MODULE = STATIC_DIR / "js" / "ui" / "app-dialog.js"
+# Vendored third-party bundles (htmx keeps its native confirm fallback); the E2E
+# native-dialog fixture still guards their runtime behavior.
+VENDOR_DIR = STATIC_DIR / "vendor"
 
 NATIVE_ALERT = re.compile(r"(?<![\w.])alert\s*\(|window\.alert\b")
 NATIVE_CONFIRM_OR_PROMPT = re.compile(
@@ -16,7 +19,7 @@ NATIVE_CONFIRM_OR_PROMPT = re.compile(
 
 def _ui_sources() -> list[Path]:
     files = list(STATIC_DIR.rglob("*.js")) + list(TEMPLATE_DIR.rglob("*.html"))
-    return sorted(path for path in files if path.is_file())
+    return sorted(path for path in files if path.is_file() and not path.is_relative_to(VENDOR_DIR))
 
 
 def test_service_never_uses_native_alert() -> None:
