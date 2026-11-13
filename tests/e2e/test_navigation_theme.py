@@ -142,3 +142,34 @@ def test_responsive_nav_preserves_page_transition(e2e_page: Page) -> None:
     assert transition_attr == "1", (
         f"Expected data-page-transition='1' after fade-enabled navigation, got '{transition_attr}'"
     )
+
+
+def test_page_assets_load_locally_with_built_tailwind(e2e_page: Page) -> None:
+    """Scripts and styles come from /static and the built Tailwind CSS applies."""
+    page = e2e_page
+    base = page._e2e_base_url
+    external: list[str] = []
+    page.on(
+        "request",
+        lambda req: (
+            external.append(req.url)
+            if req.resource_type in ("script", "stylesheet") and not req.url.startswith(base)
+            else None
+        ),
+    )
+    page.goto(_url(page, "/"))
+    page.wait_for_load_state("load")
+
+    assert external == []
+    tailwind_rules = page.evaluate(
+        """() => {
+            const sheet = [...document.styleSheets].find(
+                (s) => (s.href || '').endsWith('/static/css/tailwind.css'));
+            return sheet ? sheet.cssRules.length : 0;
+        }"""
+    )
+    assert tailwind_rules > 0
+    settings_link = page.locator('header nav a[href="/settings"]')
+    # h-9 / rounded-md come only from Tailwind utilities.
+    assert settings_link.evaluate("el => getComputedStyle(el).height") == "36px"
+    assert settings_link.evaluate("el => getComputedStyle(el).borderTopLeftRadius") == "6px"

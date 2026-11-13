@@ -93,6 +93,9 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   E2E disable 환경과 lifecycle test를 함께 갱신한다.
 - HTMX 변경은 route가 반환하는 fragment, `hx-target`/`hx-swap`/OOB selector, JS hydrate/event,
   unit contract와 관련 E2E를 함께 확인한다.
+- Tailwind class 변경은 `./scripts/build-tailwind.sh`로 `app/static/css/tailwind.css`를 다시 빌드해 함께 커밋한다
+  (CI `--check`가 강제). 정적 자산은 `/static`에서만 로드하고 외부 CDN을 추가하지 않는다
+  (`tests/test_static_assets_contract.py`).
 - config 추가는 `AppConfig`, YAML key, 환경변수 override, normalization과 config contract test를 함께 확인한다.
 - 단순 CRUD는 router에서 공개 repository facade를 직접 호출할 수 있다. API·HTMX·worker가 공유하거나
   여러 repository, 외부 I/O, 상태 전이를 조합하는 흐름은 작은 domain use case로 둔다.

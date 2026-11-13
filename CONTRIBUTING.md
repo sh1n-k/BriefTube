@@ -86,11 +86,17 @@ uv run pyright
 uv run lint-imports
 ```
 
+`app/static/css/tailwind.css`는 Tailwind v3.4.17 standalone CLI로 빌드해 커밋하는 산출물입니다.
+템플릿·JS·Python에서 Tailwind class를 추가하거나 바꾸면 `./scripts/build-tailwind.sh`로 다시 빌드해 함께
+커밋하고, `./scripts/build-tailwind.sh --check`로 최신 상태를 확인합니다. 스크립트는 고정 버전 바이너리를
+`.cache/tailwindcss/`에 받아 sha256을 검증합니다. htmx·Sortable은 `app/static/vendor/`에 버전 포함 파일명으로
+두며 외부 CDN을 참조하지 않습니다.
+
 Shell 변경은 `bash -n run-*.sh scripts/*.sh`로 문법을 확인합니다. HTML/Jinja/JS는 별도
 정적 toolchain을 두지 않으므로 관련 unit contract와 `uv run pytest -q -m e2e tests/e2e/<file>.py`를
 실행합니다.
 
-`.github/workflows/ci.yml`은 위 정적 검사와 전체 unit/E2E 명령을 그대로 실행합니다. 로컬에서
+`.github/workflows/ci.yml`은 위 정적 검사, Tailwind 빌드 최신성 검사와 전체 unit/E2E 명령을 그대로 실행합니다. 로컬에서
 동일 명령이 통과해야 하며 CI 전용 우회나 별도 test selection을 추가하지 않습니다.
 
 - 새 위반은 수정합니다. 동작 변경이 필요한 자동 수정은 별도 범위로 분리합니다.
