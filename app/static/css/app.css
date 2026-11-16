@@ -842,31 +842,6 @@ body {
   color: var(--text-main) !important;
 }
 
-html[data-page-transition="1"] [data-page-shell] {
-  opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 120ms ease-out, transform 120ms ease-out;
-  will-change: opacity, transform;
-}
-
-html[data-page-transition="1"] [data-page-shell].is-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-html[data-page-transition="1"] [data-page-shell].is-leaving {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html[data-page-transition="1"] [data-page-shell] {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-}
-
 html[data-theme="dark"] .bg-white { background-color: var(--surface-1) !important; }
 html[data-theme="dark"] .bg-slate-50 { background-color: var(--surface-2) !important; }
 html[data-theme="dark"] .bg-slate-100 { background-color: var(--app-bg) !important; }

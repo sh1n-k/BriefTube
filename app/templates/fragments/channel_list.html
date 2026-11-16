@@ -200,7 +200,7 @@
                     {% set avatar_text = ((channel.channel_name or channel.channel_id or "?")[:1])|upper %}
                     {% if channel.channel_thumbnail_url %}
                     <img
-                      src="{{ channel.channel_thumbnail_url }}"
+                      src="{{ channel_avatar_display_url(channel.channel_thumbnail_url) }}"
                       alt="{{ channel.channel_name }}"
                       loading="lazy"
                       referrerpolicy="no-referrer"
@@ -337,48 +337,18 @@
                   </button>
                 </div>
               </div>
-              <div data-channel-meta-panel class="mt-2 hidden rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                <div class="grid gap-2 sm:grid-cols-2">
-                  <div class="sm:col-span-2">
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_description_label }}</p>
-                    <p class="mt-0.5 whitespace-pre-wrap break-words">{{ channel.channel_description or txt.channel_meta_empty }}</p>
-                  </div>
-                  <div class="sm:col-span-2">
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_canonical_url_label }}</p>
-                    {% if channel.channel_url_canonical %}
-                    <a
-                      href="{{ channel.channel_url_canonical }}"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="mt-0.5 block truncate text-sky-700 hover:underline"
-                    >
-                      {{ channel.channel_url_canonical }}
-                    </a>
-                    {% else %}
-                    <p class="mt-0.5">{{ txt.channel_meta_empty }}</p>
-                    {% endif %}
-                  </div>
-                  <div>
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_fetched_at_label }}</p>
-                    <p class="mt-0.5">{{ channel.metadata_fetched_at or txt.channel_meta_not_fetched }}</p>
-                  </div>
-                  <div>
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_next_fetch_label }}</p>
-                    <p class="mt-0.5">{{ channel.metadata_next_fetch_at or txt.channel_meta_empty }}</p>
-                  </div>
-                  <div>
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_retry_count_label }}</p>
-                    <p class="mt-0.5">{{ channel.metadata_retry_count if channel.metadata_retry_count is not none else 0 }}</p>
-                  </div>
-                  <div>
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_last_http_label }}</p>
-                    <p class="mt-0.5">{{ channel.metadata_last_http_status or txt.channel_meta_empty }}</p>
-                  </div>
-                  <div class="sm:col-span-2">
-                    <p class="font-medium text-slate-600">{{ txt.channel_meta_error_label }}</p>
-                    <p class="mt-0.5 break-words">{{ channel.metadata_fetch_error or txt.channel_meta_empty }}</p>
-                  </div>
-                </div>
+              <div
+                data-channel-meta-panel
+                hx-get="/views/channels/{{ channel.channel_id|urlencode }}/meta-panel"
+                hx-trigger="channel-meta-open"
+                hx-target="this"
+                hx-swap="innerHTML"
+                hx-sync="this:drop"
+                hx-params="none"
+                data-skip-save-toast="1"
+                class="mt-2 hidden rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
+              >
+                <p data-channel-meta-loading data-error-label="{{ txt.channel_meta_load_failed }}" data-not-found-label="{{ txt.channel_meta_not_found }}" class="text-slate-500">{{ txt.channel_meta_loading }}</p>
               </div>
             </li>
           {% else %}

@@ -21,6 +21,7 @@ from app.repositories import alerts_retention as alerts_repo
 from app.repositories import llm as llm_repo
 from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
+from app.services.channel_avatar import channel_avatar_display_url
 from app.services.channel_handle import format_channel_handle_display
 from app.services.llm_capabilities import resolve_codex_capabilities
 from app.services.llm_runtime import (
@@ -261,6 +262,7 @@ async def build_template_context(
         "claude_reasoning_effort_options": llm_capabilities["claude_reasoning_effort_options"],
         "format_upload_time": format_upload_time,
         "format_channel_handle_display": format_channel_handle_display,
+        "channel_avatar_display_url": channel_avatar_display_url,
     }
     if include_llm_runtime_status:
         context["llm_runtime_status"] = await build_llm_runtime_context(

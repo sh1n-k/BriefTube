@@ -1,0 +1,41 @@
+<div class="grid gap-2 sm:grid-cols-2" data-channel-meta-content>
+  <div class="sm:col-span-2">
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_description_label }}</p>
+    <p class="mt-0.5 whitespace-pre-wrap break-words">{{ channel.channel_description or txt.channel_meta_empty }}</p>
+  </div>
+  <div class="sm:col-span-2">
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_canonical_url_label }}</p>
+    {% if channel.channel_url_canonical %}
+    <a
+      href="{{ channel.channel_url_canonical }}"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="mt-0.5 block truncate text-sky-700 hover:underline"
+    >
+      {{ channel.channel_url_canonical }}
+    </a>
+    {% else %}
+    <p class="mt-0.5">{{ txt.channel_meta_empty }}</p>
+    {% endif %}
+  </div>
+  <div>
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_fetched_at_label }}</p>
+    <p class="mt-0.5">{{ channel.metadata_fetched_at or txt.channel_meta_not_fetched }}</p>
+  </div>
+  <div>
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_next_fetch_label }}</p>
+    <p class="mt-0.5">{{ channel.metadata_next_fetch_at or txt.channel_meta_empty }}</p>
+  </div>
+  <div>
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_retry_count_label }}</p>
+    <p class="mt-0.5">{{ channel.metadata_retry_count if channel.metadata_retry_count is not none else 0 }}</p>
+  </div>
+  <div>
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_last_http_label }}</p>
+    <p class="mt-0.5">{{ channel.metadata_last_http_status or txt.channel_meta_empty }}</p>
+  </div>
+  <div class="sm:col-span-2">
+    <p class="font-medium text-slate-600">{{ txt.channel_meta_error_label }}</p>
+    <p class="mt-0.5 break-words">{{ channel.metadata_fetch_error or txt.channel_meta_empty }}</p>
+  </div>
+</div>

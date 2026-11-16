@@ -103,19 +103,15 @@ def test_theme_toggle_persists_and_applies_dark_css(e2e_page: Page) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_responsive_nav_preserves_page_transition(e2e_page: Page) -> None:
-    """Responsive navigation remains usable and applies the page transition."""
+def test_responsive_nav_navigates_without_fade(e2e_page: Page) -> None:
+    """Responsive navigation stays usable and switches pages without a fade delay."""
     page = e2e_page
     page.goto(_url(page, "/"))
     page.wait_for_load_state("domcontentloaded")
 
-    page.wait_for_function("!!window.BrieftubeNavTransition")
-    shell = page.locator("[data-page-shell]")
-    expect(shell).to_be_visible()
-    page.wait_for_function(
-        "document.querySelector('[data-page-shell]').classList.contains('is-visible')",
-        timeout=5000,
-    )
+    main = page.locator("main")
+    expect(main).to_be_visible()
+    assert page.evaluate("getComputedStyle(document.querySelector('main')).opacity") == "1"
     page.set_viewport_size({"width": 1280, "height": 720})
     for href in ["/", "/channels", "/settings", "/downloads", "/queue", "/retention"]:
         link = page.locator(f'header nav a[href="{href}"]')
@@ -134,14 +130,26 @@ def test_responsive_nav_preserves_page_transition(e2e_page: Page) -> None:
     expect(brand_link).to_be_hidden()
     channels_link = page.locator('header nav a[href="/channels"]')
     expect(channels_link).to_be_visible()
-    page.evaluate("sessionStorage.setItem('brieftube.enableNextPageFade', '1')")
+    # A plain link click must not be intercepted to delay navigation.
+    default_prevented = page.evaluate(
+        """() => {
+            const link = document.querySelector('header nav a[href="/channels"]');
+            let prevented = null;
+            const probe = (event) => {
+                prevented = event.defaultPrevented;
+                event.preventDefault();
+            };
+            window.addEventListener("click", probe, { once: true });
+            link.click();
+            return prevented;
+        }"""
+    )
+    assert default_prevented is False
     channels_link.click()
     page.wait_for_url("**/channels*")
     assert urlparse(page.url).path == "/channels"
-    transition_attr = page.evaluate("document.documentElement.dataset.pageTransition")
-    assert transition_attr == "1", (
-        f"Expected data-page-transition='1' after fade-enabled navigation, got '{transition_attr}'"
-    )
+    assert page.evaluate("getComputedStyle(document.querySelector('main')).opacity") == "1"
+    assert page.evaluate("typeof window.BrieftubeNavTransition") == "undefined"
 
 
 def test_page_assets_load_locally_with_built_tailwind(e2e_page: Page) -> None:

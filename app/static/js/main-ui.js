@@ -1,8 +1,5 @@
 (() => {
-  const PAGE_FADE_ENABLE_KEY = "brieftube.enableNextPageFade";
-  const NAV_FADE_DURATION_MS = 120;
   const themeController = window.BrieftubeTheme || null;
-  const navTransitionController = window.BrieftubeNavTransition || null;
   const channelComposeController = window.BrieftubeChannelCompose || null;
   const globalSearchController = window.BrieftubeGlobalSearch || null;
   const channelListControls = window.BrieftubeChannelListControls || null;
@@ -17,11 +14,6 @@
   const downloadSettings = window.BrieftubeDownloadSettings || null;
   const downloadControls = window.BrieftubeDownloadControls || null;
   const downloadProgress = window.BrieftubeDownloadProgress || null;
-
-  navTransitionController?.configure?.({
-    pageFadeKey: PAGE_FADE_ENABLE_KEY,
-    navFadeDurationMs: NAV_FADE_DURATION_MS,
-  });
 
   function scrollWindowTo(top) {
     const targetTop = Math.max(0, Number(top) || 0);
@@ -239,17 +231,6 @@
     categoryControls?.bindCategoryFilterReset?.(scope);
   }
 
-  function revealPageShell() {
-    if (navTransitionController?.revealPageShell) {
-      navTransitionController.revealPageShell();
-      return;
-    }
-    const shell = document.querySelector("[data-page-shell]");
-    if (!(shell instanceof HTMLElement)) return;
-    shell.classList.add("is-visible");
-    shell.classList.remove("is-leaving");
-  }
-
   function showLlmRuntimeBlockedToast() {
     const marker = document.querySelector("[data-llm-runtime-blocked-toast]");
     showUiToast(marker?.dataset.llmRuntimeBlockedToast, "error", 10000);
@@ -276,10 +257,8 @@
     autoRefresh?.startVideoDetailAutoRefresh?.();
     autoRefresh?.startChannelListAutoRefresh?.();
     autoRefresh?.startLlmRuntimeAutoRefresh?.();
-    navTransitionController?.bindNavTransitions?.(document);
     categoryControls?.bindCategoryRename?.();
     channelActions?.initChannelImportForm?.();
-    revealPageShell();
     showLlmRuntimeBlockedToast();
   }
 
@@ -289,7 +268,6 @@
     bootMainUi();
   }
 
-  window.addEventListener("pageshow", revealPageShell);
   document.addEventListener("htmx:afterRequest", (event) => {
     if (!event.detail.successful) return;
     const requestElement = event.detail?.requestConfig?.elt;
