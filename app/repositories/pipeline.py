@@ -25,6 +25,7 @@ retry_failed_jobs = repository.retry_failed_jobs
 retry_article_for_video = repository.retry_article_for_video
 retry_transcript_for_video = repository.retry_transcript_for_video
 enqueue_manual_transcript_job = repository.enqueue_manual_transcript_job
+enqueue_manual_transcript_refetch_job = repository.enqueue_manual_transcript_refetch_job
 enqueue_manual_article_jobs = repository.enqueue_manual_article_jobs
 requeue_article_for_done_video = repository.requeue_article_for_done_video
 

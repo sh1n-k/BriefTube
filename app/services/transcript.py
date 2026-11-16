@@ -141,6 +141,9 @@ class TranscriptService:
             # The stored language came from an auto-dub track; recover the spoken language.
             fallback = self._select_default_track(tracks)
             return matches[0] if _is_dubbed_asr_track(fallback) else fallback
+        if tracks:
+            # The stored language track is gone (YouTube replaced a misdetected ASR track).
+            return self._select_default_track(tracks)
         return transcript_list.find_transcript([preferred_language])
 
     def _fetch_default_language_track(self, api: YouTubeTranscriptApi, video_id: str) -> Any:

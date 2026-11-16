@@ -155,6 +155,22 @@
           {{ txt.detail_manual_transcript_button }}
         </button>
         {% endif %}
+        {% if video.raw_text and (video.pipeline_activity or 'idle') == 'idle' %}
+        <button type="button"
+                data-video-transcript-request-button
+                data-video-transcript-refetch-button
+                data-busy-label="{{ txt.detail_transcript_refetch_button_busy }}"
+                data-skip-save-toast="1"
+                hx-post="/views/videos/{{ video.video_id }}/transcript-refetch"
+                hx-swap="none"
+                hx-confirm="{{ txt.detail_transcript_refetch_confirm_with_article if video.article_title else txt.detail_transcript_refetch_confirm }}"
+                data-confirm-title="{{ txt.detail_transcript_refetch_confirm_title }}"
+                data-confirm-label="{{ txt.detail_transcript_refetch_button }}"
+                class="ui-control rounded-md border border-violet-300 bg-violet-50 px-2.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                onclick="event.stopPropagation()">
+          {{ txt.detail_transcript_refetch_button }}
+        </button>
+        {% endif %}
         {% if video.raw_text %}
         <button type="button"
                 data-copy-target="transcript-copy-source"

@@ -899,13 +899,21 @@
       button.textContent = isBusy ? busyLabel : defaultLabel;
     }
 
+    // With hx-confirm the request starts only after the modal is confirmed, so going busy on
+    // click would leave the button stuck when the user cancels.
+    const busyOnRequest = button.hasAttribute("hx-confirm");
     button.addEventListener("click", (event) => {
       if (button.dataset[inFlightKey] === "1") {
         event.preventDefault();
         return;
       }
-      setBusy(true);
+      if (!busyOnRequest) setBusy(true);
     });
+    if (busyOnRequest) {
+      owner.addEventListener("htmx:beforeRequest", (event) => {
+        if (event.detail?.elt === button) setBusy(true);
+      });
+    }
 
     const settle = (event) => {
       const source = event.detail?.requestConfig?.elt;

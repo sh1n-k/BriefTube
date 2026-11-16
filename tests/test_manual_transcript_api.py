@@ -174,3 +174,96 @@ def test_manual_transcript_detail_ui_shows_active_state_and_auto_refresh(
     assert response.status_code == 200
     assert 'data-manual-transcript-status="pending"' in response.text
     assert 'data-video-detail-auto-refresh="1"' in response.text
+
+
+def _transcript_jobs(video_id: str) -> list[tuple[str, str]]:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        return conn.execute(
+            "SELECT status, origin FROM video_jobs WHERE video_id = ? AND kind = 'transcript'",
+            (video_id,),
+        ).fetchall()
+
+
+def test_transcript_refetch_view_queues_video_with_transcript(client: TestClient) -> None:
+    _seed_video(video_id="vid-refetch-api-001", with_transcript=True)
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        conn.execute(
+            "UPDATE videos SET transcript_target_language = 'en-US' WHERE video_id = ?",
+            ("vid-refetch-api-001",),
+        )
+        conn.commit()
+
+    client.app.state.runtime.transcript_wake_event.clear()
+    response = client.post("/views/videos/vid-refetch-api-001/transcript-refetch")
+
+    assert response.status_code == 200
+    toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
+    assert toast == {"message": TXT["video_transcript_refetch_queued"], "tone": "success"}
+    assert client.app.state.runtime.transcript_wake_event.is_set() is True
+    assert _transcript_jobs("vid-refetch-api-001") == [("queued", "manual")]
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
+        language = conn.execute(
+            "SELECT transcript_target_language FROM videos WHERE video_id = ?",
+            ("vid-refetch-api-001",),
+        ).fetchone()[0]
+        raw_text = conn.execute(
+            "SELECT raw_text FROM transcripts WHERE video_id = ?",
+            ("vid-refetch-api-001",),
+        ).fetchone()[0]
+    assert language is None
+    assert raw_text == "existing transcript"
+
+
+def test_transcript_refetch_view_rejects_video_without_transcript(client: TestClient) -> None:
+    _seed_video(video_id="vid-refetch-api-002")
+
+    response = client.post("/views/videos/vid-refetch-api-002/transcript-refetch")
+
+    toast = json.loads(response.headers["HX-Trigger"])["video-transcript-request-toast"]
+    assert toast == {"message": TXT["video_transcript_refetch_no_transcript"], "tone": "error"}
+    assert _transcript_jobs("vid-refetch-api-002") == []
+
+
+def test_transcript_refetch_view_skips_when_job_is_active(client: TestClient) -> None:
+    _seed_video(video_id="vid-refetch-api-003", with_transcript=True)
+
+    client.post("/views/videos/vid-refetch-api-003/transcript-refetch")
+    second = client.post("/views/videos/vid-refetch-api-003/transcript-refetch")
+
+    toast = json.loads(second.headers["HX-Trigger"])["video-transcript-request-toast"]
+    assert toast == {"message": TXT["video_transcript_refetch_busy"], "tone": "info"}
+    assert _transcript_jobs("vid-refetch-api-003") == [("queued", "manual")]
+
+
+def test_transcript_refetch_view_respects_permission_guard(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    _seed_video(video_id="vid-refetch-api-004", with_transcript=True)
+    monkeypatch.setenv("BRIEFTUBE_DISABLE_MANUAL_TRANSCRIPT_REQUESTS", "1")
+
+    response = client.post("/views/videos/vid-refetch-api-004/transcript-refetch")
+
+    assert response.status_code == 403
+    assert _transcript_jobs("vid-refetch-api-004") == []
+
+
+def test_transcript_refetch_button_shows_only_for_idle_video_with_transcript(
+    client: TestClient,
+) -> None:
+    _seed_video(
+        video_id="vid-refetch-ui-001", pipeline_status="article_ready", with_transcript=True
+    )
+    _seed_video(video_id="vid-refetch-ui-002")
+
+    with_transcript = client.get("/videos/vid-refetch-ui-001")
+    without_transcript = client.get("/videos/vid-refetch-ui-002")
+    client.post("/views/videos/vid-refetch-ui-001/transcript-refetch")
+    active = client.get(
+        "/views/videos/vid-refetch-ui-001/dynamic-fragment", headers=FRAGMENT_HEADERS
+    )
+
+    assert "/views/videos/vid-refetch-ui-001/transcript-refetch" in with_transcript.text
+    assert TXT["detail_transcript_refetch_confirm_with_article"] in with_transcript.text
+    assert "data-video-transcript-refetch-button" not in without_transcript.text
+    assert "data-video-transcript-refetch-button" not in active.text
