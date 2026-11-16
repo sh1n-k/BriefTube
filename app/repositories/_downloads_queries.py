@@ -34,6 +34,15 @@ async def count_download_jobs_by_status(db: aiosqlite.Connection) -> dict[str, i
     }
 
 
+async def count_active_download_jobs(db: aiosqlite.Connection) -> int:
+    """Pending + running jobs (the nav badge count), using the status index."""
+    cursor = await db.execute(
+        "SELECT COUNT(1) FROM download_jobs WHERE status IN ('pending', 'running')"
+    )
+    row = await cursor.fetchone()
+    return int((row[0] if row else 0) or 0)
+
+
 async def list_download_jobs(
     db: aiosqlite.Connection,
     *,

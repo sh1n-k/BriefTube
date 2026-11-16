@@ -30,4 +30,5 @@ enqueue_manual_article_jobs = repository.enqueue_manual_article_jobs
 requeue_article_for_done_video = repository.requeue_article_for_done_video
 
 queue_status = repository.queue_status
+count_queue_badge = repository.count_queue_badge
 list_queue_items = repository.list_queue_items

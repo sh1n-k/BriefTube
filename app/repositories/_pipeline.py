@@ -910,6 +910,37 @@ async def queue_status(db: aiosqlite.Connection) -> dict[str, int]:
     return payload
 
 
+async def count_queue_badge(db: aiosqlite.Connection) -> int:
+    """``queue_status()["badge_count"]`` from active jobs only, cheap enough per page render.
+
+    Per video the article job wins: a running or fresh queued article job counts, an article
+    retry wait does not, and without an active article job an active transcript job counts.
+    Parity with the view relies on an active job always being the newest row of its
+    (video, kind): jobs are only inserted when none is active and never re-activated.
+    """
+    cursor = await db.execute(
+        """
+        SELECT COUNT(1) FROM (
+            SELECT
+                MAX(CASE WHEN kind = 'article' THEN 1 ELSE 0 END) AS article_active,
+                MAX(
+                    CASE
+                        WHEN kind = 'article'
+                            AND (status = 'running' OR error_code IS NULL) THEN 1
+                        ELSE 0
+                    END
+                ) AS article_counted
+            FROM video_jobs
+            WHERE status IN ('queued', 'running')
+            GROUP BY video_id
+        )
+        WHERE article_counted = 1 OR article_active = 0
+        """
+    )
+    row = await cursor.fetchone()
+    return int((row[0] if row else 0) or 0)
+
+
 async def list_queue_items(
     db: aiosqlite.Connection,
     kind: str,
