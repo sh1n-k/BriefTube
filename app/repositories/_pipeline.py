@@ -746,6 +746,48 @@ async def enqueue_manual_transcript_job(
     return {"status": "queued", "reason": "", "job_id": job_id}
 
 
+async def enqueue_manual_transcript_refetch_job(
+    db: aiosqlite.Connection,
+    video_id: str,
+) -> dict[str, Any]:
+    """Queue a manual re-fetch for a video that already has a transcript.
+
+    The stored transcript stays until the new fetch succeeds and overwrites it. The stored
+    language is cleared so the worker picks the default track instead of the old language.
+    """
+    normalized_video_id = str(video_id or "").strip()
+    if not normalized_video_id:
+        return {"status": "failed", "reason": "invalid_video_id", "job_id": None}
+
+    row = await _get_pipeline_row(db, normalized_video_id)
+    if row is None:
+        return {"status": "failed", "reason": "not_found", "job_id": None}
+    if not row.get("has_transcript"):
+        return {"status": "failed", "reason": "no_transcript", "job_id": None}
+    if row.get("transcript_job_status") in {"queued", "running"} or row.get(
+        "article_job_status"
+    ) in {"queued", "running"}:
+        return {"status": "skipped", "reason": "active_job_exists", "job_id": None}
+
+    # Clear the language before the job exists: the worker shares this connection and could
+    # claim the uncommitted job while the old language is still set.
+    await db.execute(
+        "UPDATE videos SET transcript_target_language = NULL WHERE video_id = ?",
+        (normalized_video_id,),
+    )
+    job_id = await _insert_job(db, normalized_video_id, JOB_KIND_TRANSCRIPT, JOB_ORIGIN_MANUAL)
+    await db.commit()
+    if job_id is None:
+        return {"status": "skipped", "reason": "active_job_exists", "job_id": None}
+    logger.info(
+        "event=pipeline.manual_transcript_refetch_enqueue video_id=%s job_id=%s",
+        normalized_video_id,
+        job_id,
+        extra={"event": "pipeline.manual_transcript_refetch_enqueue"},
+    )
+    return {"status": "queued", "reason": "", "job_id": job_id}
+
+
 async def enqueue_manual_article_jobs(
     db: aiosqlite.Connection,
     video_ids: list[str],

@@ -354,6 +354,41 @@ async def transcript_request_single_video(video_id: str, request: Request):
     return response
 
 
+@router.post("/videos/{video_id}/transcript-refetch")
+async def transcript_refetch_single_video(video_id: str, request: Request):
+    txt = await request_texts(request)
+    if manual_transcript_requests_disabled():
+        response = await _render_video_detail(video_id=video_id, request=request)
+        response.status_code = 403
+        response.headers.update(
+            _video_transcript_request_toast_header(
+                txt["video_transcript_request_forbidden"],
+                "error",
+            )
+        )
+        return response
+
+    result = await pipeline_repo.enqueue_manual_transcript_refetch_job(
+        request.app.state.runtime.db,
+        video_id=video_id,
+    )
+    reason = str(result.get("reason") or "")
+    if str(result.get("status") or "") == "queued":
+        request.app.state.runtime.transcript_wake_event.set()
+        toast_message, toast_tone = txt["video_transcript_refetch_queued"], "success"
+    elif reason == "active_job_exists":
+        toast_message, toast_tone = txt["video_transcript_refetch_busy"], "info"
+    elif reason == "no_transcript":
+        toast_message, toast_tone = txt["video_transcript_refetch_no_transcript"], "error"
+    elif reason == "not_found":
+        toast_message, toast_tone = txt["video_transcript_request_not_found"], "error"
+    else:
+        toast_message, toast_tone = txt["video_transcript_request_failed"], "error"
+    response = await _render_video_detail(video_id=video_id, request=request)
+    response.headers.update(_video_transcript_request_toast_header(toast_message, toast_tone))
+    return response
+
+
 @router.post("/videos/{video_id}/article-request")
 async def article_request_single_video(video_id: str, request: Request):
     txt = await request_texts(request)

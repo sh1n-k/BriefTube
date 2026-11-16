@@ -48,6 +48,10 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `video_jobs`와 `target_stage` 쓰기는 `app/repositories/_pipeline.py`만 한다(migration·시작 복구 제외,
   `test_architecture_contracts.py`가 강제). (video, kind)당 queued/running job은 최대 1개이고 수동 요청은
   `origin='manual'`로 같은 큐에 들어가 먼저 claim된다. 큐 비우기는 queued·failed job만 cancel하고 사실은 지우지 않는다.
+- 자막 재수집(`enqueue_manual_transcript_refetch_job`)은 기존 자막을 지우지 않고 job만 넣으며, 성공 시 UPSERT로
+  덮어쓰고 실패 시 기존 자막을 유지한다. `videos.transcript_target_language`는 직전 수집 언어일 뿐이라 재수집 때
+  비우고, 그 언어 트랙이 사라졌으면 `_select_preferred_track`이 기본 트랙으로 대체한다. YouTube는 업로드 직후 언어를
+  오감지한 ASR 트랙을 줄 수 있다.
 - transcript fetch 경로는 공유 `state.transcript_fetch_lock`을 사용한다. 일반 transcript worker의 단일 실행은
   `state.transcript_worker_lock`으로 보장한다.
 - pytest에서는 background worker를 기본 비활성화하고 필요한 테스트만

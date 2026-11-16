@@ -116,10 +116,16 @@ def test_select_preferred_track_keeps_dub_when_no_spoken_track_exists() -> None:
     assert TranscriptService()._select_preferred_track(tracks, "bn").language_code == "bn"
 
 
-def test_select_preferred_track_keeps_not_found_error_for_missing_language() -> None:
-    tracks = _TrackList([_track("en", generated=True)])
+def test_select_preferred_track_falls_back_to_default_when_language_is_gone() -> None:
+    # YouTube can replace a misdetected ASR track; the stored language must not block a re-fetch.
+    tracks = _TrackList([_track("ko", generated=True)])
+    selected = TranscriptService()._select_preferred_track(tracks, "en-us")
+    assert selected.language_code == "ko"
+
+
+def test_select_preferred_track_keeps_not_found_error_without_tracks() -> None:
     try:
-        TranscriptService()._select_preferred_track(tracks, "ko")
+        TranscriptService()._select_preferred_track(_TrackList([]), "ko")
     except LookupError:
         return
     raise AssertionError("missing preferred language must raise")

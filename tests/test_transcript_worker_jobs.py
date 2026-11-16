@@ -337,3 +337,120 @@ def test_non_retryable_failure_fails_the_job(
     assert job["error_code"] == "non_retryable_failure"
     assert job["error_message"] == "video unavailable"
     assert state["pipeline_status"] == "transcript_failed"
+
+
+async def _seed_existing_transcript(db, video_id: str, *, language: str) -> None:
+    await db.execute(
+        """
+        INSERT INTO transcripts(video_id, raw_text, language, source_type)
+        VALUES (?, 'old broken transcript', ?, 'auto')
+        """,
+        (video_id, language),
+    )
+    await db.execute(
+        "UPDATE videos SET transcript_target_language = ? WHERE video_id = ?",
+        (language, video_id),
+    )
+    await db.commit()
+
+
+async def _transcript_row(db, video_id: str) -> dict:
+    cursor = await db.execute(
+        """
+        SELECT t.raw_text, t.language, v.transcript_target_language
+        FROM transcripts t JOIN videos v USING(video_id)
+        WHERE t.video_id = ?
+        """,
+        (video_id,),
+    )
+    return dict(await cursor.fetchone())
+
+
+class _RecordingTranscriptService(_FakeTranscriptService):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.preferred: list[str | None] = []
+
+    async def fetch_transcript(self, video_id: str, preferred_language: str | None = None):
+        self.preferred.append(preferred_language)
+        return await super().fetch_transcript(video_id, preferred_language)
+
+
+def test_manual_refetch_overwrites_transcript_without_stored_language(tmp_path: Path) -> None:
+    service = _RecordingTranscriptService(
+        result=TranscriptFetchResult("새 한국어 자막", "ko", "auto", None)
+    )
+
+    async def _run() -> tuple[dict, dict]:
+        db = await open_database(str(tmp_path / "refetch-success.db"))
+        try:
+            await init_database(db)
+            await _seed_video(
+                db, "vid-refetch-001", target_stage="transcript", upload_time="2026-03-16T00:00:00Z"
+            )
+            await _seed_existing_transcript(db, "vid-refetch-001", language="en-US")
+            result = await pipeline_repo.enqueue_manual_transcript_refetch_job(
+                db, "vid-refetch-001"
+            )
+            assert result["status"] == "queued"
+            job_id = int(result["job_id"])
+
+            async def _done() -> bool:
+                return (await _job(db, job_id))["status"] == "succeeded"
+
+            await _run_worker_until(db, service, _done)
+            return await _transcript_row(db, "vid-refetch-001"), await _state_row(
+                db, "vid-refetch-001"
+            )
+        finally:
+            await db.close()
+
+    transcript, state = asyncio.run(_run())
+    assert service.preferred == [None]
+    assert transcript == {
+        "raw_text": "새 한국어 자막",
+        "language": "ko",
+        "transcript_target_language": "ko",
+    }
+    assert state["pipeline_status"] == "transcript_ready"
+    assert state["article_job_id"] is None
+
+
+def test_manual_refetch_failure_keeps_existing_transcript(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        transcript_worker,
+        "_classify_transcript_error",
+        lambda exc: TranscriptErrorCategory.NO_SUBTITLE,
+    )
+
+    async def _run() -> tuple[dict, dict]:
+        db = await open_database(str(tmp_path / "refetch-failure.db"))
+        try:
+            await init_database(db)
+            await _seed_video(
+                db, "vid-refetch-002", target_stage="transcript", upload_time="2026-03-16T00:00:00Z"
+            )
+            await _seed_existing_transcript(db, "vid-refetch-002", language="en")
+            result = await pipeline_repo.enqueue_manual_transcript_refetch_job(
+                db, "vid-refetch-002"
+            )
+            job_id = int(result["job_id"])
+
+            async def _failed() -> bool:
+                return (await _job(db, job_id))["status"] == "failed"
+
+            await _run_worker_until(
+                db, _FakeTranscriptService(exc=RuntimeError("no transcript available")), _failed
+            )
+            return await _transcript_row(db, "vid-refetch-002"), await _state_row(
+                db, "vid-refetch-002"
+            )
+        finally:
+            await db.close()
+
+    transcript, state = asyncio.run(_run())
+    assert transcript["raw_text"] == "old broken transcript"
+    assert state["pipeline_status"] == "transcript_ready"
+    assert state["transcript_job_status"] == "failed"
