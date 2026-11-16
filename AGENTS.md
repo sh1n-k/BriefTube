@@ -39,6 +39,9 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
   `hx-target`/`hx-swap`/`hx-params="none"`/`data-skip-save-toast`를 직접 지정해 form 속성 상속을 막는다.
   아바타는 `channel_avatar_display_url`로 작은 크기(`=s88`)를 요청하고 저장값은 원본을 유지한다.
 - 상단 내비게이션은 일반 링크로 즉시 이동한다. 클릭을 지연시키는 페이지 전환 효과는 체감 속도를 떨어뜨려 쓰지 않는다.
+- 헤더 대기열·다운로드 배지는 `build_template_context`가 현재 개수(`count_queue_badge`,
+  `count_active_download_jobs`)로 서버 렌더하고 폴링은 값만 갱신한다. 늦게 드러나면 오른쪽 정렬 메뉴가 밀린다.
+  `count_queue_badge`는 `queue_status()["badge_count"]`와 같아야 한다(`tests/test_transcript_policy.py`).
 - 채널 삭제는 영상·자막·기사까지 하드삭제한다. 개별 버튼은 채널명 `hx-confirm`, 일괄 삭제는
   `htmx:confirm` 리스너의 이름 목록 확인(활성 탭 폼은 정적 `hx-confirm` fallback)을 거치고,
   `hx-sync="#channel-list-wrap:drop"`·`hx-disabled-elt`로 요청 중 클릭을 버린다. 폼의 이 속성들은

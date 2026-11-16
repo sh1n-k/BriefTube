@@ -181,3 +181,28 @@ def test_page_assets_load_locally_with_built_tailwind(e2e_page: Page) -> None:
     # h-9 / rounded-md come only from Tailwind utilities.
     assert settings_link.evaluate("el => getComputedStyle(el).height") == "36px"
     assert settings_link.evaluate("el => getComputedStyle(el).borderTopLeftRadius") == "6px"
+
+
+def test_nav_badge_is_rendered_up_front_so_links_do_not_shift(e2e_page: Page) -> None:
+    """The queue badge is server-rendered; polling only updates its value later."""
+    page = e2e_page
+    page.set_viewport_size({"width": 1280, "height": 720})
+
+    # Block the status poll: only the server render can show the badge.
+    page.route("**/api/status", lambda route: route.abort())
+    page.goto(_url(page, "/channels"))
+    badge = page.locator("[data-queue-nav-badge]")
+    # The seeded transcript_pending video keeps one queued job.
+    expect(badge).to_be_visible()
+    expect(badge).to_have_text("1")
+
+    # Polling still updates the count once it is allowed again.
+    seed_video(
+        page._e2e_db_path,
+        "vid_nav_badge_002",
+        "UC_TEST_NAV",
+        "Navigation Badge Video",
+        pipeline_status="transcript_pending",
+    )
+    page.unroute("**/api/status")
+    expect(badge).to_have_text("2", timeout=10_000)

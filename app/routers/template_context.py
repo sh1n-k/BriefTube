@@ -18,6 +18,7 @@ from app.llm_policy import (
     LLM_GROK_REASONING_EFFORT_ORDER,
 )
 from app.repositories import alerts_retention as alerts_repo
+from app.repositories import downloads as downloads_repo
 from app.repositories import llm as llm_repo
 from app.repositories import pipeline as pipeline_repo
 from app.repositories import settings as settings_repo
@@ -214,6 +215,13 @@ async def build_template_context(
             "retention_days": retention_days,
         }
 
+    # Nav badges render with their current counts so the header does not shift when polling
+    # reveals them after load. Both are indexed counts over active rows only.
+    nav_queue_badge_count = await pipeline_repo.count_queue_badge(request.app.state.runtime.db)
+    nav_download_active_count = await downloads_repo.count_active_download_jobs(
+        request.app.state.runtime.db
+    )
+
     txt = get_texts(language)
     llm_settings = extra.get("llm_settings")
     if isinstance(llm_settings, dict):
@@ -262,6 +270,8 @@ async def build_template_context(
         "claude_reasoning_effort_options": llm_capabilities["claude_reasoning_effort_options"],
         "format_upload_time": format_upload_time,
         "format_channel_handle_display": format_channel_handle_display,
+        "nav_queue_badge_count": nav_queue_badge_count,
+        "nav_download_active_count": nav_download_active_count,
         "channel_avatar_display_url": channel_avatar_display_url,
     }
     if include_llm_runtime_status:

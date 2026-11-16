@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sqlite3
 from types import SimpleNamespace
 
@@ -768,6 +769,77 @@ def test_queue_badge_counts_transcript_retry_wait_but_not_article_retry_wait(cli
     assert counts["transcript_retry_wait"] == 1
     assert counts["article_retry_wait"] == 1
     assert counts["badge_count"] == 1
+
+
+def test_count_queue_badge_matches_queue_status_badge(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCbadge002", "Badge Parity Channel")
+        cases = [
+            ("vid-par-tx-q", [("transcript", "queued", None)]),
+            ("vid-par-tx-wait", [("transcript", "queued", "retryable_transient")]),
+            ("vid-par-tx-run", [("transcript", "running", None)]),
+            ("vid-par-tx-fail", [("transcript", "failed", "no_subtitle")]),
+            ("vid-par-ar-q", [("article", "queued", None)]),
+            ("vid-par-ar-wait", [("article", "queued", "llm_provider_timeout")]),
+            ("vid-par-ar-run", [("article", "running", None)]),
+            ("vid-par-ar-done", [("article", "succeeded", None)]),
+            ("vid-par-both", [("transcript", "queued", None), ("article", "queued", None)]),
+            (
+                "vid-par-both-wait",
+                [("transcript", "running", None), ("article", "queued", "llm_provider_timeout")],
+            ),
+        ]
+        for index, (video_id, jobs) in enumerate(cases):
+            _seed_video_sync(conn, video_id, "UCbadge002", f"2026-02-22T00:00:{index:02d}+00:00")
+            for kind, status, error_code in jobs:
+                seed_video_job_sync(conn, video_id, kind, status=status, error_code=error_code)
+        conn.commit()
+
+    async def _run() -> tuple[int, int]:
+        db = await open_database(db_path)
+        try:
+            status = await pipeline_repo.queue_status(db)
+            return int(status["badge_count"]), await pipeline_repo.count_queue_badge(db)
+        finally:
+            await db.close()
+
+    expected, actual = asyncio.run(_run())
+    # tx-q, tx-wait, tx-run, ar-q, ar-run, both (once); retry-waiting articles are excluded.
+    assert expected == 6
+    assert actual == expected
+
+
+def test_nav_badges_render_current_counts_without_polling(client) -> None:
+    db_path = os.environ["DB_PATH"]
+    empty = client.get("/").text
+    assert re.search(r'data-queue-nav-badge class="ml-1 hidden ', empty)
+    assert re.search(r'data-download-nav-badge class="ml-1 hidden ', empty)
+
+    with sqlite3.connect(db_path) as conn:
+        _seed_channel_sync(conn, "UCbadge003", "Badge Render Channel")
+        _seed_video_sync(conn, "vid-nav-badge", "UCbadge003", "2026-02-23T00:00:00+00:00")
+        seed_video_job_sync(conn, "vid-nav-badge", "transcript")
+        conn.execute(
+            """
+            INSERT INTO download_jobs(video_id, video_title, status, quality, overwrite)
+            VALUES ('vid-nav-badge', 'Badge Video', 'pending', '720', 0)
+            """
+        )
+        conn.commit()
+
+    html = client.get("/channels").text
+    queue_badge = re.search(
+        r"<span data-queue-nav-badge class=\"([^\"]*)\"[^>]*>([^<]*)</span>", html
+    )
+    download_badge = re.search(
+        r"<span data-download-nav-badge class=\"([^\"]*)\"[^>]*>([^<]*)</span>", html
+    )
+    assert queue_badge is not None and download_badge is not None
+    assert "hidden" not in queue_badge.group(1).split()
+    assert queue_badge.group(2).strip() == "1"
+    assert "hidden" not in download_badge.group(1).split()
+    assert download_badge.group(2).strip() == "진행 1"
 
 
 def test_retry_article_for_video_marks_retry_wait_job_manual(client) -> None:

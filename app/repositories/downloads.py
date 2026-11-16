@@ -21,6 +21,7 @@ mark_download_job_failed = repository.mark_download_job_failed
 retry_download_job = repository.retry_download_job
 recover_stuck_download_jobs = repository.recover_stuck_download_jobs
 count_download_jobs_by_status = queries_repository.count_download_jobs_by_status
+count_active_download_jobs = queries_repository.count_active_download_jobs
 list_download_jobs = queries_repository.list_download_jobs
 count_download_jobs = queries_repository.count_download_jobs
 clear_download_jobs = repository.clear_download_jobs
