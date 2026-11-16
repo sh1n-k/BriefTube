@@ -9,7 +9,6 @@
   <title>{% block title %}BriefTube{% endblock %}</title>
   <script>
     (() => {
-      const ENABLE_PAGE_FADE_KEY = "brieftube.enableNextPageFade";
       const safeGet = (key) => {
         try {
           return localStorage.getItem(key);
@@ -17,24 +16,6 @@
           return null;
         }
       };
-      const readEnablePageFade = () => {
-        try {
-          return sessionStorage.getItem(ENABLE_PAGE_FADE_KEY) === "1";
-        } catch (_err) {
-          return false;
-        }
-      };
-      const clearEnablePageFade = () => {
-        try {
-          sessionStorage.removeItem(ENABLE_PAGE_FADE_KEY);
-        } catch (_err) {
-          // ignore
-        }
-      };
-      const enableNextPageFade = readEnablePageFade();
-      if (enableNextPageFade) {
-        clearEnablePageFade();
-      }
       var oldTone = safeGet("brieftube.theme.darkTone");
       if (oldTone) {
         var ot = oldTone.trim().toLowerCase();
@@ -52,7 +33,6 @@
       document.documentElement.dataset.theme = effectiveTheme;
       document.documentElement.dataset.themeMode = mode;
       document.documentElement.dataset.tone = tone;
-      document.documentElement.dataset.pageTransition = enableNextPageFade ? "1" : "0";
     })();
   </script>
   <script src="/static/vendor/htmx-1.9.12.min.js"></script>
@@ -128,7 +108,6 @@
     };
   </script>
   <script defer src="/static/js/ui/app-dialog.js"></script>
-  <script defer src="/static/js/ui/nav-transition.js"></script>
   <script defer src="/static/js/ui/theme.js"></script>
   <script defer src="/static/js/ui/channel-list-controls.js"></script>
   <script defer src="/static/js/ui/channel-compose.js"></script>
@@ -159,28 +138,24 @@
         <nav class="flex flex-wrap items-center justify-center gap-0.5 pr-10 text-sm sm:justify-end sm:gap-1 sm:pr-0">
           {% set path = request.url.path %}
           <a href="/"
-             data-nav-transition
              {% if path == '/' or path.startswith('/videos') %}aria-current="page"{% endif %}
               class="inline-flex h-9 items-center rounded-md px-2 font-medium transition-colors sm:px-3
                      {% if path == '/' or path.startswith('/videos') %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
             {{ txt.nav_videos }}
           </a>
           <a href="/channels"
-             data-nav-transition
              {% if path == '/channels' %}aria-current="page"{% endif %}
              class="inline-flex h-9 items-center rounded-md px-2 font-medium transition-colors sm:px-3
                      {% if path == '/channels' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
             {{ txt.nav_channels }}
           </a>
           <a href="/settings"
-             data-nav-transition
              {% if path == '/settings' %}aria-current="page"{% endif %}
              class="inline-flex h-9 items-center rounded-md px-2 font-medium transition-colors sm:px-3
                      {% if path == '/settings' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
             {{ txt.nav_settings }}
           </a>
           <a href="/downloads"
-             data-nav-transition
              {% if path == '/downloads' %}aria-current="page"{% endif %}
              class="inline-flex h-9 items-center rounded-md px-2 font-medium transition-colors sm:px-3
                      {% if path == '/downloads' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
@@ -188,7 +163,6 @@
             <span data-download-nav-badge class="ml-1 hidden rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">0</span>
           </a>
           <a href="/queue"
-             data-nav-transition
              {% if path == '/queue' %}aria-current="page"{% endif %}
              class="inline-flex h-9 items-center rounded-md px-2 font-medium transition-colors sm:px-3
                      {% if path == '/queue' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
@@ -196,7 +170,6 @@
             <span data-queue-nav-badge class="ml-1 hidden rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-900 dark:border-sky-500 dark:bg-sky-900/40 dark:text-sky-200">0</span>
           </a>
           <a href="/retention"
-             data-nav-transition
              {% if path == '/retention' %}aria-current="page"{% endif %}
              class="inline-flex h-9 items-center rounded-md px-2 font-medium transition-colors sm:px-3
                      {% if path == '/retention' %}bg-white/20 text-white{% else %}text-indigo-100 hover:bg-white/10 hover:text-white{% endif %}">
@@ -229,7 +202,7 @@
   {% include "fragments/alert_toast.html" %}
   {% include "fragments/retention_notice.html" %}
 
-  <main class="mx-auto max-w-7xl px-4 py-6" data-page-shell>
+  <main class="mx-auto max-w-7xl px-4 py-6">
     {% block content %}{% endblock %}
   </main>
 

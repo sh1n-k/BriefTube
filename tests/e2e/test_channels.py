@@ -233,11 +233,20 @@ def test_channel_accordions(page: Page) -> None:
     if items.count() < 2:
         pytest.skip("Need at least 2 channels for accordion test")
 
+    meta_requests: list[str] = []
+    page.on(
+        "request",
+        lambda req: meta_requests.append(req.url) if "/meta-panel" in req.url else None,
+    )
+
     # Click first toggle
     toggle_1 = items.nth(0).locator("[data-channel-meta-toggle]")
     panel_1 = items.nth(0).locator("[data-channel-meta-panel]")
     toggle_1.click()
     expect(panel_1).to_be_visible()
+    # Details are fetched on first open.
+    expect(panel_1.locator("[data-channel-meta-content]")).to_be_visible()
+    expect(panel_1.locator("[data-channel-meta-loading]")).to_have_count(0)
 
     # Click second toggle
     toggle_2 = items.nth(1).locator("[data-channel-meta-toggle]")
@@ -247,6 +256,44 @@ def test_channel_accordions(page: Page) -> None:
     # Second should open, first should close (mutual exclusion)
     expect(panel_2).to_be_visible()
     expect(panel_1).to_be_hidden()
+    expect(panel_2.locator("[data-channel-meta-content]")).to_be_visible()
+
+    # Reopening a loaded panel reuses its content instead of fetching again.
+    toggle_1.click()
+    expect(panel_1.locator("[data-channel-meta-content]")).to_be_visible()
+    toggle_2.click()
+    expect(panel_2.locator("[data-channel-meta-content]")).to_be_visible()
+    assert len(meta_requests) == 2
+    # The panel sits inside the bulk form; its GET must not carry form fields.
+    assert all("?" not in url for url in meta_requests)
+
+
+@pytest.mark.e2e
+def test_channel_meta_panel_shows_error_and_retries_on_reopen(page: Page) -> None:
+    """A failed details load shows the error text and the next open fetches again."""
+    _goto_channels(page)
+    item = page.locator("[data-channel-meta-item]").first
+    toggle = item.locator("[data-channel-meta-toggle]")
+    panel = item.locator("[data-channel-meta-panel]")
+
+    page.route("**/meta-panel", lambda route: route.fulfill(status=500, body="boom"))
+    toggle.click()
+    expect(panel.locator("[data-channel-meta-loading]")).to_contain_text(
+        re.compile(r"(불러오지 못했습니다|Failed to load)")
+    )
+    toggle.click()
+    expect(panel).to_be_hidden()
+
+    page.route("**/meta-panel", lambda route: route.fulfill(status=404, body="gone"))
+    toggle.click()
+    expect(panel.locator("[data-channel-meta-loading]")).to_contain_text(
+        re.compile(r"(찾을 수 없습니다|not found)")
+    )
+    toggle.click()
+
+    page.unroute("**/meta-panel")
+    toggle.click()
+    expect(panel.locator("[data-channel-meta-content]")).to_be_visible()
 
 
 @pytest.mark.e2e

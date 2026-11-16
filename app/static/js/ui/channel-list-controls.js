@@ -162,8 +162,33 @@
 
       if (shouldOpen) {
         applyChannelMetaToggleState(toggle, panel, true);
+        loadChannelMetaPanel(panel);
       }
     });
+  }
+
+  // The details panel is fetched on first open; a failed load retries on the next open.
+  function loadChannelMetaPanel(panel) {
+    if (panel.querySelector("[data-channel-meta-content]")) return;
+    if (!panel.hasAttribute("hx-get") || !window.htmx) return;
+    const loading = panel.querySelector("[data-channel-meta-loading]");
+    if (loading instanceof HTMLElement && panel.dataset.channelMetaErrorBound !== "1") {
+      panel.dataset.channelMetaErrorBound = "1";
+      const defaultText = loading.textContent;
+      const showError = (event) => {
+        if (event.detail?.elt !== panel) return;
+        const notFound = event.detail?.xhr?.status === 404;
+        loading.textContent = (notFound ? loading.dataset.notFoundLabel : loading.dataset.errorLabel)
+          || defaultText;
+      };
+      ["htmx:responseError", "htmx:sendError", "htmx:timeout"].forEach((name) => {
+        panel.addEventListener(name, showError);
+      });
+      panel.addEventListener("htmx:beforeRequest", (event) => {
+        if (event.detail?.elt === panel) loading.textContent = defaultText;
+      });
+    }
+    window.htmx.trigger(panel, "channel-meta-open");
   }
 
   function bindChannelMetaAccordion(scope) {

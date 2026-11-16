@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 
 from app.repositories import categories as categories_repo
 from app.repositories import channels as channels_repo
@@ -72,4 +73,18 @@ async def retry_failed_channel_metadata(request: Request):
         name="fragments/channel_list_result.html",
         context=context,
         headers=_channel_metadata_toast_header(toast_message, toast_tone),
+    )
+
+
+@router.get("/channels/{channel_id}/meta-panel")
+async def channel_meta_panel(channel_id: str, request: Request):
+    """Details panel of one channel row, loaded when the row's details toggle opens."""
+    channel = await channels_repo.get_channel_by_id(request.app.state.runtime.db, channel_id)
+    txt = await request_texts(request)
+    if channel is None:
+        return HTMLResponse(txt["channel_meta_not_found"], status_code=404)
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="fragments/channel_meta_panel.html",
+        context={"channel": channel, "txt": txt},
     )

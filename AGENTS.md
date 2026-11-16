@@ -34,6 +34,11 @@ FastAPI + SQLite 프로세스에서 처리하는 로컬 앱이다. Git·검증 �
 - 채널 목록 갱신은 `#channel-list-wrap` fragment 교체 계약을 유지한다. 교체 후 같은 목록
   (`data-channel-list-refresh-url`)이면 `[data-channel-scroll]` scrollTop을 복원한다
   (`captureChannelListScroll`/`restoreChannelListScroll`, htmx 교체와 자동 새로고침 공통).
+- 채널 행 상세 패널(`[data-channel-meta-panel]`)은 목록에 렌더하지 않고 열 때
+  `/views/channels/{id}/meta-panel`로 받는다(`loadChannelMetaPanel`). 패널은 일괄 관리 form 안에 있으므로
+  `hx-target`/`hx-swap`/`hx-params="none"`/`data-skip-save-toast`를 직접 지정해 form 속성 상속을 막는다.
+  아바타는 `channel_avatar_display_url`로 작은 크기(`=s88`)를 요청하고 저장값은 원본을 유지한다.
+- 상단 내비게이션은 일반 링크로 즉시 이동한다. 클릭을 지연시키는 페이지 전환 효과는 체감 속도를 떨어뜨려 쓰지 않는다.
 - 채널 삭제는 영상·자막·기사까지 하드삭제한다. 개별 버튼은 채널명 `hx-confirm`, 일괄 삭제는
   `htmx:confirm` 리스너의 이름 목록 확인(활성 탭 폼은 정적 `hx-confirm` fallback)을 거치고,
   `hx-sync="#channel-list-wrap:drop"`·`hx-disabled-elt`로 요청 중 클릭을 버린다. 폼의 이 속성들은

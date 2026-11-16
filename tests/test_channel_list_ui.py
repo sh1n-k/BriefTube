@@ -524,3 +524,46 @@ def test_channel_manage_form_has_bulk_delete_confirm_and_repeat_guard(
     assert (fallback in form_html) is (status == "active")
     assert 'value="UCconfirm101"' in html
     assert 'data-channel-name="Bulk &amp; Name"' in html
+
+
+def test_channel_list_defers_meta_details_and_resizes_avatar(client: TestClient) -> None:
+    call_repo(
+        client,
+        channels_repo.add_channel,
+        channel_id="UClazymeta1234567890123",
+        channel_name="Lazy Meta",
+        channel_thumbnail_url=(
+            "https://yt3.googleusercontent.com/abcDEF_123=s900-c-k-c0x00ffffff-no-rj"
+        ),
+        channel_description="Deferred channel description text",
+        channel_url_canonical="https://www.youtube.com/@lazymeta",
+        metadata_fetch_error="deferred-error-marker",
+    )
+
+    response = client.get("/views/channel-list?status=active", headers=FRAGMENT_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+    assert 'hx-get="/views/channels/UClazymeta1234567890123/meta-panel"' in html
+    assert 'hx-trigger="channel-meta-open"' in html
+    assert "data-channel-meta-loading" in html
+    assert "Deferred channel description text" not in html
+    assert "deferred-error-marker" not in html
+    assert "data-channel-meta-content" not in html
+    assert 'src="https://yt3.googleusercontent.com/abcDEF_123=s88-c-k-c0x00ffffff-no-rj"' in html
+    assert "=s900-" not in html
+
+    panel = client.get(
+        "/views/channels/UClazymeta1234567890123/meta-panel", headers=FRAGMENT_HEADERS
+    )
+    assert panel.status_code == 200
+    assert "data-channel-meta-content" in panel.text
+    assert "Deferred channel description text" in panel.text
+    assert 'href="https://www.youtube.com/@lazymeta"' in panel.text
+    assert "deferred-error-marker" in panel.text
+    assert "<html" not in panel.text.lower()
+
+
+def test_channel_meta_panel_returns_404_for_unknown_channel(client: TestClient) -> None:
+    response = client.get("/views/channels/UCmissing000000000000000/meta-panel")
+    assert response.status_code == 404
+    assert "data-channel-meta-content" not in response.text

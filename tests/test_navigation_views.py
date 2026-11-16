@@ -24,7 +24,11 @@ def test_header_navigation_links_render(client: TestClient) -> None:
     html = response.text
     for href in ("/", "/channels", "/settings", "/downloads", "/queue", "/retention"):
         assert f'href="{href}"' in html
-    assert re.search(r'<a href="/"\s+data-nav-transition\s+aria-current="page"', html)
+    assert re.search(r'<a href="/"\s+aria-current="page"', html)
+    # Navigation is a plain link: no delayed fade transition or its script.
+    assert "data-nav-transition" not in html
+    assert "nav-transition.js" not in html
+    assert "data-page-shell" not in html
 
 
 def test_home_renders_korean_by_default(client: TestClient) -> None:
